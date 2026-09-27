@@ -10,7 +10,7 @@ Instagram · Facebook · X · Discord (+ Telegram, WhatsApp) in one panel that h
 edge of the screen, slides out when you need it, and pops up who messaged you — even over a
 borderless game.
 
-[![Latest release](https://img.shields.io/github/v/release/luraselenehalo/ChatDock?label=download&color=8b5cf6)](https://github.com/luraselenehalo/ChatDock/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/ResinCoreAI/ChatDock?label=download&color=8b5cf6)](https://github.com/ResinCoreAI/ChatDock/releases/latest)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -19,7 +19,8 @@ borderless game.
 </div>
 
 > [!NOTE]
-> ChatDock's own interface is in **Thai**. The chat sites inside it use whatever language your accounts are set to.
+> ChatDock speaks **English, ไทย, 简体中文, 日本語 and Deutsch** (it follows Windows, or pick one in Settings).
+> The chat sites inside it use whatever language your accounts are set to.
 
 ## Why
 
@@ -40,7 +41,10 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | ↔️ **Left or right** | Dock on either screen edge (and on any monitor). The panel, edge tab and unread glow all follow. |
 | 🖱️ **Open it your way** | Rest the cursor on the edge → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
-| ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · per-app on/off · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
+| ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
+| 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
+| 🧠 **Light on RAM** | See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). ChatDock’s own screens share one process. |
+| 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
 | 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, locked-down app files. See [Privacy & security](#privacy--security). |
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, and installs only when you press **Update**. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
@@ -61,15 +65,15 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 1. Download **`ChatDock-Setup-x.y.z.exe`** from the [latest release](https://github.com/ResinCoreAI/ChatDock/releases/latest).
 2. Run it. It installs for your Windows user only (no admin rights needed), adds Start-menu and
    desktop shortcuts, and starts ChatDock.
-3. The welcome screen slides out: press **เริ่มใช้งาน** (Start) and log in to each chat app once, with
-   its normal login page. ChatDock remembers the logins.
+3. The welcome screen slides out (pick your language at its top right): press **Get started** and log in
+   to each chat app once, with its normal login page. ChatDock remembers the logins.
 
 > [!IMPORTANT]
 > The installer isn't code-signed, so Windows SmartScreen may say *"Windows protected your PC"*.
 > Click **More info → Run anyway**. The SHA-512 of every installer is listed in the release's `latest.yml`.
 
 To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins stay in
-`%APPDATA%\ChatDock` unless you clear them first (Settings → ความปลอดภัย → ล้างข้อมูลทั้งหมด).
+`%APPDATA%\ChatDock` unless you clear them first (Settings → Security → Clear all data).
 
 ## Using it
 
@@ -85,7 +89,7 @@ To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*.
 | Resize | Drag the panel's inner edge (remembered per app) |
 | Zoom | <kbd>Ctrl</kbd>+mouse wheel or <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> (per app) |
 | Reload / back | <kbd>Ctrl</kbd>+<kbd>R</kbd> or <kbd>F5</kbd> · <kbd>Alt</kbd>+<kbd>←</kbd> |
-| Settings | The ⚙️ button in the header, or right-click the tray icon → ตั้งค่า |
+| Settings | The ⚙️ button in the header, or right-click the tray icon → Settings |
 
 The tray menu (right-click the ChatDock icon) has the quick switches: pop-ups on/off, do not disturb
 (30 min … until turned off), pin, settings, quit.
@@ -107,7 +111,7 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 - **Exclusive fullscreen** games can't be drawn over by anything. Opening the chat minimizes the game
   for a moment (a yellow bar explains this), and hiding the chat brings it back.
 - Games where the mouse lives on the screen edge (MOBA / RTS camera scrolling): set
-  *ตำแหน่ง → ชี้เมาส์ที่ขอบจอ* to "not during fullscreen games" and use the hotkey instead. Or move
+  *Settings → Position → Cursor on the screen edge* to “not during fullscreen games” and use the hotkey instead. Or move
   the dock to the other edge.
 - ChatDock never touches the game's files or memory. It is just a window that stays on top.
 
@@ -129,24 +133,24 @@ server, sends nothing anywhere, and never sees your passwords.
 | **Safe updates** | Updates come over HTTPS from this repository's releases. Each download is checked against the SHA-512 in `latest.yml` before it runs, and it installs only when you press the button. |
 | **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text. |
 
-Settings → ความปลอดภัย also lets you hide ChatDock from screen capture and log out of every app
+Settings → Security also lets you hide ChatDock from screen capture and log out of every app
 (wipes cookies, storage and cache). Found a security problem? Please open an issue.
 
 ## Updates
 
 ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/ChatDock/releases)
 shortly after it starts and every 6 hours. It downloads a new version in the background, then shows
-a pop-up and an **อัปเดต** (update) button in the panel header. Nothing is installed until you press it;
+a pop-up and an **Update** button in the panel header. Nothing is installed until you press it;
 then ChatDock restarts on the new version in a few seconds. Both automatic checking and background
-downloading can be turned off under Settings → อัปเดต.
+downloading can be turned off under Settings → Updates.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| The white tab doesn't appear | Check *ชี้เมาส์ที่ขอบจอ* isn't off and the right monitor/edge is chosen. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle. Holding a mouse button down also suppresses it. |
-| The hotkey does nothing | Another program took it. Pick another one in Settings → ทั่วไป. |
-| No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *ทดสอบป๊อปอัพ* (test pop-up). Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
+| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off and the right monitor/edge is chosen. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle. Holding a mouse button down also suppresses it. |
+| The hotkey does nothing | Another program took it. Pick another one in Settings → General. |
+| No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *Test pop-up*. Check that app’s own switches under Settings → Notifications → Per app. Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |
 | "Continue with Google" on X fails | Google blocks sign-in inside embedded browsers. Use X's own username + password. |
 | Windows Firewall asks about ChatDock | Not needed for chatting. *Cancel* is fine. |
@@ -157,7 +161,7 @@ downloading can be turned off under Settings → อัปเดต.
 Requires Windows 10/11, [Node.js](https://nodejs.org/) 22+ and Git.
 
 ```bash
-git clone https://github.com/luraselenehalo/ChatDock.git
+git clone https://github.com/ResinCoreAI/ChatDock.git
 cd ChatDock
 npm install          # if npm blocks install scripts: node node_modules/electron/install.js
 npm start            # run from source (updates are disabled in this mode)
@@ -191,6 +195,7 @@ src/win32.js         Windows calls Electron lacks (focus hand-back, fullscreen d
 src/preload.js       bridge for ChatDock's own pages
 src/preload-site.js  passkey guard + notification hand-off for the chat sites
 src/ui/              panel + settings, edge tab, glow, pop-ups (served from chatdock://ui/)
+src/ui/i18n.js       every UI text in English, Thai, Chinese, Japanese and German
 src/stress.js        real-input stress test (dev only)
 src/demo.js          README animation recorder (dev only)
 build/installer.nsh  uninstall step: remove "start with Windows"
@@ -203,5 +208,5 @@ scripts/             icon and README-media generators
 
 [MIT](LICENSE) © 2026 ResinCore
 
-ChatDock is an ResinCore project and isn't affiliated with Meta, X, Discord, Telegram or WhatsApp.
+ChatDock is a ResinCore project and isn't affiliated with Meta, X, Discord, Telegram or WhatsApp.
 Their names and logos belong to their teams.

@@ -8,6 +8,9 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Leelawadee UI", sans-serif; }
+html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", "Leelawadee UI", sans-serif; }
+
 #wrap { padding: 16px; }
 
 #stack { display: flex; flex-direction: column; gap: 10px; }

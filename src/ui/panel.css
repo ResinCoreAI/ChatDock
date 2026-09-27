@@ -59,6 +59,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Chinese / Japanese screens: their own UI fonts first (Thai and Latin fall back to the stack above) */
+html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Leelawadee UI", sans-serif; }
+html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", "Leelawadee UI", sans-serif; }
+
 button { font: inherit; color: inherit; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -134,6 +138,7 @@ body.left #bar, body.left #banner, body.left #stage { left: 0; right: var(--grip
 .app .ico { color: var(--text); } /* single-colour icons (X) */
 .app .ico svg { display: block; width: 18px; height: 18px; }
 .app:not(.active) .name { display: none; } /* many apps: only the open one shows its name */
+.app.asleep .ico { opacity: .45; filter: grayscale(.7); } /* sleeping to save RAM: wakes when opened */
 .app:not(.active) { padding: 0 9px; }
 .app .badge {
   min-width: 18px;
@@ -291,6 +296,19 @@ body.with-banner #stage { top: calc(var(--header-h) + var(--banner-h)); }
 .welcome { max-width: 440px; margin: 0 auto; padding: 18px 18px 26px; }
 .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .brand .logo svg { display: block; width: 48px; height: 48px; }
+.lang-pick { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: -6px 0 4px; font-size: 14px; }
+.lang-pick select {
+  height: 28px;
+  max-width: 220px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
 .brand h1 { margin: 0; font-size: 20px; line-height: 1.2; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 

@@ -8,7 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const SEND = new Set([
   'ui:ready', 'app:select', 'panel:reload', 'panel:retry', 'panel:pin', 'panel:hide', 'panel:settings',
   'panel:update', 'panel:resize', 'panel:zoom-reset', 'onboarding:done', 'banner:dismiss', 'tab:open', 'tab:log',
-  'settings:set', 'settings:app', 'settings:popup-app', 'settings:action',
+  'settings:set', 'settings:app', 'settings:app-pref', 'settings:action',
   'toast:size', 'toast:click', 'toast:dismiss', 'toast:more', 'toast:hover',
 ]);
 const RECEIVE = new Set(['state', 'settings:goto', 'tab:show', 'tab:hide', 'glow:state', 'toasts']);

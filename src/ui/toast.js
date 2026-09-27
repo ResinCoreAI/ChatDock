@@ -4,6 +4,7 @@
 
 const stack = document.getElementById('stack');
 const wrap = document.getElementById('wrap');
+let labels = { more: '', close: '' }; // translated by the main process
 
 function appIcon(name) {
   const span = document.createElement('span');
@@ -43,7 +44,7 @@ function createCard(it) {
   text.className = 'text';
   const meta = document.createElement('div');
   meta.className = 'meta';
-  meta.textContent = `${it.appName} · ${it.meta || 'เพิ่งทักมา'}`;
+  meta.textContent = it.meta ? `${it.appName} · ${it.meta}` : it.appName;
   const title = document.createElement('div');
   title.className = 'title';
   title.textContent = it.title;
@@ -56,12 +57,12 @@ function createCard(it) {
   }
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = it.hint || 'คลิกเพื่อเปิดแชทนี้';
-  text.append(hint);
+  hint.textContent = it.hint || '';
+  if (it.hint) text.append(hint);
 
   const close = document.createElement('button');
   close.className = 'close';
-  close.title = 'ปิด';
+  close.title = labels.close;
   close.textContent = '✕';
   close.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -75,6 +76,8 @@ function createCard(it) {
 }
 
 function render(state) {
+  labels = state.labels || labels;
+  if (state.lang) document.documentElement.lang = state.lang;
   const pos = String(state.position || 'top-right');
   document.body.classList.toggle('bottom', pos.startsWith('bottom'));
   document.body.classList.toggle('left', pos.endsWith('left')); // cards slide in from the left edge
@@ -82,6 +85,7 @@ function render(state) {
   for (const el of [...stack.children]) {
     if (!el.dataset.key || !keep.has(el.dataset.key)) el.remove();
   }
+  for (const b of stack.querySelectorAll('.close')) b.title = labels.close;
   state.items.forEach((it, i) => {
     const el = stack.querySelector(`.card[data-key="${it.key}"]`) || createCard(it);
     if (stack.children[i] !== el) stack.insertBefore(el, stack.children[i] || null);
@@ -89,7 +93,7 @@ function render(state) {
   if (state.more > 0) {
     const more = document.createElement('div');
     more.className = 'more';
-    more.textContent = `+ อีก ${state.more} ข้อความ · คลิกเพื่อเปิดแชท`;
+    more.textContent = labels.more;
     more.addEventListener('click', () => chatdock.send('toast:more'));
     stack.append(more);
   }

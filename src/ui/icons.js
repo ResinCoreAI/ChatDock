@@ -54,6 +54,10 @@ window.iconHTML = (name) => {
   return svg.replace(/id="([\w-]+)"/g, `id="$1-${n}"`).replace(/url\(#([\w-]+)\)/g, `url(#$1-${n})`);
 };
 
-for (const el of document.querySelectorAll('[data-icon]')) {
-  el.innerHTML = window.iconHTML(el.dataset.icon);
-}
+// Fills [data-icon] elements that are still empty (again after translated text brings new ones).
+window.fillIcons = (scope) => {
+  for (const el of (scope || document).querySelectorAll('[data-icon]')) {
+    if (!el.firstChild) el.innerHTML = window.iconHTML(el.dataset.icon);
+  }
+};
+window.fillIcons();

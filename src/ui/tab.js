@@ -6,8 +6,14 @@ const chev = pill.querySelector('.chev');
 let shownAt = 0;
 let appsKey = '';
 let side = '';
+let lang = '';
 
 function render(s) {
+  if (s.lang !== lang) {
+    lang = s.lang;
+    i18n.set(lang);
+    i18n.apply();
+  }
   if (s.side !== side) { // mirror for the left edge; the arrow points into the screen
     side = s.side;
     pill.classList.add('instant'); // jump to the other side's tucked-away spot, no sliding across
@@ -24,7 +30,6 @@ function render(s) {
       const btn = document.createElement('button');
       btn.className = 'app';
       btn.dataset.app = a.id;
-      btn.title = `เปิด ${a.name}`;
       const ico = document.createElement('span');
       ico.innerHTML = window.iconHTML(a.icon);
       const badge = document.createElement('span');
@@ -35,8 +40,11 @@ function render(s) {
     }
   }
   for (const a of s.apps) {
-    const badge = appsEl.querySelector(`[data-app="${a.id}"] .badge`);
-    if (!badge) continue;
+    const btn = appsEl.querySelector(`[data-app="${a.id}"]`);
+    if (!btn) continue;
+    btn.classList.toggle('asleep', !!a.asleep); // RAM saver: dimmed until opened
+    btn.title = i18n.t(a.asleep ? 'tab.sleeping' : 'tab.openApp', { name: a.name });
+    const badge = btn.querySelector('.badge');
     const n = s.counts[a.id] || 0;
     badge.textContent = n > 9 ? '9+' : String(n);
     badge.hidden = n === 0;

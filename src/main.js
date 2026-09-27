@@ -19,6 +19,7 @@ const logger = require('./logger');
 const apps = require('./apps');
 const toasts = require('./toasts');
 const updater = require('./updater');
+const i18n = require('./ui/i18n');
 const pkg = require('../package.json');
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,14 @@ const START_HIDDEN = argv.includes('--hidden'); // launched by "start with Windo
 // prompt. Not needed here: the chat views never reveal local addresses to WebRTC at all
 // (setWebRTCIPHandlingPolicy 'default_public_interface_only' in createView).
 const disabledFeatures = ['WebAuthenticationUseNativeWinApi', 'WebRtcHideLocalIpsWithMdns'];
+// Less RAM: no spare renderer process kept warm, no back/forward cache of pages we navigated away
+// from, and ChatDock's own small pages (panel, tab, glow, pop-ups) share one process.
+// (--no-ram-tweaks switches these off, to measure the difference.)
+const RAM_TWEAKS = !argv.includes('--no-ram-tweaks');
+if (RAM_TWEAKS) {
+  disabledFeatures.push('SpareRendererForSitePerProcess', 'BackForwardCache');
+  app.commandLine.appendSwitch('process-per-site');
+}
 // Testing aid: Chromium treats every window as covered while the PC is locked; this turns that off.
 if (argv.includes('--no-occlusion')) disabledFeatures.push('CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-features', disabledFeatures.join(','));
@@ -54,13 +63,26 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'chatdock', privileges: { standa
 logger.init({ console: DEBUG });
 const log = logger.log;
 process.on('uncaughtException', (err) => log('UNCAUGHT', err));
+
+// ChatDock's own text, in the chosen language ('auto' = the Windows language); see src/ui/i18n.js
+let t = i18n.make('en');
+
+function uiLang() {
+  const chosen = settings.get('lang');
+  if (i18n.IDS.includes(chosen)) return chosen;
+  return i18n.pick(app.getPreferredSystemLanguages().concat(app.getLocale()));
+}
+
+function applyLanguage() {
+  t = i18n.make(uiLang());
+}
 process.on('unhandledRejection', (err) => log('UNHANDLED REJECTION', err));
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 const AUMID = 'com.chatdock.app'; // = build.appId, so the installer's shortcuts belong to this app
-const REPO_URL = 'https://github.com/luraselenehalo/ChatDock';
+const REPO_URL = 'https://github.com/ResinCoreAI/ChatDock';
 // Set by the release build (electron-builder extraMetadata) together with the EnableCookieEncryption fuse.
 const COOKIE_ENCRYPTION = app.isPackaged && pkg.cookieEncryption === true;
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -126,6 +148,12 @@ const lastContentAt = {}; // when the site last handed us a real notification (s
 const fallbackTimers = {};
 const loadStartedAt = {}; // a freshly (re)loaded page shows old unread counts; that's not a new message
 const COUNT_POPUP_GRACE_MS = 20000;
+// RAM saver: a sleeping app has no page loaded (see sleepApp)
+const asleep = perApp(false);
+const lastUsed = perApp(Date.now()); // last time the app was on screen, playing sound or in a call
+const childWindows = perApp(0); // open call / sign-in windows
+const SLEEP_AFTER_MS = 10 * 60 * 1000;
+let settingsTimer = null; // refreshes the RAM figures while the settings screen is open
 
 let panelState = 'hidden'; // hidden | opening | open | closing
 let helpMode = false; // welcome / how-to screen instead of the chats
@@ -184,6 +212,7 @@ app.on('quit', () => log('quit'));
 
 function init() {
   settings.load();
+  applyLanguage();
   registerUiProtocol();
   nativeTheme.themeSource = settings.get('theme');
   Menu.setApplicationMenu(null);
@@ -208,14 +237,19 @@ function init() {
     position: () => settings.get('popupPosition'),
     duration: () => settings.get('popupDuration'),
     maxVisible: () => settings.get('popupMax'),
-    sound: () => !!settings.get('popupSound'),
+    t: (...args) => t(...args),
+    lang: () => uiLang(),
     foreground: () => win32.foregroundWindow(),
     restoreFocus: (hwnd) => win32.restoreForeground(hwnd),
     open: openFromToast,
   });
   toasts.setContentProtection(!!settings.get('hideFromCapture'));
   ownHwnds = [panelWin, tabWin, glowWin].map(win32.hwndOf).concat(toasts.hwnd());
-  for (const id of enabledApps()) createView(id);
+  for (const id of enabledApps()) {
+    if (sleepEligible(id)) asleep[id] = true; // loads when it is first opened
+    else createView(id);
+  }
+  setInterval(sleepCheck, 60 * 1000);
   createTray();
   registerIpc();
   registerHotkey();
@@ -573,7 +607,8 @@ function createView(id) {
   // WebRTC may only use the default route and never lists this PC's local addresses. This also
   // keeps Chromium from opening an mDNS listener (UDP 5353), which set off Windows Firewall prompts.
   wc.setWebRTCIPHandlingPolicy('default_public_interface_only');
-  wc.setAudioMuted(!!settings.get('muted'));
+  applyAudio(id);
+  wc.on('audio-state-changed', () => { lastUsed[id] = Date.now(); }); // playing sound counts as in use
   wc.setWindowOpenHandler((details) => onWindowOpen(id, details));
   wc.on('did-create-window', (child) => guardPopup(id, child));
   wc.on('will-navigate', (e, url) => {
@@ -631,6 +666,7 @@ function setAppEnabled(id, on) {
   if (!A(id) || isEnabled(id) === on) return;
   if (!on && enabledApps().length <= 1) return; // keep at least one app
   settings.set('apps', { ...settings.get('apps'), [id]: on });
+  asleep[id] = false;
   if (on) {
     createView(id);
   } else {
@@ -728,6 +764,8 @@ function onWindowOpen(id, { url }) {
 }
 
 function guardPopup(id, child) {
+  childWindows[id] += 1; // a call is going on: the app mustn't fall asleep under it
+  child.on('closed', () => { childWindows[id] = Math.max(0, childWindows[id] - 1); });
   child.setMenuBarVisibility(false);
   child.webContents.setWebRTCIPHandlingPolicy('default_public_interface_only'); // call windows too
   child.webContents.setWindowOpenHandler((details) => onWindowOpen(id, details));
@@ -771,18 +809,112 @@ function setCount(id, n) {
   counts[id] = n;
   log('unread', id, before, '->', n);
   broadcastState();
-  updateGlow(n > before);
+  updateGlow(n > before && appPref(id, 'badge'));
   if (n > before) scheduleCountPopup(id);
   else if (n === 0) toasts.dismissApp(id); // read elsewhere (e.g. on the phone)
 }
 
+// Unread count as shown on the tab, header, tray and glow (0 when the app's count is switched off)
+function shownCount(id) {
+  return appPref(id, 'badge') ? counts[id] : 0;
+}
+
 function totalUnread() {
-  return enabledApps().reduce((sum, id) => sum + counts[id], 0);
+  return enabledApps().reduce((sum, id) => sum + shownCount(id), 0);
 }
 
 function preferredApp() {
-  const withUnread = enabledApps().filter((id) => counts[id] > 0);
+  const withUnread = enabledApps().filter((id) => shownCount(id) > 0);
   return withUnread.length === 1 ? withUnread[0] : settings.get('active');
+}
+
+// ---------------------------------------------------------------------------
+// Per-app switches (settings.appPrefs) and the RAM saver
+// ---------------------------------------------------------------------------
+function appPref(id, key) {
+  const own = (settings.get('appPrefs') || {})[id];
+  return own && typeof own[key] === 'boolean' ? own[key] : settings.APP_PREFS[key];
+}
+
+function setAppPref(id, key, value) {
+  if (!A(id) || !Object.hasOwn(settings.APP_PREFS, key) || typeof value !== 'boolean') return false;
+  const all = settings.get('appPrefs') || {};
+  settings.set('appPrefs', { ...all, [id]: { ...settings.APP_PREFS, ...(all[id] || {}), [key]: value } });
+  if (key === 'popups' && !value) toasts.dismissApp(id);
+  if (key === 'sound') applyAudio(id);
+  lastUsed[id] = Date.now(); // a changed setting starts the idle clock over
+  if (asleep[id] && !sleepEligible(id)) wakeApp(id); // it has notifications to deliver again
+  log('app setting', id, key, value);
+  broadcastState();
+  updateGlow(false);
+  return true;
+}
+
+function applyAudio(id) {
+  const view = views[id];
+  if (view && !view.webContents.isDestroyed()) view.webContents.setAudioMuted(!!settings.get('muted') || !appPref(id, 'sound'));
+}
+
+// An app sleeps (its page is unloaded, which frees its RAM) when the user asked for it, or when
+// it couldn't alert them anyway: pop-ups and unread count both switched off.
+function sleepEligible(id) {
+  return appPref(id, 'sleep') || (!appPref(id, 'popups') && !appPref(id, 'badge'));
+}
+
+function sleepApp(id) {
+  if (asleep[id] || !views[id]) return;
+  destroyView(id);
+  asleep[id] = true;
+  toasts.dismissApp(id);
+  log('app sleeping', id);
+  broadcastState();
+  updateGlow(false);
+}
+
+function wakeApp(id) {
+  if (!asleep[id] || !isEnabled(id)) return;
+  asleep[id] = false;
+  lastUsed[id] = Date.now();
+  createView(id);
+  log('app awake', id);
+  broadcastState();
+}
+
+function sleepCheck() {
+  const now = Date.now();
+  const showing = panelState === 'open' || panelState === 'opening';
+  for (const id of enabledApps()) {
+    const view = views[id];
+    if (asleep[id] || !view || !sleepEligible(id)) continue;
+    if ((showing && settings.get('active') === id) || childWindows[id] > 0 || view.webContents.isCurrentlyAudible()) {
+      lastUsed[id] = now; // on screen, in a call, or playing sound
+      continue;
+    }
+    if (now - lastUsed[id] >= SLEEP_AFTER_MS) sleepApp(id);
+  }
+}
+
+// RAM in MB: all of ChatDock, and each awake app's own processes (its page and the frames in it)
+function memoryStats() {
+  const byPid = new Map();
+  let total = 0;
+  for (const m of app.getAppMetrics()) {
+    const mb = (m.memory.privateBytes || m.memory.workingSetSize || 0) / 1024;
+    byPid.set(m.pid, mb);
+    total += mb;
+  }
+  const perApp = {};
+  for (const [id, view] of Object.entries(views)) {
+    const pids = new Set();
+    try {
+      pids.add(view.webContents.getOSProcessId());
+      for (const f of view.webContents.mainFrame.framesInSubtree) pids.add(f.osProcessId);
+    } catch {
+      // page is (re)starting
+    }
+    perApp[id] = Math.round([...pids].reduce((sum, pid) => sum + (byPid.get(pid) || 0), 0));
+  }
+  return { total: Math.round(total), perApp, processes: byPid.size };
 }
 
 // ---------------------------------------------------------------------------
@@ -837,14 +969,23 @@ function scheduleDndEnd() {
 // Every "should this pop up?" rule the user can set, except "already reading that chat".
 function popupAllowed(id) {
   if (!settings.get('popups') || dndActive()) return false;
-  if (id && (settings.get('popupApps') || {})[id] === false) return false;
+  if (id && !appPref(id, 'popups')) return false;
   if (settings.get('popupQuietFullscreen') && win32.isFullscreenAppActive()) return false;
   return true;
 }
 
 function popup(id, fields) {
   const a = A(id);
-  toasts.push({ appId: id, appName: a.name, iconName: a.icon, accent: a.colors[a.colors.length - 1], ...fields });
+  toasts.push({
+    appId: id,
+    appName: a.name,
+    iconName: a.icon,
+    accent: a.colors[a.colors.length - 1],
+    meta: t('toast.justMessaged'),
+    hint: t('toast.clickToOpen'),
+    chime: !!settings.get('popupSound') && appPref(id, 'chime'),
+    ...fields,
+  });
 }
 
 // A site raised a web notification (see preload-site.js): who wrote, what, and their picture.
@@ -856,10 +997,10 @@ function onSiteNotification(id, n) {
   lastContentAt[id] = Date.now();
   log('site notification', id, { title: String(n.title || '').length, body: String(n.body || '').length });
   if (!popupAllowed(id) || appOnScreen(id)) return;
-  const showText = !!settings.get('popupText');
+  const showText = !!settings.get('popupText') && appPref(id, 'preview');
   popup(id, {
     title: cleanText(n.title, 90) || A(id).name,
-    body: showText ? cleanText(n.body, 300) : 'ส่งข้อความถึงคุณ',
+    body: showText ? cleanText(n.body, 300) : t('toast.sentYou'),
     icon: settings.get('popupAvatar') ? safeIcon(n.icon) : '',
     tag: n.tag ? `${id}:${cleanText(n.tag, 80)}` : '',
     sourceId: Number.isInteger(n.id) && !n.sw ? n.id : 0,
@@ -875,8 +1016,8 @@ function scheduleCountPopup(id) {
     if (Date.now() - (loadStartedAt[id] || 0) < COUNT_POPUP_GRACE_MS) return; // page just (re)loaded
     const flash = lastFlash[id] && Date.now() - lastFlash[id].at < 15000 ? cleanText(lastFlash[id].text, 120) : '';
     popup(id, {
-      title: flash || 'มีข้อความใหม่',
-      body: `ยังไม่ได้อ่าน ${counts[id]} ข้อความ`,
+      title: flash || t('toast.newMessage'),
+      body: t('toast.unread', { n: counts[id] }),
       icon: '',
       tag: `${id}:count`, // one "new messages" card per app, updated in place
       sourceId: 0,
@@ -906,10 +1047,8 @@ function testPopup() {
   const avatar = settings.get('popupAvatar')
     ? `data:image/png;base64,${fs.readFileSync(path.join(ASSETS, 'icon.png')).toString('base64')}` : '';
   popup(id, {
-    title: 'ตัวอย่างป๊อปอัพ',
-    body: settings.get('popupText')
-      ? 'เวลามีคนทักมา จะขึ้นแบบนี้ — ชื่อคนทัก + ข้อความ คลิกเพื่อเปิดแชทนั้น'
-      : 'ส่งข้อความถึงคุณ',
+    title: t('toast.testTitle'),
+    body: settings.get('popupText') ? t('toast.testBody') : t('toast.sentYou'),
     icon: avatar,
     tag: 'test',
     sourceId: 0,
@@ -929,12 +1068,11 @@ function announceUpdate(s) {
     appName: 'ChatDock',
     iconName: 'logo',
     accent: '#8b5cf6',
-    meta: 'อัปเดต',
-    title: ready ? `ChatDock ${s.version} พร้อมติดตั้ง` : `มี ChatDock ${s.version} ให้อัปเดต`,
-    body: ready
-      ? 'กดปุ่มอัปเดตเมื่อสะดวก — ใช้เวลาไม่กี่วินาที แล้วโปรแกรมจะเปิดขึ้นมาเอง'
-      : 'ดาวน์โหลดได้จากหน้าอัปเดตในตั้งค่า',
-    hint: 'คลิกเพื่อดูรายละเอียดและกดอัปเดต',
+    meta: t('toast.update'),
+    title: t(ready ? 'toast.updReadyTitle' : 'toast.updAvailTitle', { version: s.version }),
+    body: t(ready ? 'toast.updReadyBody' : 'toast.updAvailBody'),
+    hint: t('toast.updHint'),
+    chime: !!settings.get('popupSound'),
     icon: '',
     tag: 'chatdock:update',
     sourceId: 0,
@@ -958,7 +1096,6 @@ function targetDisplay() {
 
 // Which screen edge the dock lives on (settings: 'right' | 'left')
 const onLeft = () => settings.get('side') === 'left';
-const sideWord = () => (onLeft() ? 'ซ้าย' : 'ขวา');
 
 // Another monitor right against the dock edge? Then the panel fades in and out instead of
 // sliding across into that monitor.
@@ -1092,6 +1229,7 @@ function rememberForeground(source) {
 function openPanel(appId, source = 'user') {
   log('open request', source, appId || '', snap());
   if (appId && isEnabled(appId)) setActive(appId, false);
+  wakeApp(settings.get('active')); // a sleeping app loads again when it is opened
   if (panelState === 'open' || panelState === 'opening') {
     focusPanel();
     broadcastState();
@@ -1176,6 +1314,8 @@ function closePanel(restoreFocus, reason = '') {
   }, () => {
     panelWin.hide();
     panelState = 'hidden';
+    lastUsed[settings.get('active')] = Date.now();
+    stopSettingsTimer();
     if ((helpMode && settings.get('onboarded')) || settingsMode) { // next time it opens on the chats
       helpMode = helpMode && !settings.get('onboarded');
       settingsMode = false;
@@ -1265,6 +1405,7 @@ function checkAutoHide(dragging) {
 function openSettings(section = '', source = 'menu') {
   settingsMode = true;
   helpMode = false;
+  startSettingsTimer();
   layoutViews();
   if (panelState === 'open' || panelState === 'opening') {
     activatePanel();
@@ -1279,14 +1420,30 @@ function openSettings(section = '', source = 'menu') {
 function closeSettings() {
   if (!settingsMode) return;
   settingsMode = false;
+  stopSettingsTimer();
   layoutViews();
   focusPanel();
   broadcastState();
 }
 
+// While the settings screen is open, its RAM figures refresh every few seconds.
+function startSettingsTimer() {
+  clearInterval(settingsTimer);
+  settingsTimer = setInterval(() => {
+    if (settingsMode && panelState === 'open') broadcastState();
+  }, 4000);
+}
+
+function stopSettingsTimer() {
+  clearInterval(settingsTimer);
+  settingsTimer = null;
+}
+
 function setActive(id, focus = true) {
   if (!isEnabled(id)) return;
+  lastUsed[settings.get('active')] = Date.now(); // the app we leave was in use until now
   settings.set('active', id);
+  if (panelState !== 'hidden') wakeApp(id);
   fitPanelToApp();
   layoutViews();
   if (panelState === 'open' || panelState === 'opening') toasts.dismissApp(id);
@@ -1359,8 +1516,8 @@ function finishOnboarding(opts = {}) {
     tray.displayBalloon({
       iconType: 'info',
       noSound: true,
-      title: 'ChatDock อยู่ที่ไอคอนนี้',
-      content: `คลิกเพื่อเปิด/ซ่อนแชท · คลิกขวาเพื่อตั้งค่า · ชี้เมาส์ที่ขอบจอ${sideWord()}เพื่อเรียกแถบสีขาว`,
+      title: t('balloon.hereTitle'),
+      content: t(onLeft() ? 'balloon.here.left' : 'balloon.here.right'),
     });
   }
 }
@@ -1484,7 +1641,7 @@ function updateGlow(pulse) {
   const cy = tabCenterY ?? (b.y + b.height / 2);
   const y = clamp(Math.round(cy - GLOW_H / 2), b.y, d.workArea.y + d.workArea.height - GLOW_H);
   glowWin.setBounds({ x: onLeft() ? b.x : b.x + b.width - GLOW_W, y, width: GLOW_W, height: GLOW_H });
-  const colors = enabledApps().filter((id) => counts[id] > 0).flatMap((id) => A(id).colors);
+  const colors = enabledApps().filter((id) => shownCount(id) > 0).flatMap((id) => A(id).colors);
   glowWin.webContents.send('glow:state', { colors, pulse: !!pulse, side: settings.get('side') });
   if (!glowWin.isVisible()) glowWin.showInactive();
   raise(glowWin);
@@ -1497,7 +1654,8 @@ function hotkeyLabel() {
   const acc = settings.get('hotkey');
   if (!acc) return '';
   const preset = HOTKEYS.find((h) => h.acc === acc);
-  return preset ? preset.label : acc.replace(/Control/g, 'Ctrl').split('+').join(' + ');
+  const label = preset ? preset.label : acc.replace(/Control/g, 'Ctrl').split('+').join(' + ');
+  return label.replace(/Ctrl/g, t('key.ctrl'));
 }
 
 function registerHotkey() {
@@ -1513,8 +1671,8 @@ function registerHotkey() {
   if (!hotkeyOk && tray && !SELFTEST && !DEMO) {
     tray.displayBalloon({
       iconType: 'warning',
-      title: 'ปุ่มลัดใช้ไม่ได้',
-      content: `${hotkeyLabel()} ถูกโปรแกรมอื่นใช้อยู่ — เลือกปุ่มลัดอื่นได้ที่ ตั้งค่า → ทั่วไป`,
+      title: t('balloon.hotkeyTitle'),
+      content: t('balloon.hotkeyBody', { hotkey: hotkeyLabel() }),
     });
   }
   log('hotkey', acc, hotkeyOk ? 'registered' : 'FAILED');
@@ -1585,15 +1743,15 @@ function onPanelKey(event, input, where = '') {
     zoomStep(active, 0);
   } else if (input.alt && !ctrl && (code === 'ArrowLeft' || input.key === 'ArrowLeft')) {
     event.preventDefault();
-    const h = views[active].webContents.navigationHistory;
-    if (h.canGoBack()) h.goBack();
+    const h = views[active] && views[active].webContents.navigationHistory;
+    if (h && h.canGoBack()) h.goBack();
   } else if (input.alt && !ctrl && (code === 'ArrowRight' || input.key === 'ArrowRight')) {
     event.preventDefault();
-    const h = views[active].webContents.navigationHistory;
-    if (h.canGoForward()) h.goForward();
+    const h = views[active] && views[active].webContents.navigationHistory;
+    if (h && h.canGoForward()) h.goForward();
   } else if (DEBUG && ctrl && input.shift && is('KeyI', 'i')) {
     event.preventDefault();
-    views[active].webContents.openDevTools({ mode: 'detach' });
+    if (views[active]) views[active].webContents.openDevTools({ mode: 'detach' });
   }
 }
 
@@ -1630,32 +1788,32 @@ function showContextMenu(wc, p) {
   const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }); };
   if (p.isEditable) {
     items.push(
-      { label: 'ตัด', accelerator: 'CmdOrCtrl+X', enabled: p.editFlags.canCut, click: () => wc.cut() },
-      { label: 'คัดลอก', accelerator: 'CmdOrCtrl+C', enabled: p.editFlags.canCopy, click: () => wc.copy() },
-      { label: 'วาง', accelerator: 'CmdOrCtrl+V', enabled: p.editFlags.canPaste, click: () => wc.paste() },
-      { label: 'เลือกทั้งหมด', accelerator: 'CmdOrCtrl+A', click: () => wc.selectAll() },
+      { label: t('ctx.cut'), accelerator: 'CmdOrCtrl+X', enabled: p.editFlags.canCut, click: () => wc.cut() },
+      { label: t('ctx.copy'), accelerator: 'CmdOrCtrl+C', enabled: p.editFlags.canCopy, click: () => wc.copy() },
+      { label: t('ctx.paste'), accelerator: 'CmdOrCtrl+V', enabled: p.editFlags.canPaste, click: () => wc.paste() },
+      { label: t('ctx.selectAll'), accelerator: 'CmdOrCtrl+A', click: () => wc.selectAll() },
     );
   } else if (p.selectionText && p.selectionText.trim()) {
-    items.push({ label: 'คัดลอก', accelerator: 'CmdOrCtrl+C', click: () => wc.copy() });
+    items.push({ label: t('ctx.copy'), accelerator: 'CmdOrCtrl+C', click: () => wc.copy() });
   }
   if (p.linkURL && /^https?:/i.test(p.linkURL)) {
     sep();
     items.push(
-      { label: 'เปิดลิงก์ในเบราว์เซอร์', click: () => openExternal(p.linkURL) },
-      { label: 'คัดลอกลิงก์', click: () => clipboard.writeText(p.linkURL) },
+      { label: t('ctx.openLink'), click: () => openExternal(p.linkURL) },
+      { label: t('ctx.copyLink'), click: () => clipboard.writeText(p.linkURL) },
     );
   }
   if (p.mediaType === 'image' && p.srcURL) {
     sep();
     items.push(
-      { label: 'คัดลอกรูป', click: () => wc.copyImageAt(p.x, p.y) },
-      { label: 'บันทึกรูปเป็น…', click: () => wc.downloadURL(p.srcURL) },
+      { label: t('ctx.copyImage'), click: () => wc.copyImageAt(p.x, p.y) },
+      { label: t('ctx.saveImage'), click: () => wc.downloadURL(p.srcURL) },
     );
   }
   sep();
   items.push(
-    { label: 'ย้อนกลับ', accelerator: 'Alt+Left', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() },
-    { label: 'โหลดใหม่', accelerator: 'CmdOrCtrl+R', click: () => wc.reload() },
+    { label: t('ctx.back'), accelerator: 'Alt+Left', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() },
+    { label: t('ctx.reload'), accelerator: 'CmdOrCtrl+R', click: () => wc.reload() },
   );
   Menu.buildFromTemplate(items).popup({ window: panelWin });
 }
@@ -1670,39 +1828,39 @@ function buildMenu() {
 
   return Menu.buildFromTemplate([
     ...(up.status === 'ready' ? [
-      { label: `อัปเดตเป็น ${up.version} ตอนนี้`, click: () => updater.install() },
+      { label: t('tray.updateNow', { version: up.version }), click: () => updater.install() },
       { type: 'separator' },
     ] : []),
     {
-      label: panelState === 'hidden' ? 'เปิดแชท' : 'ซ่อนแชท',
+      label: t(panelState === 'hidden' ? 'tray.open' : 'tray.hide'),
       ...(hotkey ? { accelerator: hotkey, registerAccelerator: false } : {}),
       click: () => togglePanel('menu'),
     },
     ...enabledApps().map((id) => ({
-      label: counts[id] > 0 ? `${A(id).name}  (${counts[id]})` : A(id).name,
+      label: shownCount(id) > 0 ? `${A(id).name}  (${shownCount(id)})` : A(id).name,
       click: () => {
         if (settingsMode) closeSettings();
         openPanel(id, 'menu');
       },
     })),
     { type: 'separator' },
-    { label: 'ป๊อปอัพเมื่อมีคนทักมา', type: 'checkbox', checked: !!settings.get('popups'), click: (mi) => setPref('popups', mi.checked) },
+    { label: t('tray.popups'), type: 'checkbox', checked: !!settings.get('popups'), click: (mi) => setPref('popups', mi.checked) },
     {
-      label: dnd ? `ห้ามรบกวน (${until === -1 ? 'เปิดอยู่' : `ถึง ${clockTime(until)}`})` : 'ห้ามรบกวน',
+      label: !dnd ? t('tray.dnd') : until === -1 ? t('tray.dndOn') : t('tray.dndUntil', { time: clockTime(until) }),
       submenu: [
-        radio('ปิด', !dnd, () => setDnd(0)),
-        radio('30 นาที', false, () => setDnd(30)),
-        radio('1 ชั่วโมง', false, () => setDnd(60)),
-        radio('2 ชั่วโมง', false, () => setDnd(120)),
-        radio('8 ชั่วโมง', false, () => setDnd(480)),
-        radio('จนกว่าจะปิดเอง', until === -1, () => setDnd(-1)),
+        radio(t('dnd.off'), !dnd, () => setDnd(0)),
+        radio(t('dnd.30'), false, () => setDnd(30)),
+        radio(t('dnd.60'), false, () => setDnd(60)),
+        radio(t('dnd.120'), false, () => setDnd(120)),
+        radio(t('dnd.480'), false, () => setDnd(480)),
+        radio(t('dnd.forever'), until === -1, () => setDnd(-1)),
       ],
     },
-    { label: 'ปักหมุดแชท (ไม่ซ่อนเมื่อคลิกที่อื่น)', type: 'checkbox', checked: !!settings.get('pinned'), click: (mi) => setPref('pinned', mi.checked) },
+    { label: t('tray.pin'), type: 'checkbox', checked: !!settings.get('pinned'), click: (mi) => setPref('pinned', mi.checked) },
     { type: 'separator' },
-    { label: 'ตั้งค่า…', click: () => openSettings('', 'menu') },
-    { label: 'วิธีใช้', click: () => showHelp() },
-    { label: 'ออกจาก ChatDock', click: () => quit() },
+    { label: t('tray.settings'), click: () => openSettings('', 'menu') },
+    { label: t('tray.help'), click: () => showHelp() },
+    { label: t('tray.quit'), click: () => quit() },
   ]);
 }
 
@@ -1715,6 +1873,7 @@ function clockTime(ms) {
 // Settings: every value the settings screen may change, checked before it is used
 // ---------------------------------------------------------------------------
 const PREFS = {
+  lang: { values: ['auto', ...i18n.IDS], apply: setLanguage },
   side: { values: ['right', 'left'], apply: setSide },
   edgeMode: { values: ['always', 'no-fullscreen', 'off'], apply: (v) => { settings.set('edgeMode', v); if (v === 'off') hideTab(true); } },
   displayId: { check: (v) => screen.getAllDisplays().some((d) => d.id === v), apply: setDisplay },
@@ -1760,11 +1919,11 @@ function setDisplay(id) {
   onDisplaysChanged();
 }
 
-function setPopupApp(id, on) {
-  if (!A(id) || typeof on !== 'boolean') return;
-  settings.set('popupApps', { ...settings.get('popupApps'), [id]: on });
-  if (!on) toasts.dismissApp(id);
-  broadcastState();
+function setLanguage(lang) {
+  settings.set('lang', lang);
+  applyLanguage();
+  toasts.refresh();
+  log('language', lang, '->', uiLang());
 }
 
 function settingsAction(name, arg) {
@@ -1801,14 +1960,14 @@ function setOpacity(v) {
   if (panelState === 'open') panelWin.setOpacity(v);
 }
 
-function setTheme(t) {
-  settings.set('theme', t);
-  nativeTheme.themeSource = t;
+function setTheme(theme) {
+  settings.set('theme', theme);
+  nativeTheme.themeSource = theme;
 }
 
 function setMuted(on) {
   settings.set('muted', on);
-  for (const view of Object.values(views)) view.webContents.setAudioMuted(on);
+  for (const id of Object.keys(views)) applyAudio(id);
 }
 
 function setHideFromCapture(on) {
@@ -1838,16 +1997,16 @@ function updateTray() {
     trayUnread = unread;
     tray.setImage(path.join(ASSETS, unread ? 'tray-unread.ico' : 'tray.ico'));
   }
-  const parts = enabledApps().filter((id) => counts[id] > 0).map((id) => `${A(id).name} ${counts[id]}`);
+  const parts = enabledApps().filter((id) => shownCount(id) > 0).map((id) => `${A(id).name} ${shownCount(id)}`);
   const hk = hotkeyLabel();
   const until = settings.get('dndUntil');
   const up = updater.getState();
   tray.setToolTip([
     'ChatDock',
-    parts.length ? `ข้อความใหม่: ${parts.join(' · ')}` : 'ไม่มีข้อความใหม่',
-    dndActive() ? `ห้ามรบกวน${until === -1 ? '' : ` ถึง ${clockTime(until)}`}` : '',
-    up.status === 'ready' ? `อัปเดต ${up.version} พร้อมติดตั้ง` : '',
-    hk && hotkeyOk ? `เปิด/ซ่อน: ${hk}` : '',
+    parts.length ? t('tip.new', { list: parts.join(' · ') }) : t('tip.noNew'),
+    !dndActive() ? '' : until === -1 ? t('tip.dnd') : t('tip.dndUntil', { time: clockTime(until) }),
+    up.status === 'ready' ? t('tip.update', { version: up.version }) : '',
+    hk && hotkeyOk ? t('tip.hotkey', { hotkey: hk }) : '',
   ].filter(Boolean).join('\n').slice(0, 127)); // Windows cuts tooltips at 127 characters
 }
 
@@ -1858,9 +2017,11 @@ function uiState() {
   const active = settings.get('active');
   const up = updater.getState();
   return {
-    apps: enabledApps().map((id) => ({ id, name: A(id).name, icon: A(id).icon })),
+    apps: enabledApps().map((id) => ({ id, name: A(id).name, icon: A(id).icon, asleep: asleep[id] })),
     active,
-    counts: { ...counts },
+    counts: Object.fromEntries(apps.ALL_IDS.map((id) => [id, shownCount(id)])),
+    lang: uiLang(),
+    langPref: settings.get('lang'), // 'auto' or a language
     load: { ...loadState },
     firstShown: { ...firstShown },
     pinned: !!settings.get('pinned'),
@@ -1884,6 +2045,7 @@ function settingsState() {
   const primary = screen.getPrimaryDisplay();
   const current = targetDisplay();
   const keys = Object.keys(PREFS).filter((k) => k !== 'autostart' && k !== 'displayId');
+  const memory = memoryStats();
   return {
     prefs: {
       ...Object.fromEntries(keys.map((k) => [k, settings.get(k)])),
@@ -1895,13 +2057,17 @@ function settingsState() {
       name: a.name,
       icon: a.icon,
       on: isEnabled(a.id),
-      popups: (settings.get('popupApps') || {})[a.id] !== false,
+      asleep: asleep[a.id],
+      mb: memory.perApp[a.id] || 0,
+      prefs: Object.fromEntries(Object.keys(settings.APP_PREFS).map((k) => [k, appPref(a.id, k)])),
     })),
+    memory: memory.total,
+    langs: i18n.LANGS.map(({ id, name }) => ({ id, name })),
     displays: screen.getAllDisplays().map((d, i) => ({
       id: d.id,
-      label: `จอ ${i + 1}${d.id === primary.id ? ' (จอหลัก)' : ''} — ${Math.round(d.size.width * d.scaleFactor)}×${Math.round(d.size.height * d.scaleFactor)}`,
+      label: `${t('display.label', { n: i + 1 })}${d.id === primary.id ? t('display.primary') : ''} — ${Math.round(d.size.width * d.scaleFactor)}×${Math.round(d.size.height * d.scaleFactor)}`,
     })),
-    hotkeys: HOTKEYS,
+    hotkeys: HOTKEYS.map((h) => ({ acc: h.acc, label: h.label.replace(/Ctrl/g, t('key.ctrl')) })),
     hotkeyOk,
     dndUntil: settings.get('dndUntil'),
     update: updater.getState(),
@@ -1956,7 +2122,7 @@ function registerIpc() {
     }],
     'settings:set': [panelOnly, (_e, key, value) => setPref(key, value)],
     'settings:app': [panelOnly, (_e, id, on) => { if (typeof on === 'boolean') setAppEnabled(id, on); }],
-    'settings:popup-app': [panelOnly, (_e, id, on) => setPopupApp(id, on)],
+    'settings:app-pref': [panelOnly, (_e, id, key, value) => setAppPref(id, key, value)],
     'settings:action': [panelOnly, (_e, name, arg) => {
       Promise.resolve(settingsAction(name, arg)).catch((err) => log('settings action failed', name, err));
     }],
@@ -2194,6 +2360,16 @@ async function runSelfTest() {
     log('page', id, '| url', wc.getURL(), '| title', JSON.stringify(wc.getTitle()), '| load', loadState[id], '| firstShown', firstShown[id]);
   }
   log('UA', views[enabledApps()[0]].webContents.getUserAgent());
+  log('RAM after start:', JSON.stringify(memoryStats()), RAM_TWEAKS ? '(RAM tweaks on)' : '(RAM tweaks off)');
+  const byType = {};
+  for (const m of app.getAppMetrics()) {
+    const k = m.type === 'Utility' ? `Utility:${m.serviceName || m.name || '?'}` : m.type;
+    byType[k] = byType[k] || { n: 0, mb: 0 };
+    byType[k].n += 1;
+    byType[k].mb += Math.round((m.memory.privateBytes || m.memory.workingSetSize || 0) / 1024);
+  }
+  const ours = [panelWin, tabWin, glowWin].map((w) => w.webContents.getOSProcessId()).concat(toasts.webContents().getOSProcessId());
+  log('RAM by process type:', JSON.stringify(byType), '| ChatDock page processes', JSON.stringify(ours));
   for (const id of enabledApps()) {
     // Inspect the guards without making a real passkey request (that could pop a dialog).
     log('site hooks', id, await views[id].webContents.executeJavaScript(
@@ -2322,7 +2498,7 @@ async function runSelfTest() {
   await wait(2500);
   log('failed load: load state =', loadState.instagram, '| view visible =', views.instagram.getVisible(), '(expect error, false)');
   await shot('07-error');
-  reloadApp('instagram'); // what the "ลองใหม่" button does
+  reloadApp('instagram'); // what the "Try again" button does
   await wait(7000);
   log('after retry: load state =', loadState.instagram, '| view visible =', views.instagram.getVisible(),
     '| url', views.instagram.webContents.getURL(), '(expect ready, true)',
@@ -2394,11 +2570,11 @@ async function runSelfTest() {
   await wait(900);
   log('do not disturb: pop-up visible', toasts.snapshot().visible, '(expect false)');
   setDnd(0);
-  setPopupApp(popApp, false);
+  setAppPref(popApp, 'popups', false);
   await notifyFrom(popApp);
   await wait(900);
   log(`${popApp} pop-ups off: pop-up visible`, toasts.snapshot().visible, '(expect false)');
-  setPopupApp(popApp, true);
+  setAppPref(popApp, 'popups', true);
   setPref('popupDuration', 5);
   await notifyFrom(popApp);
   await wait(900);
@@ -2429,6 +2605,66 @@ async function runSelfTest() {
   closePanel(true);
   await wait(600);
   log('back on the right: panel parked at x', panelWin.getBounds().x, '| side', settings.get('side'));
+
+  // Languages: the settings screen, the tray tooltip and pop-ups follow the chosen language
+  const langBefore = settings.get('lang');
+  openSettings('', 'selftest');
+  await wait(700);
+  for (const lang of ['en', 'th', 'zh', 'ja', 'de']) {
+    setPref('lang', lang);
+    await wait(500);
+    const seen = await panelWin.webContents.executeJavaScript(
+      `JSON.stringify([document.querySelector('#settings h1').textContent, document.documentElement.lang,
+        document.querySelector('[data-goto="popups"]').textContent, document.querySelector('[data-text="memory"]').textContent])`);
+    log(`language ${lang}:`, seen, '| tray says', JSON.stringify(t('tray.open')));
+    await shot(`20-settings-${lang}`);
+  }
+  panelWin.webContents.send('settings:goto', 'apps');
+  await wait(900);
+  await shot('21-settings-apps-de');
+  await panelWin.webContents.executeJavaScript("document.querySelector('[data-perapp]').scrollIntoView({ block: 'center' })");
+  await wait(500);
+  await shot('22-settings-perapp-de');
+  setPref('lang', langBefore);
+  closeSettings();
+  await wait(300);
+  closePanel(true);
+  await wait(600);
+
+  // Per-app switches: message text off for one app, unread count off for another
+  toasts.dismissAll();
+  setAppPref(popApp, 'preview', false);
+  await notifyFrom(popApp);
+  await wait(900);
+  const hidden = await toasts.webContents().executeJavaScript("document.querySelector('.card .body')?.textContent || ''");
+  log(`${popApp} message text off: pop-up body`, JSON.stringify(hidden), '(expect', JSON.stringify(t('toast.sentYou')), ')');
+  toasts.dismissAll();
+  setAppPref(popApp, 'preview', true);
+  const badgeApp = enabledApps()[0];
+  setAppPref(badgeApp, 'badge', false);
+  setCount(badgeApp, 3);
+  await wait(300);
+  log(`${badgeApp} unread count off: counted`, counts[badgeApp], '| shown', uiState().counts[badgeApp], '| glow', glowWin.isVisible(), '(expect 3, 0, false)');
+  setCount(badgeApp, 0);
+  setAppPref(badgeApp, 'badge', true);
+
+  // RAM saver: an app set to sleep unloads after being unused, and wakes up when opened
+  const sleeper = enabledApps().find((id) => id !== settings.get('active')) || enabledApps()[0];
+  const memBefore = memoryStats();
+  setAppPref(sleeper, 'sleep', true);
+  lastUsed[sleeper] = 0;
+  sleepCheck();
+  await wait(2500);
+  const memAfter = memoryStats();
+  log(`${sleeper} sleep: asleep`, asleep[sleeper], '| page loaded', !!views[sleeper], `| RAM ${memBefore.total} MB -> ${memAfter.total} MB`,
+    `(${memBefore.processes} -> ${memAfter.processes} processes)`, '(expect true, false, less)');
+  openPanel(sleeper, 'selftest');
+  await wait(1500);
+  log(`${sleeper} opened: asleep`, asleep[sleeper], '| page loaded', !!views[sleeper], '(expect false, true)');
+  setAppPref(sleeper, 'sleep', false);
+  closePanel(true);
+  await wait(600);
+  log('RAM now:', JSON.stringify(memoryStats()));
   log('selftest done');
   if (!argv.includes('--keep')) quit();
 }

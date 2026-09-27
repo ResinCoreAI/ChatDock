@@ -68,7 +68,7 @@ function hwnd() {
   return winHwnd;
 }
 
-// toast: { appId, appName, iconName, accent, title, body, icon, tag, sourceId, action?, sticky? }
+// toast: { appId, appName, iconName, accent, title, body, icon, meta, hint, tag, sourceId, chime, action?, sticky? }
 function push(toast) {
   if (!win) return;
   if (toast.tag) {
@@ -89,13 +89,16 @@ function render(isNew) {
     return;
   }
   const visible = items.slice(0, maxVisible());
+  const more = items.length - visible.length;
   win.webContents.send('toasts', {
     items: visible.map(({ key, appId, appName, iconName, accent, title, body, icon, meta, hint }) => ({
       key, appId, appName, iconName, accent, title, body, icon, meta, hint,
     })),
-    more: items.length - visible.length,
+    more,
+    labels: { more: d.t('toast.more', { n: more }), close: d.t('toast.close') },
+    lang: d.lang(),
     position: d.position(),
-    chime: !!(isNew && d.sound()),
+    chime: !!(isNew && items[0].chime), // the newest card decides (per-app chime switch)
   });
   if (!win.isVisible() && !pendingShow) {
     // Wait for the renderer to report the stack's height, so the window never shows at a wrong size.

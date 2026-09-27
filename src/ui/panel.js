@@ -4,6 +4,7 @@ const $ = (sel) => document.querySelector(sel);
 const nav = $('.apps');
 let tabsKey = '';
 let side = '';
+let lang = '';
 
 // One tab per switched-on app: the active one shows its name, the others just the icon + unread count.
 function renderTabs(s) {
@@ -11,12 +12,11 @@ function renderTabs(s) {
   if (key !== tabsKey) {
     tabsKey = key;
     nav.textContent = '';
-    s.apps.forEach((a, i) => {
+    for (const a of s.apps) {
       const btn = document.createElement('button');
       btn.className = 'app';
       btn.dataset.app = a.id;
       btn.setAttribute('role', 'tab');
-      btn.title = i < 9 ? `${a.name} (Ctrl+${i + 1})` : a.name;
       const ico = document.createElement('span');
       ico.className = 'ico';
       ico.innerHTML = window.iconHTML(a.icon);
@@ -29,25 +29,28 @@ function renderTabs(s) {
       btn.append(ico, name, badge);
       btn.addEventListener('click', () => chatdock.send('app:select', a.id));
       nav.append(btn);
-    });
+    }
   }
-  for (const btn of nav.children) {
-    const id = btn.dataset.app;
-    const active = id === s.active;
+  s.apps.forEach((a, i) => {
+    const btn = nav.children[i];
+    const active = a.id === s.active;
     btn.classList.toggle('active', active);
+    btn.classList.toggle('asleep', !!a.asleep); // RAM saver: dimmed until opened
     btn.setAttribute('aria-selected', String(active));
-    const n = s.counts[id] || 0;
+    btn.title = a.asleep ? i18n.t('panel.appTabSleeping', { name: a.name })
+      : i < 9 ? i18n.t('panel.appTab', { name: a.name, n: i + 1 }) : a.name;
+    const n = s.counts[a.id] || 0;
     const badge = btn.querySelector('.badge');
     badge.textContent = n > 99 ? '99+' : String(n);
     badge.hidden = n === 0;
-  }
+  });
 }
 
 function renderHotkey(label) {
   for (const el of document.querySelectorAll('.hotkey-keys')) {
     el.textContent = '';
     if (!label) {
-      el.textContent = '(ยังไม่ได้ตั้ง — เลือกได้ในตั้งค่า)';
+      el.textContent = i18n.t('hotkey.none');
       continue;
     }
     label.split(' + ').forEach((key, i) => {
@@ -59,6 +62,32 @@ function renderHotkey(label) {
   }
 }
 
+// Language pickers (welcome screen and settings): "Automatic" + each language in its own name.
+function renderLangSelects(pref) {
+  for (const sel of document.querySelectorAll('[data-lang-select]')) {
+    if (!sel.options.length) {
+      sel.append(new Option('', 'auto'));
+      for (const l of window.CHATDOCK_I18N.LANGS) sel.append(new Option(l.name, l.id));
+    }
+    sel.options[0].textContent = i18n.t('lang.auto');
+    if (pref) sel.value = pref;
+  }
+}
+
+// Everything that has to be written again in a new language.
+function translatePage(s) {
+  i18n.set(s.lang);
+  i18n.vars = {
+    hotkey: '<span class="hotkey-keys"></span>',
+    pin: '<span class="inline-ico" data-icon="pin"></span>',
+    gear: '<span class="inline-ico" data-icon="gear"></span>',
+  };
+  i18n.apply();
+  window.fillIcons();
+  side = ''; // step 1 of the welcome screen depends on the side
+  delete $('#step2').dataset.key; // and step 2 on whether there is a hotkey
+}
+
 // Docked on the left: the page mirrors (grip on the right, hide arrow points left).
 function renderSide(s) {
   if (s.side === side) return;
@@ -66,7 +95,7 @@ function renderSide(s) {
   const left = side === 'left';
   document.body.classList.toggle('left', left);
   $('#hide .hide-ico').innerHTML = window.iconHTML(left ? 'chevronLeft' : 'chevronRight');
-  for (const el of document.querySelectorAll('.side-word')) el.textContent = left ? 'ซ้าย' : 'ขวา';
+  $('#step1').innerHTML = i18n.t(left ? 'welcome.step1.left' : 'welcome.step1.right');
 }
 
 function renderUpdate(u) {
@@ -75,32 +104,36 @@ function renderUpdate(u) {
   const available = u && u.status === 'available';
   chip.hidden = !(ready || available);
   if (chip.hidden) return;
-  chip.querySelector('.label').textContent = ready ? `อัปเดต ${u.version}` : 'มีอัปเดต';
-  chip.title = ready
-    ? `ChatDock ${u.version} ดาวน์โหลดแล้ว — คลิกเพื่อติดตั้ง (ใช้เวลาไม่กี่วินาที แล้วเปิดขึ้นมาเอง)`
-    : `มี ChatDock ${u.version} — คลิกเพื่อดูรายละเอียด`;
+  chip.querySelector('.label').textContent = ready ? i18n.t('panel.updateReady', { version: u.version }) : i18n.t('panel.updateAvailable');
+  chip.title = i18n.t(ready ? 'panel.updateReadyTitle' : 'panel.updateAvailableTitle', { version: u.version });
 }
 
 function render(s) {
+  if (s.lang !== lang) {
+    lang = s.lang;
+    translatePage(s);
+  }
   renderSide(s);
   renderTabs(s);
   renderUpdate(s.update);
+  renderLangSelects(s.langPref);
+  const t = i18n.t;
   $('#settings-btn').classList.toggle('on', !!s.settingsOpen);
-  $('#settings-btn').title = s.settingsOpen ? 'ปิดตั้งค่า กลับไปที่แชท' : 'ตั้งค่า';
+  $('#settings-btn').title = t(s.settingsOpen ? 'panel.settingsClose' : 'panel.settings');
 
   const pin = $('#pin');
   pin.classList.toggle('on', s.pinned);
-  pin.title = s.pinned
-    ? 'ปักหมุดอยู่ — แชทจะค้างไว้แม้คลิกที่อื่น (คลิกเพื่อเลิกปักหมุด)'
-    : 'ปักหมุด — ให้แชทค้างไว้แม้คลิกที่อื่น';
-  $('#hide').title = s.hotkey ? `ซ่อนแชท (${s.hotkey} หรือ Esc 2 ครั้ง)` : 'ซ่อนแชท (Esc 2 ครั้ง)';
+  pin.title = t(s.pinned ? 'panel.pinOn' : 'panel.pinOff');
+  $('#hide').title = s.hotkey ? t('panel.hideHotkey', { hotkey: s.hotkey }) : t('panel.hide');
 
   const zoom = Math.round((s.zoom || 1) * 100);
   $('#zoom').hidden = zoom === 100;
   $('#zoom').textContent = `${zoom}%`;
 
   const activeApp = s.apps.find((a) => a.id === s.active);
-  for (const el of document.querySelectorAll('.app-name')) el.textContent = activeApp ? activeApp.name : '';
+  const appName = activeApp ? activeApp.name : '';
+  $('#loading-text').textContent = t('loading.text', { app: appName });
+  $('#error-title').textContent = t('error.title', { app: appName });
 
   const settingsOn = !!s.settingsOpen;
   const welcome = !settingsOn && (s.help || !s.onboarded);
@@ -116,8 +149,13 @@ function render(s) {
   document.body.classList.toggle('with-banner', !!s.banner);
   $('#banner').hidden = !s.banner;
 
-  $('#start').textContent = s.onboarded ? 'กลับไปที่แชท' : 'เริ่มใช้งาน — ล็อกอินแอปแชท';
+  $('#start').textContent = t(s.onboarded ? 'welcome.back' : 'welcome.start');
   $('#autostart-row').hidden = s.onboarded || !s.canAutostart;
+  const step2 = s.hotkey ? 'welcome.step2' : 'welcome.step2none';
+  if ($('#step2').dataset.key !== step2 || !$('#step2').firstChild) {
+    $('#step2').dataset.key = step2;
+    $('#step2').innerHTML = t(step2, i18n.vars);
+  }
   renderHotkey(s.hotkey);
 }
 
@@ -132,6 +170,7 @@ $('#update').addEventListener('click', () => chatdock.send('panel:update'));
 $('#start').addEventListener('click', () => {
   chatdock.send('onboarding:done', { autostart: $('#autostart').checked });
 });
+$('#welcome [data-lang-select]').addEventListener('change', (e) => chatdock.send('settings:set', 'lang', e.target.value));
 
 // Drag the inner edge to resize. We send where that edge should be (screen DIP) once per frame:
 // the panel's left edge when docked right, its right edge when docked left.

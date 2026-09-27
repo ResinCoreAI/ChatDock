@@ -49,6 +49,7 @@ body:hover .pill { width: 46px; }
   transition: background .12s, transform .12s;
 }
 .app:hover { background: #f0f0f4; transform: scale(1.06); }
+.app.asleep svg { opacity: .4; filter: grayscale(.7); } /* sleeping to save RAM */
 .app:active { transform: scale(.94); }
 .app svg { display: block; width: 22px; height: 22px; }
 
