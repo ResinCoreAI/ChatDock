@@ -3,7 +3,9 @@
 // Updates from the project's GitHub Releases (electron-updater).
 // Checks quietly (on start + every 6 h), can fetch the installer in the background, and only
 // installs when the user presses the button. The download is checked against the SHA-512 in the
-// release's latest.yml before it runs.
+// release's latest.yml before it runs. Installing shows ChatDock's "Updating" window, then the
+// installer's own progress window, and ChatDock starts again by itself.
+// Releases are called "Beta Build N" and carry version 1.N.0 (see buildName in ui/i18n.js).
 
 const { app } = require('electron');
 
@@ -24,11 +26,27 @@ function getState() {
   return { ...state, current: app.getVersion(), enabled: !!autoUpdater };
 }
 
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', rsquo: '’', lsquo: '‘', rarr: '→', mdash: '—', ndash: '–', hellip: '…',
+};
+
+// GitHub hands the release notes over as HTML: keep headings and list items as lines of text.
 function notesOf(info) {
   const n = info && info.releaseNotes;
   if (!n) return '';
-  const text = Array.isArray(n) ? n.map((x) => x.note || '').join('\n') : String(n);
-  return text.replace(/<[^>]+>/g, '').trim().slice(0, 1500);
+  const html = Array.isArray(n) ? n.map((x) => x.note || '').join('\n') : String(n);
+  return html
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/(li|p|h\d|ul|ol|div)>|<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e) => {
+      if (e[0] === '#') return String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+      return ENTITIES[e.toLowerCase()] ?? m;
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n(?:[ \t]*\n)+/g, '\n')
+    .replace(/^\s+|\s+$/g, '')
+    .slice(0, 1500);
 }
 
 function init(deps) {
@@ -93,7 +111,7 @@ function scheduleChecks() {
 
 async function check() {
   if (!autoUpdater) return getState();
-  if (state.status === 'checking' || state.status === 'downloading' || state.status === 'ready') return getState();
+  if (['checking', 'downloading', 'ready', 'installing'].includes(state.status)) return getState();
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
@@ -112,11 +130,23 @@ async function download() {
   }
 }
 
-// Quit, run the new installer silently, start the new version.
-function install() {
+// Show the "Updating" window, quit, and let the installer run with its progress window showing;
+// it starts the new version when it is done.
+async function install() {
   if (!autoUpdater || state.status !== 'ready') return false;
-  d.beforeInstall();
-  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  set({ status: 'installing' });
+  try {
+    await d.beforeInstall(getState());
+  } catch (err) {
+    d.log('before install:', String(err));
+  }
+  autoUpdater.quitAndInstall(false, true);
+  // Normally ChatDock has quit long before this. If not, the installer didn't start (its 'error'
+  // event says why): close the "Updating" window and let the user try again.
+  setTimeout(() => {
+    if (state.status === 'installing') set({ status: 'ready' });
+    d.installFailed();
+  }, 20000);
   return true;
 }
 

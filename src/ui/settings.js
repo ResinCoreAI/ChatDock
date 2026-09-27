@@ -317,24 +317,34 @@
 
   function renderUpdates() {
     const u = st.update;
-    setText('version', `v${st.version}`);
+    const next = st.updateName; // e.g. "Beta Build 4"
+    const news = st.whatsNew; // what's new in the build running now
+    setText('version', st.build);
+    setText('semver', t('about.version', { version: st.version }));
     const bar = q('.uc-bar');
     let text = '';
     let cls = '';
     switch (u.status) {
       case 'dev': text = t('upd.dev'); break;
       case 'checking': text = t('upd.checking'); break;
-      case 'latest': text = t('upd.latest') + (u.checkedAt ? t('upd.checkedAt', { time: clock(u.checkedAt) }) : ''); cls = 'ok'; break;
-      case 'available': text = t('upd.available', { version: u.version }); cls = 'new'; break;
-      case 'downloading': text = t('upd.downloading', { version: u.version, percent: u.percent || 0 }); cls = 'new'; break;
-      case 'ready': text = t('upd.ready', { version: u.version }); cls = 'new'; break;
+      case 'latest':
+        text = (news && news.justUpdated ? `${t('upd.justUpdated', { version: st.build })} · ` : '')
+          + t('upd.latest') + (u.checkedAt ? t('upd.checkedAt', { time: clock(u.checkedAt) }) : '');
+        cls = 'ok';
+        break;
+      case 'available': text = t('upd.available', { version: next }); cls = 'new'; break;
+      case 'downloading': text = t('upd.downloading', { version: next, percent: u.percent || 0 }); cls = 'new'; break;
+      case 'ready': text = t('upd.ready', { version: next }); cls = 'new'; break;
+      case 'installing': text = t('updwin.installing'); cls = 'new'; break;
       case 'error': {
         const offline = /net::ERR_|ENOTFOUND|ETIMEDOUT|ECONN|EAI_AGAIN|getaddrinfo|socket hang up/i.test(u.error || '');
         text = offline ? t('upd.offline') : t('upd.error', { error: u.error || t('upd.unknown') });
         cls = 'err';
         break;
       }
-      default: text = t(st.prefs.updateAutoCheck ? 'upd.idleAuto' : 'upd.idle');
+      default:
+        text = news && news.justUpdated ? t('upd.justUpdated', { version: st.build }) : t(st.prefs.updateAutoCheck ? 'upd.idleAuto' : 'upd.idle');
+        if (news && news.justUpdated) cls = 'ok';
     }
     setText('updateStatus', text, cls);
     bar.hidden = u.status !== 'downloading';
@@ -344,9 +354,12 @@
     const check = q('[data-action="check-update"]');
     check.disabled = !u.enabled || u.status === 'checking' || u.status === 'downloading';
     check.hidden = u.status === 'ready';
+    // Notes of the update on its way, else what's new in the build we're on.
     const notes = q('.uc-notes');
-    notes.hidden = !u.notes || !['available', 'downloading', 'ready'].includes(u.status);
-    setText('notes', u.notes || '');
+    const coming = u.notes && ['available', 'downloading', 'ready', 'installing'].includes(u.status);
+    notes.hidden = !coming && !news;
+    setText('notesTitle', coming ? t('upd.notes') : news ? news.title : '');
+    setText('notes', coming ? u.notes : news ? news.text : '');
     q('.set-nav .dot').hidden = !(u.status === 'ready' || u.status === 'available');
   }
 

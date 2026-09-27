@@ -76,6 +76,9 @@ function uiLang() {
 function applyLanguage() {
   t = i18n.make(uiLang());
 }
+
+// Releases are called "Beta Build N" (version 1.N.0)
+const buildName = (version) => i18n.buildName(t, version);
 process.on('unhandledRejection', (err) => log('UNHANDLED REJECTION', err));
 
 // ---------------------------------------------------------------------------
@@ -123,6 +126,8 @@ const GLOW_H = 128;
 const EDGE_PX = 2; // cursor within this many px of the dock edge counts as "on the edge"
 const DWELL_MS = 150; // how long it has to rest there before the tab appears
 const TAB_LINGER_MS = 900; // tab stays this long after the cursor wanders off
+const TAB_FOLLOW_MARGIN = 26; // sliding along the edge, the cursor stays this far inside the pill
+const TAB_GLIDE = 0.35; // share of the remaining distance the tab covers per frame (~60 fps)
 const OPEN_MS = 200;
 const CLOSE_MS = 160;
 const AUTO_RETRY_MS = 15000;
@@ -154,6 +159,7 @@ const lastUsed = perApp(Date.now()); // last time the app was on screen, playing
 const childWindows = perApp(0); // open call / sign-in windows
 const SLEEP_AFTER_MS = 10 * 60 * 1000;
 let settingsTimer = null; // refreshes the RAM figures while the settings screen is open
+let updateWin = null; // "Updating ChatDock" window
 
 let panelState = 'hidden'; // hidden | opening | open | closing
 let helpMode = false; // welcome / how-to screen instead of the chats
@@ -178,6 +184,9 @@ let tabShownAt = 0;
 let tabForeground = 0;
 let tabLastForeground = 0;
 let tabCenterY = null;
+let tabY = 0; // where the tab is drawn (top edge, can be fractional while it glides)
+let tabTargetY = 0; // where it is heading
+let tabDrawnY = null;
 let lastInsideAt = 0;
 let dwellStart = 0;
 let tabHideTimer = null;
@@ -262,12 +271,30 @@ function init() {
     onState: () => broadcastState(),
     onAvailable: (s) => { if (!settings.get('updateAutoDownload')) announceUpdate(s); },
     onReady: (s) => announceUpdate(s),
-    beforeInstall: () => {
-      log('installing update', updater.getState().version);
+    beforeInstall: async (s) => {
+      log('installing update', s.version);
+      // Remembered so the new version can say "updated" and show what's new when it starts.
+      settings.set('pendingUpdate', { from: app.getVersion(), to: s.version, notes: s.notes || '' });
+      settings.flush();
+      toasts.dismissAll();
+      hideTab(true);
+      if (panelState !== 'hidden') closePanel(false, 'update');
+      await showUpdateWindow(s);
       quitting = true;
       settings.flush();
     },
+    // Still running well after handing over to the installer: it never started. Carry on as before.
+    installFailed: () => {
+      log('update install did not start');
+      quitting = false;
+      settings.set('pendingUpdate', null);
+      if (updateWin && !updateWin.isDestroyed()) updateWin.destroy();
+      updateWin = null;
+      broadcastState();
+    },
   });
+  const updatedFrom = detectUpdate();
+  if (updatedFrom) setTimeout(announceUpdated, 3500); // once the chats have started loading
   if (COOKIE_ENCRYPTION && !settings.get('cookiesMigrated')) {
     setTimeout(() => encryptOldCookies().catch((err) => log('cookie re-encryption failed', err)), 45000);
   }
@@ -1028,7 +1055,7 @@ function scheduleCountPopup(id) {
 // A pop-up was clicked: open the chat on that app and let the site open that conversation.
 function openFromToast(it, foreground) {
   toastForeground = foreground;
-  if (it.action === 'update') {
+  if (it.action === 'update' || it.action === 'whatsnew') {
     openSettings('updates', 'toast');
     return;
   }
@@ -1055,6 +1082,97 @@ function testPopup() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Installing an update, and saying so afterwards
+// ---------------------------------------------------------------------------
+// "Updating ChatDock" window, shown for a moment before ChatDock quits for the installer.
+function showUpdateWindow(s) {
+  const SHOW_MS = 1800;
+  return new Promise((resolve) => {
+    const wa = targetDisplay().workArea;
+    const w = 452;
+    const h = 196;
+    updateWin = new BrowserWindow({
+      width: w, height: h, x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + (wa.height - h) / 2),
+      show: false, frame: false, transparent: true, resizable: false, minimizable: false, maximizable: false,
+      fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: false, thickFrame: false,
+      title: 'ChatDock', webPreferences: uiWebPreferences(),
+    });
+    updateWin.setAlwaysOnTop(true, 'screen-saver');
+    lockDown(updateWin.webContents);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    updateWin.webContents.once('did-finish-load', () => {
+      updateWin.webContents.send('update:show', {
+        lang: uiLang(), from: buildName(app.getVersion()), to: buildName(s.version), ms: SHOW_MS,
+      });
+      updateWin.show();
+      setTimeout(finish, SHOW_MS + 200);
+    });
+    setTimeout(finish, SHOW_MS + 2500); // never hold the update up
+    updateWin.loadURL(uiUrl('update.html'));
+  });
+}
+
+// Did this start come right after an update? Returns the version we came from (or 'older').
+function detectUpdate() {
+  const now = app.getVersion();
+  const pending = settings.get('pendingUpdate');
+  const last = settings.get('lastVersion');
+  settings.set('lastVersion', now);
+  if (pending) settings.set('pendingUpdate', null);
+  let from = null;
+  if (pending && pending.to === now) from = pending.from;
+  else if (last && last !== now) from = last;
+  else if (!last && settings.get('onboarded')) from = 'older'; // builds before 3 didn't record their version
+  if (!from) return null;
+  settings.set('whatsNew', { version: now, from, notes: pending && pending.to === now ? pending.notes : '', at: Date.now() });
+  log('updated', from, '->', now);
+  return from;
+}
+
+// What's new in the version running now: our own translated list, else the release notes.
+function whatsNewState() {
+  const now = app.getVersion();
+  const n = i18n.build(now);
+  const key = `whatsnew.b${n}`;
+  const local = n ? t(key) : key;
+  const w = settings.get('whatsNew');
+  const mine = w && w.version === now;
+  const text = local !== key ? local : mine ? w.notes : '';
+  if (!text) return null;
+  return {
+    title: t('upd.notesFor', { version: buildName(now) }),
+    text,
+    justUpdated: !!(mine && Date.now() - (w.at || 0) < 24 * 60 * 60 * 1000),
+  };
+}
+
+// First start after an update: say so, and offer what's new.
+function announceUpdated() {
+  const version = buildName(app.getVersion());
+  const news = whatsNewState();
+  toasts.push({
+    appId: 'chatdock',
+    appName: 'ChatDock',
+    iconName: 'logo',
+    accent: '#22c55e',
+    meta: t('toast.updated'),
+    title: t('toast.updatedTitle', { version }),
+    body: news ? news.text.split('\n')[0].replace(/^•\s*/, '') : t('toast.updatedBody'),
+    hint: news ? t('toast.updatedBody') : '',
+    icon: '',
+    tag: 'chatdock:updated',
+    sourceId: 0,
+    action: 'whatsnew',
+    chime: false,
+  });
+}
+
 // A new version is downloaded (or found, when downloading is left to the user): one pop-up per
 // version. The update button in the panel header stays until it is installed.
 function announceUpdate(s) {
@@ -1069,7 +1187,7 @@ function announceUpdate(s) {
     iconName: 'logo',
     accent: '#8b5cf6',
     meta: t('toast.update'),
-    title: t(ready ? 'toast.updReadyTitle' : 'toast.updAvailTitle', { version: s.version }),
+    title: t(ready ? 'toast.updReadyTitle' : 'toast.updAvailTitle', { version: buildName(s.version) }),
     body: t(ready ? 'toast.updReadyBody' : 'toast.updAvailBody'),
     hint: t('toast.updHint'),
     chime: !!settings.get('popupSound'),
@@ -1554,30 +1672,36 @@ function edgeStep() {
   const zoneBottom = d.workArea.y + d.workArea.height - margin;
   const atEdge = left ? pt.x >= b.x && pt.x < b.x + EDGE_PX : pt.x >= right - EDGE_PX && pt.x <= right;
   const onEdge = atEdge && pt.y >= zoneTop && pt.y <= zoneBottom;
+  // A game that has taken the mouse (pointer hidden, or held inside the game) pushes the pointer
+  // against the screen edge whenever you aim or turn. That must never bring the tab out.
+  const captured = (onEdge || tabShown) && win32.mouseCaptured();
 
   if (tabShown) {
+    if (captured) {
+      hideTab(true);
+      return 60;
+    }
     const fg = win32.foregroundWindow();
     if (fg !== tabLastForeground) { // e.g. a topmost game was clicked and rose above the tab
       tabLastForeground = fg;
       raise(tabWin);
     }
     const r = tabWin.getBounds();
-    const pillTop = r.y + 16;
-    const pillBottom = r.y + r.height - 16;
     const insideX = left ? pt.x >= b.x && pt.x <= r.x + r.width + 30 : pt.x >= r.x - 30 && pt.x <= right;
     const inside = insideX && pt.y >= r.y - 30 && pt.y <= r.y + r.height + 30;
-    if (onEdge && (pt.y < pillTop || pt.y > pillBottom)) {
-      placeTab(pt.y); // slide along the edge with the cursor
+    if (onEdge) {
+      followCursor(pt.y); // slide along the edge with the cursor
       lastInsideAt = now;
     } else if (inside) {
       lastInsideAt = now;
     } else if (now - lastInsideAt > TAB_LINGER_MS) {
       hideTab(false);
     }
-    return 40;
+    glideTab();
+    return 16; // ~60 fps while the tab is out, so it glides instead of jumping
   }
 
-  if (onEdge && !win32.mouseButtonDown() && !(mode === 'no-fullscreen' && win32.isFullscreenAppActive())) {
+  if (onEdge && !captured && !win32.mouseButtonDown() && !(mode === 'no-fullscreen' && win32.isFullscreenAppActive())) {
     if (!dwellStart) dwellStart = now;
     else if (now - dwellStart >= DWELL_MS) {
       dwellStart = 0;
@@ -1591,11 +1715,45 @@ function edgeStep() {
   return near ? 40 : 110; // poll faster only while the cursor is near the edge
 }
 
-function placeTab(cursorY) {
+function clampTabY(y, h) {
   const d = targetDisplay();
-  const b = d.bounds;
+  return clamp(y, d.bounds.y + 4, d.workArea.y + d.workArea.height - h - 4);
+}
+
+// Put the tab centred on the cursor right away (when it appears, or when it grows / shrinks).
+function placeTab(cursorY) {
   const h = tabHeight();
-  const y = clamp(Math.round(cursorY - h / 2), b.y + 4, d.workArea.y + d.workArea.height - h - 4);
+  tabY = clampTabY(cursorY - h / 2, h);
+  tabTargetY = tabY;
+  tabDrawnY = null;
+  moveTab();
+}
+
+// The cursor slides along the edge: the pill is pushed along so the cursor stays inside it (with a
+// margin), instead of jumping to re-centre itself on the cursor.
+function followCursor(cursorY) {
+  const h = tabHeight();
+  const top = tabTargetY + 16 + TAB_FOLLOW_MARGIN;
+  const bottom = tabTargetY + h - 16 - TAB_FOLLOW_MARGIN;
+  if (cursorY < top) tabTargetY -= top - cursorY;
+  else if (cursorY > bottom) tabTargetY += cursorY - bottom;
+  tabTargetY = clampTabY(tabTargetY, h);
+}
+
+// One animation frame: cover part of the way to the target, so fast moves stay smooth.
+function glideTab() {
+  const diff = tabTargetY - tabY;
+  if (Math.abs(diff) < 0.5) tabY = tabTargetY;
+  else tabY += diff * TAB_GLIDE;
+  moveTab();
+}
+
+function moveTab() {
+  const b = targetDisplay().bounds;
+  const h = tabHeight();
+  const y = Math.round(tabY);
+  if (y === tabDrawnY) return;
+  tabDrawnY = y;
   tabWin.setBounds({ x: onLeft() ? b.x : b.x + b.width - TAB_W, y, width: TAB_W, height: h });
   tabCenterY = y + h / 2;
 }
@@ -1828,7 +1986,7 @@ function buildMenu() {
 
   return Menu.buildFromTemplate([
     ...(up.status === 'ready' ? [
-      { label: t('tray.updateNow', { version: up.version }), click: () => updater.install() },
+      { label: t('tray.updateNow', { version: buildName(up.version) }), click: () => updater.install() },
       { type: 'separator' },
     ] : []),
     {
@@ -2005,7 +2163,7 @@ function updateTray() {
     'ChatDock',
     parts.length ? t('tip.new', { list: parts.join(' · ') }) : t('tip.noNew'),
     !dndActive() ? '' : until === -1 ? t('tip.dnd') : t('tip.dndUntil', { time: clockTime(until) }),
-    up.status === 'ready' ? t('tip.update', { version: up.version }) : '',
+    up.status === 'ready' ? t('tip.update', { version: buildName(up.version) }) : '',
     hk && hotkeyOk ? t('tip.hotkey', { hotkey: hk }) : '',
   ].filter(Boolean).join('\n').slice(0, 127)); // Windows cuts tooltips at 127 characters
 }
@@ -2036,7 +2194,7 @@ function uiState() {
     panel: panelState,
     side: settings.get('side'),
     dnd: dndActive(),
-    update: { status: up.status, version: up.version, percent: up.percent },
+    update: { status: up.status, version: up.version, percent: up.percent, build: i18n.build(up.version), name: buildName(up.version) },
   };
 }
 
@@ -2072,6 +2230,9 @@ function settingsState() {
     dndUntil: settings.get('dndUntil'),
     update: updater.getState(),
     version: app.getVersion(),
+    build: buildName(app.getVersion()),
+    updateName: buildName(updater.getState().version),
+    whatsNew: whatsNewState(),
     packaged: app.isPackaged,
     autostartAvailable: canAutostart(),
     cookieEncryption: COOKIE_ENCRYPTION,
@@ -2665,6 +2826,58 @@ async function runSelfTest() {
   closePanel(true);
   await wait(600);
   log('RAM now:', JSON.stringify(memoryStats()));
+
+  // The tab glides along the edge: the cursor slides 300 px down; no frame may jump
+  const dsp = targetDisplay().bounds;
+  showTab(dsp.y + dsp.height / 2 - 150);
+  await wait(250);
+  let cursorY = dsp.y + dsp.height / 2 - 150;
+  let biggest = 0;
+  let prev = tabWin.getBounds().y;
+  for (let i = 0; i < 60; i += 1) {
+    if (i < 30) cursorY += 10; // 10 px per frame for 30 frames, then stop
+    followCursor(cursorY);
+    glideTab();
+    const y = tabWin.getBounds().y;
+    biggest = Math.max(biggest, Math.abs(y - prev));
+    prev = y;
+    await wait(16);
+  }
+  const tb2 = tabWin.getBounds();
+  log('tab glide: biggest step', biggest, 'px | cursor inside the pill at the end',
+    cursorY >= tb2.y + 16 && cursorY <= tb2.y + tb2.height - 16, '(expect <= 15, true)');
+  hideTab(true);
+  log('mouse taken by a game right now:', win32.mouseCaptured(), '| pointer hidden', win32.cursorHidden(), '| confined', win32.cursorConfined());
+
+  // Updating: the "Updating ChatDock" window, then the start after an update
+  log('build names:', buildName(app.getVersion()), '|', buildName('1.4.0'), '|', buildName('2.0.0'));
+  const shown = showUpdateWindow({ version: '1.4.0', notes: '' });
+  await wait(1300);
+  if (updateWin && !updateWin.isDestroyed()) {
+    await shot('30-update-window');
+    const img = await updateWin.webContents.capturePage();
+    if (argValue('shots')) fs.writeFileSync(path.join(argValue('shots'), '30-update-window-page.png'), img.toPNG());
+    log('update window:', JSON.stringify(await updateWin.webContents.executeJavaScript(
+      "[document.querySelector('.top b').textContent, document.getElementById('route').textContent, document.getElementById('step').textContent]")));
+  }
+  await shown;
+  if (updateWin && !updateWin.isDestroyed()) updateWin.destroy();
+  settings.set('whatsNew', { version: app.getVersion(), from: '1.2.0', notes: '', at: Date.now() });
+  announceUpdated();
+  await wait(900);
+  await shot('31-updated-popup');
+  log('updated pop-up:', JSON.stringify(await toasts.webContents().executeJavaScript(
+    "[document.querySelector('.card .title')?.textContent, document.querySelector('.card .body')?.textContent]")));
+  const upd = await toasts.webContents().executeJavaScript(
+    `(() => { const r = document.querySelector('.card').getBoundingClientRect();
+       return { x: Math.round(r.x + 70), y: Math.round(r.y + r.height / 2) }; })()`);
+  for (const type of ['mouseDown', 'mouseUp']) toasts.webContents().sendInputEvent({ type, ...upd, button: 'left', clickCount: 1 });
+  await wait(1500);
+  log('after clicking it: settings', settingsMode, '| notes box', JSON.stringify(await panelWin.webContents.executeJavaScript(
+    "[!document.querySelector('.uc-notes').hidden, document.querySelector('[data-text=notesTitle]').textContent]")), '(expect true, [true, what\'s new…])');
+  await shot('32-whats-new');
+  closePanel(true);
+  await wait(600);
   log('selftest done');
   if (!argv.includes('--keep')) quit();
 }

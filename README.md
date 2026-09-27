@@ -10,7 +10,7 @@ Instagram · Facebook · X · Discord (+ Telegram, WhatsApp) in one panel that h
 edge of the screen, slides out when you need it, and pops up who messaged you — even over a
 borderless game.
 
-[![Latest release](https://img.shields.io/github/v/release/ResinCoreAI/ChatDock?label=download&color=8b5cf6)](https://github.com/ResinCoreAI/ChatDock/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/ResinCoreAI/ChatDock?label=download&color=8b5cf6&display_name=release)](https://github.com/ResinCoreAI/ChatDock/releases/latest)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -108,6 +108,8 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 ## Gaming tips
 
 - Set the game to **Borderless** or **Windowed fullscreen**. Then the panel and pop-ups float over it.
+- Games that take over the mouse (FPS aiming, camera turning) never pull the white tab out: while a
+  game hides the pointer or holds it inside its window, ChatDock ignores the screen edge.
 - **Exclusive fullscreen** games can't be drawn over by anything. Opening the chat minimizes the game
   for a moment (a yellow bar explains this), and hiding the chat brings it back.
 - Games where the mouse lives on the screen edge (MOBA / RTS camera scrolling): set
@@ -139,10 +141,14 @@ Settings → Security also lets you hide ChatDock from screen capture and log ou
 ## Updates
 
 ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/ChatDock/releases)
-shortly after it starts and every 6 hours. It downloads a new version in the background, then shows
-a pop-up and an **Update** button in the panel header. Nothing is installed until you press it;
-then ChatDock restarts on the new version in a few seconds. Both automatic checking and background
-downloading can be turned off under Settings → Updates.
+shortly after it starts and every 6 hours. It downloads a new version in the background (usually just
+the changed parts, a few MB), then shows a pop-up and an **Update** button in the panel header.
+Nothing is installed until you press it. Then an *Updating ChatDock* window shows the progress, the
+installer's progress window follows, and ChatDock starts again by itself with a “now on Beta Build N ✓”
+pop-up and a *What's new* list. Both automatic checking and background downloading can be turned off
+under Settings → Updates.
+
+Releases are called **Beta Build 1, 2, 3, …**; build *N* is version `1.N.0` inside.
 
 ## Troubleshooting
 
@@ -171,9 +177,10 @@ npm run dist         # build the installer: dist/ChatDock-Setup-<version>.exe (+
 Publishing a release (the installed apps pick it up automatically):
 
 ```bash
-# bump "version" in package.json, then
+# Beta Build N = version 1.N.0: raise the middle number of "version" in package.json
+# (and add "whatsnew.bN" to src/ui/i18n.js for the in-app What's new), then
 npm run dist
-gh release create v1.2.0 dist/ChatDock-Setup-1.2.0.exe dist/ChatDock-Setup-1.2.0.exe.blockmap dist/latest.yml --title "ChatDock 1.2.0" --notes "What changed"
+gh release create v1.4.0 dist/ChatDock-Setup-1.4.0.exe dist/ChatDock-Setup-1.4.0.exe.blockmap dist/latest.yml --title "ChatDock Beta Build 4" --notes "What changed"
 ```
 
 Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>]`

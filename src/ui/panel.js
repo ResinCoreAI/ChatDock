@@ -104,8 +104,9 @@ function renderUpdate(u) {
   const available = u && u.status === 'available';
   chip.hidden = !(ready || available);
   if (chip.hidden) return;
-  chip.querySelector('.label').textContent = ready ? i18n.t('panel.updateReady', { version: u.version }) : i18n.t('panel.updateAvailable');
-  chip.title = i18n.t(ready ? 'panel.updateReadyTitle' : 'panel.updateAvailableTitle', { version: u.version });
+  chip.querySelector('.label').textContent = !ready ? i18n.t('panel.updateAvailable')
+    : u.build ? i18n.t('panel.updateChip', { n: u.build }) : u.name;
+  chip.title = i18n.t(ready ? 'panel.updateReadyTitle' : 'panel.updateAvailableTitle', { version: u.name });
 }
 
 function render(s) {
