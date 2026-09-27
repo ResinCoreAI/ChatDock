@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "ChatDock's own pages: listen for their messages and send 'ui_send'. The chat sites never get the IPC bridge.",
+  "windows": ["panel", "tab", "glow", "edge", "toasts", "update"],
+  "permissions": ["core:default"]
+}

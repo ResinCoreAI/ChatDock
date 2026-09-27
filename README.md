@@ -44,10 +44,10 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
 | ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
-| 🧠 **Light on RAM** | See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). ChatDock’s own screens share one process. |
+| 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). |
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
-| 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, locked-down app files. See [Privacy & security](#privacy--security). |
-| ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, and installs only when you press **Update**. |
+| 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, signed updates. See [Privacy & security](#privacy--security). |
+| ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. |
 | ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
 | 🎥 **Streaming-safe** | Optionally hide the panel and pop-ups from screenshots, OBS and Discord screen share. |
@@ -64,18 +64,24 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 
 ## Install
 
-1. Download **`ChatDock-Setup-x.y.z.exe`** from the [latest release](https://github.com/ResinCoreAI/ChatDock/releases/latest).
+1. Download **`ChatDock_x.y.z_x64-setup.exe`** from the [latest release](https://github.com/ResinCoreAI/ChatDock/releases/latest).
 2. Run it. It installs for your Windows user only (no admin rights needed), adds Start-menu and
-   desktop shortcuts, and starts ChatDock.
+   desktop shortcuts, and starts ChatDock. (It uses Microsoft Edge WebView2, which Windows 11 already
+   has; on Windows 10 the installer fetches it if it's missing.)
 3. The welcome screen slides out (pick your language at its top right): press **Get started** and log in
    to each chat app once, with its normal login page. ChatDock remembers the logins.
 
 > [!IMPORTANT]
-> The installer isn't code-signed, so Windows SmartScreen may say *"Windows protected your PC"*.
-> Click **More info → Run anyway**. The SHA-512 of every installer is listed in the release's `latest.yml`.
+> The installer isn't code-signed with a Windows certificate, so SmartScreen may say *"Windows protected
+> your PC"*. Click **More info → Run anyway**. (Updates inside ChatDock are checked against ChatDock's own
+> signing key before they run.)
 
-To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins stay in
-`%APPDATA%\ChatDock` unless you clear them first (Settings → Security → Clear all data).
+To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins and settings stay in
+`%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller (or clear them first
+under Settings → Security → Clear all data).
+
+Coming from Beta Build 1.4 or older (the Electron builds)? Just press **Update** as usual: the new
+installer replaces the old copy, and your logins, settings and "start with Windows" carry over.
 
 ## Using it
 
@@ -126,15 +132,15 @@ server, sends nothing anywhere, and never sees your passwords.
 
 | | |
 |---|---|
-| **Encrypted cookies** | Logins and cookies are stored encrypted with your Windows account's key (DPAPI, via Electron's cookie-encryption fuse). Copied to another PC or user, they are useless. Cookies saved by the old portable 1.0 build are re-encrypted once. |
-| **Isolated logins** | Every app has its own storage partition; one site can't read another's cookies. |
-| **Sandboxed pages** | All pages run in Chromium's sandbox with context isolation and no Node.js. The chat sites get nothing from ChatDock except the notification hand-off and the passkey guard below. |
-| **No local access** | Chat pages can't reach programs on your PC (`localhost` is blocked) and can't open ChatDock's own pages. |
+| **Encrypted cookies** | Logins and cookies are stored encrypted with your Windows account's key (DPAPI, by WebView2 — the Microsoft Edge engine). Copied to another PC or user, they are useless. |
+| **Isolated logins** | Every app has its own WebView2 profile; one site can't read another's cookies or storage. |
+| **Sandboxed pages** | All pages run in WebView2's Chromium sandbox. The chat sites get nothing from ChatDock except the notification hand-off and the passkey guard below; ChatDock's own screens talk to the app only through a fixed list of messages. |
+| **No local access** | Chat pages can't reach programs on your PC (requests and WebSockets to `localhost` are blocked) and can't open ChatDock's own pages. |
 | **Private IP stays private** | WebRTC is limited to the default route and never lists your local addresses. |
 | **Only what's needed** | Permissions (notifications, mic/camera for calls, …) are granted only to the app's own domains. Links that leave the app open in your normal browser. |
-| **Locked app files** | Release builds enable Electron fuses: the `app.asar` integrity is checked at start, and `RunAsNode`, `NODE_OPTIONS` and `--inspect` are disabled. A tampered ChatDock won't start. |
+| **Small attack surface** | One native `ChatDock.exe` with its screens built in: no Node.js inside, nothing to inject scripts into, developer tools off in releases. |
 | **No surprise passkey dialogs** | Login pages that ask for passkeys on their own (Meta, Discord) would pop Windows' passkey dialog over your game. ChatDock turns passkeys off, so use a password or QR code to log in. |
-| **Safe updates** | Updates come over HTTPS from this repository's releases. Each download is checked against the SHA-512 in `latest.yml` before it runs, and it installs only when you press the button. |
+| **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away. It installs only when you press the button. |
 | **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text. |
 
 Settings → Security also lets you hide ChatDock from screen capture and log out of every app
@@ -143,15 +149,16 @@ Settings → Security also lets you hide ChatDock from screen capture and log ou
 ## Updates
 
 ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/ChatDock/releases)
-shortly after it starts and every 6 hours. It downloads a new version in the background (usually just
-the changed parts, a few MB), then shows a pop-up and an **Update** button in the panel header.
+shortly after it starts and every 6 hours. It downloads a new version in the background (a few MB)
+and checks its signature, then shows a pop-up and an **Update** button in the panel header.
 Nothing is installed until you press it. Then an *Updating ChatDock* window shows the progress, the
-installer's progress window follows, and ChatDock starts again by itself with a “now on Beta Build 1.4 ✓”
+installer's progress bar follows, and ChatDock starts again by itself with a “now on Beta Build 1.5 ✓”
 pop-up and a *What's new* list. Both automatic checking and background downloading can be turned off
 under Settings → Updates.
 
 Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number without its trailing `.0`
-(Beta Build 1.4 is version `1.4.0`).
+(Beta Build 1.5 is version `1.5.0`). Beta Build 1.5 moved ChatDock from Electron to
+[Tauri](https://tauri.app/); 1.4 and older are the Electron builds (tag `v1.4.0` has their source).
 
 ## Troubleshooting
 
@@ -163,55 +170,61 @@ Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number withou
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |
 | "Continue with Google" on X fails | Google blocks sign-in inside embedded browsers. Use X's own username + password. |
 | Windows Firewall asks about ChatDock | Not needed for chatting. *Cancel* is fine. |
+| A chat page stays blank | ChatDock needs Microsoft Edge WebView2 (built into Windows 11). Reinstalling ChatDock fetches it on Windows 10. |
 | Anything else | Send `%APPDATA%\ChatDock\chatdock.log`: it has no chat content. |
 
 ## Build from source
 
-Requires Windows 10/11, [Node.js](https://nodejs.org/) 22+ and Git.
+Requires Windows 10/11, [Rust](https://rustup.rs/) (stable, MSVC), [Node.js](https://nodejs.org/) 22+
+(for the Tauri CLI) and Git.
 
 ```bash
 git clone https://github.com/ResinCoreAI/ChatDock.git
 cd ChatDock
-npm install          # if npm blocks install scripts: node node_modules/electron/install.js
-npm start            # run from source (updates are disabled in this mode)
-npm run dist         # build the installer: dist/ChatDock-Setup-<version>.exe (+ .blockmap, latest.yml)
+npm install          # the Tauri CLI
+npm start            # run from source (a development build: own data folder, updates off)
+npm run dist         # build the installer: src-tauri/target/release/bundle/nsis/ChatDock_<version>_x64-setup.exe
 ```
 
 Publishing a release (the installed apps pick it up automatically):
 
 ```bash
-# Beta Build 1.N = version 1.N.0: raise the middle number of "version" in package.json
-# (and add "whatsnew.1.N" to src/ui/i18n.js for the in-app What's new), then
+# Beta Build 1.N = version 1.N.0: set "version" in src-tauri/tauri.conf.json, src-tauri/Cargo.toml and
+# package.json (and add "whatsnew.1.N" to ui/i18n-data.js for the in-app What's new). The installer's
+# update signature needs the signing key, which is kept outside the repository:
+#   TAURI_SIGNING_PRIVATE_KEY=<key file or its text>  TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<its password>
 npm run dist
-gh release create v1.5.0 dist/ChatDock-Setup-1.5.0.exe dist/ChatDock-Setup-1.5.0.exe.blockmap dist/latest.yml --title "ChatDock Beta Build 1.5" --notes "What changed"
+# then attach the installer, its .sig, latest.json (read by 1.5 and newer) and latest.yml (read by the
+# 1.4 and older Electron builds) to a GitHub release
 ```
 
-Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>]`
+Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>] [--keep]`
 (automatic end-to-end check; add `--selftest-only=edge` for just the frame clock, edge tab, hold line
-and pop-up checks, which never take focus from a game) · `--no-occlusion` (test with the screen locked) ·
-`--stress[=tab|keys|popup] [--side=left]` (real mouse/keyboard; needs a window titled `FAKE GAME`
-covering the screen) · `--demo-frames=<dir>` (records the README animation; see
-`scripts/make_demo_gif.py`). The stress and demo modules are not shipped in the installer.
+and pop-up checks, which never take focus from a game) · `--no-occlusion` (test with the screen locked).
+`CHATDOCK_UPDATE_FEED=http://127.0.0.1:<port>/latest.json` points the updater at a local test feed.
 
 <details>
 <summary>Project layout</summary>
 
 ```
-src/main.js          windows, edge detection, animations, hotkey, tray, settings, unread counts
-src/updater.js       GitHub release updates (electron-updater)
-src/toasts.js        message pop-ups (topmost, never take focus)
-src/frames.js        frame clock: moves windows once per screen refresh (vertical blank) while animating
-src/apps.js          the chat services (URLs, domains, colours, widths): add new ones here
-src/settings.js      settings store (%APPDATA%\ChatDock\settings.json)
-src/win32.js         Windows calls Electron lacks (focus hand-back, fullscreen detection) via koffi
-src/preload.js       bridge for ChatDock's own pages
-src/preload-site.js  passkey guard + notification hand-off for the chat sites
-src/ui/              panel + settings, edge tab, glow, hold line, pop-ups (served from chatdock://ui/)
-src/ui/i18n.js       every UI text in English, Thai, Chinese, Japanese and German
-src/stress.js        real-input stress test (dev only)
-src/demo.js          README animation recorder (dev only)
-build/installer.nsh  uninstall step: remove "start with Windows"
-scripts/             icon and README-media generators
+src-tauri/src/main.rs       start-up: plugins (one instance, hotkey, updater), windows
+src-tauri/src/core.rs       the app state and its rules; messages from ChatDock's own pages
+src-tauri/src/panel.rs      the panel: where it goes, sliding in and out, focus, settings screen, shortcuts
+src-tauri/src/chats.rs      the chat sites: one WebView2 per app, each with its own profile (login)
+src-tauri/src/edge.rs       edge detection, the white tab, the hold line, the unread glow
+src-tauri/src/toasts.rs     message pop-ups (topmost, never take focus)
+src-tauri/src/tray.rs       tray icon and menu, global hotkey
+src-tauri/src/updater.rs    signed GitHub release updates (tauri-plugin-updater)
+src-tauri/src/frames.rs     frame clock: moves windows once per screen refresh (vertical blank) while animating
+src-tauri/src/apps.rs       the chat services (URLs, domains, colours, widths): add new ones here
+src-tauri/src/settings.rs   settings store (%APPDATA%\ChatDock\settings.json)
+src-tauri/src/win32.rs      Windows calls Tauri lacks (focus hand-back, fullscreen detection)
+src-tauri/src/migrate.rs    carries logins over from the Electron builds (1.4 and older), once
+src-tauri/src/selftest.rs   --selftest
+src-tauri/windows/          installer template + hooks (replace the Electron copy when updating from it)
+ui/                         panel + settings, edge tab, glow, hold line, pop-ups, update window
+ui/i18n-data.js             every UI text in English, Thai, Chinese, Japanese and German
+scripts/                    icon and README-media generators
 ```
 
 </details>

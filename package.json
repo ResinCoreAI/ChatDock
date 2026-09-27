@@ -1,95 +1,22 @@
 {
   "name": "chatdock",
   "productName": "ChatDock",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Instagram, Facebook, X and Discord chats docked on the edge of your screen, always on top of your games.",
-  "main": "src/main.js",
   "private": true,
-  "author": "luraselenehalo",
   "license": "MIT",
+  "author": "luraselenehalo",
   "homepage": "https://github.com/ResinCoreAI/ChatDock",
   "repository": {
     "type": "git",
     "url": "https://github.com/ResinCoreAI/ChatDock.git"
   },
   "scripts": {
-    "start": "electron .",
-    "icons": "python scripts/make_icons.py",
-    "dist": "electron-builder --win nsis --x64 --publish never"
+    "start": "tauri dev",
+    "dist": "tauri build",
+    "tauri": "tauri"
   },
   "devDependencies": {
-    "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.9",
-    "koffi": "^3.3.1"
-  },
-  "build": {
-    "appId": "com.chatdock.app",
-    "productName": "ChatDock",
-    "copyright": "Copyright © 2026 luraselenehalo",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "src/**/*",
-      "!src/stress.js",
-      "!src/demo.js",
-      "assets/**/*",
-      "package.json",
-      "LICENSE"
-    ],
-    "asarUnpack": [
-      "**/*.node"
-    ],
-    "npmRebuild": false,
-    "extraMetadata": {
-      "cookieEncryption": true
-    },
-    "electronFuses": {
-      "runAsNode": false,
-      "enableCookieEncryption": true,
-      "enableNodeOptionsEnvironmentVariable": false,
-      "enableNodeCliInspectArguments": false,
-      "enableEmbeddedAsarIntegrityValidation": true,
-      "onlyLoadAppFromAsar": true,
-      "grantFileProtocolExtraPrivileges": false
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "assets/icon.ico",
-      "artifactName": "ChatDock-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "ChatDock",
-      "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false,
-      "installerIcon": "assets/icon.ico",
-      "uninstallerIcon": "assets/icon.ico",
-      "uninstallDisplayName": "ChatDock",
-      "include": "build/installer.nsh",
-      "installerHeaderIcon": "assets/icon.ico"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "ResinCoreAI",
-        "repo": "ChatDock",
-        "releaseType": "release"
-      }
-    ]
+    "@tauri-apps/cli": "2.11.2"
   }
 }

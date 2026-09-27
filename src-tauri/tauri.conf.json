@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ChatDock",
+  "mainBinaryName": "ChatDock",
+  "version": "1.5.0",
+  "identifier": "com.chatdock.app",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "ResinCore",
+    "homepage": "https://github.com/ResinCoreAI/ChatDock",
+    "copyright": "Copyright © 2026 luraselenehalo",
+    "category": "SocialNetworking",
+    "shortDescription": "Chat apps on the edge of your screen, over your games",
+    "longDescription": "Instagram, Facebook, X and Discord (plus Telegram and WhatsApp) in a panel that hides on the edge of the screen, slides out when you want it and stays on top of borderless games, with pop-ups that show who messaged you.",
+    "licenseFile": "../LICENSE",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/hooks.nsh",
+        "displayLanguageSelector": false,
+        "template": "windows/installer.nsi"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ResinCoreAI/ChatDock/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5RjdERDUzNUFGRUE4QzYKUldUR3FQNWFVOTMzR1lYTC9PRjBuODdyZXBGMEIzT3ZaTDBnU2hVK1VZQVpuLzI0cHpIQ1JBRTgK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
