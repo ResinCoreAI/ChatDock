@@ -58,7 +58,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 
 ## Install
 
-1. Download **`ChatDock-Setup-x.y.z.exe`** from the [latest release](https://github.com/luraselenehalo/ChatDock/releases/latest).
+1. Download **`ChatDock-Setup-x.y.z.exe`** from the [latest release](https://github.com/ResinCoreAI/ChatDock/releases/latest).
 2. Run it. It installs for your Windows user only (no admin rights needed), adds Start-menu and
    desktop shortcuts, and starts ChatDock.
 3. The welcome screen slides out: press **เริ่มใช้งาน** (Start) and log in to each chat app once, with
@@ -134,7 +134,7 @@ Settings → ความปลอดภัย also lets you hide ChatDock from 
 
 ## Updates
 
-ChatDock checks this repository's [releases](https://github.com/luraselenehalo/ChatDock/releases)
+ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/ChatDock/releases)
 shortly after it starts and every 6 hours. It downloads a new version in the background, then shows
 a pop-up and an **อัปเดต** (update) button in the panel header. Nothing is installed until you press it;
 then ChatDock restarts on the new version in a few seconds. Both automatic checking and background
@@ -201,7 +201,7 @@ scripts/             icon and README-media generators
 
 ## License
 
-[MIT](LICENSE) © 2026 luraselenehalo
+[MIT](LICENSE) © 2026 ResinCore
 
-ChatDock is an independent project and isn't affiliated with Meta, X, Discord, Telegram or WhatsApp.
-Their names and logos belong to their owners.
+ChatDock is an ResinCore project and isn't affiliated with Meta, X, Discord, Telegram or WhatsApp.
+Their names and logos belong to their teams.
