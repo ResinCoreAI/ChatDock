@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<title>ChatDock</title>
+<link rel="stylesheet" href="panel.css">
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div id="grip" title="ลากเพื่อปรับความกว้าง"></div>
+
+  <header id="bar">
+    <nav class="apps" role="tablist" aria-label="เลือกแอป"></nav>
+    <div class="tools">
+      <button id="update" class="chip update" hidden><span data-icon="arrowUp"></span><span class="label">อัปเดต</span></button>
+      <button id="zoom" class="chip" title="ขนาดตัวอักษร — คลิกเพื่อกลับเป็น 100% (Ctrl + ลูกกลิ้งเมาส์ เพื่อปรับ)" hidden></button>
+      <button id="reload" class="icon-btn" title="โหลดหน้าใหม่ (Ctrl+R)"><span data-icon="reload"></span></button>
+      <button id="pin" class="icon-btn" title="ปักหมุด"><span data-icon="pin"></span></button>
+      <button id="settings-btn" class="icon-btn" title="ตั้งค่า"><span data-icon="gear"></span></button>
+      <button id="hide" class="icon-btn" title="ซ่อนแชท"><span class="hide-ico" data-icon="chevronRight"></span></button>
+    </div>
+    <div id="progress"></div>
+  </header>
+
+  <div id="banner" hidden>
+    <p>🎮 เกมเปิดแบบ <b>Fullscreen เต็มรูปแบบ</b> แชทเลยต้องพับเกมลงชั่วคราว — ตั้งเกมเป็น <b>Borderless / Windowed Fullscreen</b> แชทจะลอยทับเกมได้เลย</p>
+    <button id="banner-close" title="ปิดข้อความนี้">✕</button>
+  </div>
+
+  <main id="stage">
+    <section id="loading" class="center" hidden>
+      <div class="spinner"></div>
+      <p>กำลังโหลด <span class="app-name"></span>…</p>
+    </section>
+
+    <section id="error" class="center" hidden>
+      <span class="err-icon" data-icon="warning"></span>
+      <h2>โหลด <span class="app-name"></span> ไม่สำเร็จ</h2>
+      <p>ตรวจสอบอินเทอร์เน็ต แล้วลองใหม่อีกครั้ง<br><small>ระบบจะลองใหม่ให้อัตโนมัติทุก 15 วินาที</small></p>
+      <button id="retry" class="primary">ลองใหม่</button>
+    </section>
+
+    <section id="welcome" hidden>
+      <div class="welcome">
+        <div class="brand">
+          <span class="logo" data-icon="logo"></span>
+          <div>
+            <h1>ChatDock</h1>
+            <p>แชท IG · Facebook · X · Discord ข้างจอ ไม่ต้องสลับหน้าต่าง</p>
+          </div>
+        </div>
+
+        <div class="demo" aria-hidden="true">
+          <div class="demo-game"><i></i><i></i><i></i></div>
+          <div class="demo-pill"></div>
+          <div class="demo-panel"><b></b><span class="in"></span><span class="out"></span><span class="in short"></span><span class="out"></span></div>
+          <svg class="demo-cursor" viewBox="0 0 16 16"><path d="M2 1.5v11.2l3-2.9 2 4.7 2.1-.9-2-4.6h4.2z" fill="#fff" stroke="#111" stroke-width="1" stroke-linejoin="round"/></svg>
+        </div>
+
+        <ol class="steps">
+          <li><b>เปิดแชท</b> — ชี้เมาส์ไปที่<b>ขอบ<span class="side-word">ขวา</span>ของจอ</b> แถบสีขาวจะโผล่ออกมา แล้วคลิก
+            <small>คลิกไอคอนแอปบนแถบ เพื่อเปิดแอปนั้นได้ทันที · ย้ายไปขอบซ้ายได้ในตั้งค่า</small></li>
+          <li><b>ปุ่มลัด</b> — กด <span class="hotkey-keys"></span> ได้ทุกที่ แม้กำลังเล่นเกม</li>
+          <li><b>ซ่อน</b> — คลิกที่อื่น, กดปุ่มลัดซ้ำ หรือกด <kbd>Esc</kbd> 2 ครั้ง
+            <small>ระบบจะพากลับไปที่เกม/โปรแกรมเดิมให้เอง ไม่ต้องคลิกเกมซ้ำ</small></li>
+          <li><b>ปักหมุด</b> <span class="inline-ico" data-icon="pin"></span> ถ้าอยากให้แชทค้างไว้ · <kbd>Ctrl</kbd>+<kbd>1</kbd>, <kbd>Ctrl</kbd>+<kbd>2</kbd>, … สลับแอป</li>
+        </ol>
+
+        <div class="note">💬 <b>มีคนทักมา</b> → ป๊อปอัพเด้งที่มุมจอ <b>ลอยทับเกมได้</b> บอกว่าใครทักและพิมพ์ว่าอะไร · คลิกเพื่อเปิดแชทนั้นเลย</div>
+        <div class="note">🔴 ยังไม่ได้อ่าน จะมี<b>แถบไฟเล็กๆ</b> ติดที่ขอบจอ และไอคอนในถาดมีจุดแดง</div>
+        <div class="note">🎮 <b>เล่นเกม:</b> ตั้งโหมดภาพของเกมเป็น <b>Borderless</b> หรือ <b>Windowed Fullscreen</b> แชทถึงจะลอยทับเกมได้</div>
+        <div class="note">🔒 ล็อกอินกับหน้าเว็บจริงของแต่ละแอปโดยตรง — ChatDock ไม่เก็บรหัสผ่าน และไม่ส่งข้อมูลไปที่อื่น (จำการล็อกอินไว้ในเครื่องนี้เท่านั้น แบบเข้ารหัส)</div>
+        <div class="note subtle">⚙️ เลือกแอป (มี Telegram, WhatsApp ด้วย), ย้ายซ้าย/ขวา, ตั้งป๊อปอัพ, ปุ่มลัด ฯลฯ ได้ที่ปุ่ม <span class="inline-ico" data-icon="gear"></span> ด้านบน หรือคลิกขวาไอคอน ChatDock ที่ถาดมุมขวาล่าง</div>
+
+        <label class="check" id="autostart-row" hidden><input type="checkbox" id="autostart" checked> เปิด ChatDock อัตโนมัติเมื่อเปิดเครื่อง</label>
+        <button id="start" class="primary big">เริ่มใช้งาน — ล็อกอินแอปแชท</button>
+      </div>
+    </section>
+
+    <section id="settings" hidden>
+      <div class="set-top">
+        <div class="set-head">
+          <h1>ตั้งค่า</h1>
+          <button class="icon-btn" data-action="close" title="กลับไปที่แชท"><span data-icon="close"></span></button>
+        </div>
+        <nav class="set-nav" aria-label="หมวดการตั้งค่า">
+          <button data-goto="general">ทั่วไป</button>
+          <button data-goto="look">ตำแหน่ง</button>
+          <button data-goto="apps">แอป</button>
+          <button data-goto="popups">ป๊อปอัพ</button>
+          <button data-goto="security">ความปลอดภัย</button>
+          <button data-goto="updates">อัปเดต<i class="dot" hidden></i></button>
+          <button data-goto="about">เกี่ยวกับ</button>
+        </nav>
+      </div>
+
+      <div class="set-body">
+        <!-- ─────────────── General ─────────────── -->
+        <section class="group" data-section="general">
+          <h2>ทั่วไป</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label"><b>เปิดพร้อม Windows</b><small data-text="autostartNote">รออยู่ที่ถาดไอคอน ไม่เด้งหน้าต่างตอนเปิดเครื่อง</small></div>
+              <label class="switch"><input type="checkbox" data-pref="autostart"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>ปุ่มลัดเปิด/ซ่อนแชท</b><small data-text="hotkeyNote">กดได้ทุกที่ แม้กำลังเล่นเกม</small></div>
+              <select data-pref="hotkey" data-hotkeys></select>
+            </div>
+            <div class="row">
+              <div class="label"><b>ปักหมุดแชท</b><small>แชทค้างไว้ ไม่ซ่อนเมื่อคลิกที่อื่น</small></div>
+              <label class="switch"><input type="checkbox" data-pref="pinned"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>ปิดเสียงจากหน้าแชท</b><small>เสียงเตือนของเว็บแชทเอง (ไม่รวมเสียงของป๊อปอัพ)</small></div>
+              <label class="switch"><input type="checkbox" data-pref="muted"><span></span></label>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────────── Position & look ─────────────── -->
+        <section class="group" data-section="look">
+          <h2>ตำแหน่งและหน้าตา</h2>
+          <div class="card">
+            <div class="row col">
+              <div class="label"><b>อยู่ขอบไหนของจอ</b><small>แชท แถบสีขาว และแถบไฟ ย้ายไปขอบนี้ทั้งหมด</small></div>
+              <div class="side-pick" role="radiogroup" aria-label="ขอบจอ">
+                <button class="mini-screen left" data-pref="side" data-value="left" role="radio"><i class="dock"></i><i class="pill"></i><span>ซ้าย</span></button>
+                <button class="mini-screen right" data-pref="side" data-value="right" role="radio"><i class="dock"></i><i class="pill"></i><span>ขวา</span></button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label"><b>ชี้เมาส์ที่ขอบจอ</b><small>ให้แถบสีขาวโผล่ออกมาเมื่อไร</small></div>
+              <select data-pref="edgeMode">
+                <option value="always">แสดงเสมอ (รวมตอนเล่นเกม)</option>
+                <option value="no-fullscreen">ไม่แสดงตอนเกม/วิดีโอเต็มจอ</option>
+                <option value="off">ปิด (ใช้ปุ่มลัดอย่างเดียว)</option>
+              </select>
+            </div>
+            <div class="row" data-show="multiDisplay">
+              <div class="label"><b>จอที่ใช้</b><small>มีหลายจอ: เลือกจอที่ ChatDock อยู่</small></div>
+              <select data-pref="displayId" data-type="number" data-displays></select>
+            </div>
+            <div class="row">
+              <div class="label"><b>แถบไฟเมื่อมีข้อความใหม่</b><small>เส้นสีเล็กๆ ที่ขอบจอ บอกว่ายังมีแชทที่ยังไม่อ่าน</small></div>
+              <label class="switch"><input type="checkbox" data-pref="glow"><span></span></label>
+            </div>
+            <div class="row col">
+              <div class="label"><b>ธีม</b></div>
+              <div class="seg" role="radiogroup" aria-label="ธีม">
+                <button data-pref="theme" data-value="system" role="radio">ตาม Windows</button>
+                <button data-pref="theme" data-value="dark" role="radio">มืด</button>
+                <button data-pref="theme" data-value="light" role="radio">สว่าง</button>
+              </div>
+            </div>
+            <div class="row col">
+              <div class="label"><b>ความทึบของหน้าต่างแชท</b><small>ลดลงเพื่อมองทะลุเห็นเกมด้านหลัง</small></div>
+              <div class="range"><input type="range" min="60" max="100" step="5" data-pref="opacity" data-scale="100"><output data-out="opacity">100%</output></div>
+            </div>
+            <div class="row">
+              <div class="label"><b>ความกว้างของแชท</b><small>ลากขอบด้านในของแชทเพื่อปรับ (จำแยกแต่ละแอป)</small></div>
+              <button class="secondary small" data-action="reset-widths">คืนค่าเดิม</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────────── Apps ─────────────── -->
+        <section class="group" data-section="apps">
+          <h2>แอปแชท</h2>
+          <div class="card" data-apps></div>
+          <p class="hint">แต่ละแอปแยกที่เก็บการล็อกอินของตัวเอง · ใช้แรมราว 150–300 MB ต่อแอป · LINE ใส่ไม่ได้ (ไม่มีเวอร์ชันเว็บ)</p>
+        </section>
+
+        <!-- ─────────────── Pop-ups ─────────────── -->
+        <section class="group" data-section="popups">
+          <h2>ป๊อปอัพแจ้งเตือน</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label"><b>เด้งป๊อปอัพเมื่อมีคนทักมา</b><small>ลอยทับเกมได้ ไม่แย่งเมาส์/คีย์บอร์ดจากเกม</small></div>
+              <label class="switch"><input type="checkbox" data-pref="popups"><span></span></label>
+            </div>
+            <div class="row col">
+              <div class="label"><b>ห้ามรบกวน</b><small data-text="dnd">ปิดอยู่</small></div>
+              <div class="chips" data-dnd>
+                <button data-action="dnd" data-arg="0">ปิด</button>
+                <button data-action="dnd" data-arg="30">30 นาที</button>
+                <button data-action="dnd" data-arg="60">1 ชม.</button>
+                <button data-action="dnd" data-arg="120">2 ชม.</button>
+                <button data-action="dnd" data-arg="480">8 ชม.</button>
+                <button data-action="dnd" data-arg="-1">จนกว่าจะปิดเอง</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label"><b>เงียบตอนเกม/วิดีโอเต็มจอ</b><small>ไม่เด้งเมื่อหน้าต่างที่ใช้อยู่เต็มจอ</small></div>
+              <label class="switch"><input type="checkbox" data-pref="popupQuietFullscreen"><span></span></label>
+            </div>
+          </div>
+
+          <div class="card" data-dim-when="popups-off">
+            <div class="row col">
+              <div class="label"><b>ตำแหน่งป๊อปอัพ</b><small>ถ้าแชทเปิดอยู่ฝั่งเดียวกัน ป๊อปอัพจะหลบไปข้างๆ ให้เอง</small></div>
+              <div class="corner-pick" role="radiogroup" aria-label="ตำแหน่งป๊อปอัพ">
+                <button class="c tl" data-pref="popupPosition" data-value="top-left" role="radio" title="มุมซ้ายบน"><i></i></button>
+                <button class="c tr" data-pref="popupPosition" data-value="top-right" role="radio" title="มุมขวาบน"><i></i></button>
+                <button class="c bl" data-pref="popupPosition" data-value="bottom-left" role="radio" title="มุมซ้ายล่าง"><i></i></button>
+                <button class="c br" data-pref="popupPosition" data-value="bottom-right" role="radio" title="มุมขวาล่าง"><i></i></button>
+                <span class="corner-label" data-text="cornerLabel"></span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label"><b>แสดงนาน</b><small>ชี้เมาส์ค้างไว้บนป๊อปอัพ = หยุดนับเวลา</small></div>
+              <select data-pref="popupDuration" data-type="number">
+                <option value="5">5 วินาที</option>
+                <option value="8">8 วินาที</option>
+                <option value="12">12 วินาที</option>
+                <option value="20">20 วินาที</option>
+                <option value="30">30 วินาที</option>
+                <option value="0">ค้างไว้จนกว่าจะปิด</option>
+              </select>
+            </div>
+            <div class="row col">
+              <div class="label"><b>แสดงพร้อมกันได้สูงสุด</b><small>ที่เหลือรวมเป็น “+ อีก N ข้อความ”</small></div>
+              <div class="seg" role="radiogroup" aria-label="จำนวนป๊อปอัพ">
+                <button data-pref="popupMax" data-value="1" data-type="number" role="radio">1</button>
+                <button data-pref="popupMax" data-value="2" data-type="number" role="radio">2</button>
+                <button data-pref="popupMax" data-value="3" data-type="number" role="radio">3</button>
+                <button data-pref="popupMax" data-value="4" data-type="number" role="radio">4</button>
+                <button data-pref="popupMax" data-value="5" data-type="number" role="radio">5</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label"><b>แสดงข้อความที่ทักมา</b><small>ปิด = บอกแค่ว่าใครทัก (กันคนข้างๆ แอบอ่าน)</small></div>
+              <label class="switch"><input type="checkbox" data-pref="popupText"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>แสดงรูปโปรไฟล์คนทัก</b></div>
+              <label class="switch"><input type="checkbox" data-pref="popupAvatar"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>เสียงเตือนของ ChatDock</b><small>เสียง “ติ๊ง” เบาๆ พร้อมป๊อปอัพ</small></div>
+              <label class="switch"><input type="checkbox" data-pref="popupSound"><span></span></label>
+            </div>
+            <div class="row col">
+              <div class="label"><b>เด้งจากแอปไหนบ้าง</b></div>
+              <div class="chips app-chips" data-popup-apps></div>
+            </div>
+            <div class="row">
+              <div class="label"><b>ลองดูหน้าตา</b></div>
+              <button class="secondary small" data-action="test-popup">ทดสอบป๊อปอัพ</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────────── Security ─────────────── -->
+        <section class="group" data-section="security">
+          <h2>ความปลอดภัยและความเป็นส่วนตัว</h2>
+          <div class="card">
+            <div class="sec-status" data-sec>
+              <span class="sec-ico" data-icon="shield"></span>
+              <div><b data-text="secTitle"></b><small data-text="secDesc"></small></div>
+            </div>
+            <ul class="facts">
+              <li>ล็อกอินกับหน้าเว็บจริงของแต่ละแอปโดยตรง — ChatDock ไม่เห็นและไม่เก็บรหัสผ่าน</li>
+              <li>แต่ละแอปแยกที่เก็บคุกกี้ของตัวเอง แอปหนึ่งอ่านข้อมูลของอีกแอปไม่ได้</li>
+              <li>หน้าแชททำงานใน sandbox: แตะไฟล์หรือโปรแกรมในเครื่องไม่ได้ และคุยกับโปรแกรมในเครื่องผ่าน localhost ไม่ได้</li>
+              <li>ลิงก์ที่ออกนอกแอปเปิดในเบราว์เซอร์ปกติของคุณ · ปิดหน้าต่าง passkey ของ Windows ที่เว็บชอบเด้งเอง</li>
+              <li data-show="packaged">ไฟล์โปรแกรมถูกล็อก: ถ้ามีใครแก้ไฟล์ของ ChatDock โปรแกรมจะไม่ยอมเปิด และปิดช่องทางสั่งรันโค้ดแปลกปลอม (RunAsNode, NODE_OPTIONS, --inspect)</li>
+              <li>อัปเดตดาวน์โหลดผ่าน HTTPS จาก GitHub ของโปรเจกต์ และตรวจ SHA-512 ก่อนติดตั้งทุกครั้ง</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="row">
+              <div class="label"><b>ซ่อนจากการแคปจอ/สตรีม</b><small>แชทและป๊อปอัพจะไม่ติดในรูปแคปจอ, OBS, Discord stream</small></div>
+              <label class="switch"><input type="checkbox" data-pref="hideFromCapture"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>ออกจากระบบทุกแอป</b><small>ลบคุกกี้ การล็อกอิน และแคชของทุกแอปในเครื่องนี้</small></div>
+              <button class="danger small" data-action="clear-all" data-confirm="กดอีกครั้งเพื่อยืนยัน">ล้างข้อมูลทั้งหมด</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────────── Updates ─────────────── -->
+        <section class="group" data-section="updates">
+          <h2>อัปเดต</h2>
+          <div class="card update-card">
+            <div class="uc-top">
+              <span class="uc-logo" data-icon="logo"></span>
+              <div class="uc-text"><b>ChatDock <span data-text="version"></span></b><small data-text="updateStatus"></small></div>
+            </div>
+            <div class="uc-bar" hidden><i></i></div>
+            <div class="uc-actions">
+              <button class="primary" data-action="install-update" hidden>อัปเดตเลย</button>
+              <button class="primary" data-action="download-update" hidden>ดาวน์โหลดอัปเดต</button>
+              <button class="secondary" data-action="check-update">ตรวจหาอัปเดต</button>
+            </div>
+            <div class="uc-notes" hidden><b>มีอะไรใหม่</b><p data-text="notes"></p></div>
+          </div>
+          <div class="card">
+            <div class="row">
+              <div class="label"><b>ตรวจหาอัปเดตอัตโนมัติ</b><small>ตอนเปิดโปรแกรม และทุก 6 ชั่วโมง</small></div>
+              <label class="switch"><input type="checkbox" data-pref="updateAutoCheck"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>ดาวน์โหลดไว้ล่วงหน้า</b><small>โหลดเงียบๆ เบื้องหลัง — จะติดตั้งก็ต่อเมื่อคุณกดปุ่มเท่านั้น</small></div>
+              <label class="switch"><input type="checkbox" data-pref="updateAutoDownload"><span></span></label>
+            </div>
+            <div class="row">
+              <div class="label"><b>ประวัติเวอร์ชัน</b><small>ดูว่าแต่ละเวอร์ชันเปลี่ยนอะไรบน GitHub</small></div>
+              <button class="secondary small" data-action="open-releases">เปิดหน้า Releases</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ─────────────── About ─────────────── -->
+        <section class="group" data-section="about">
+          <h2>เกี่ยวกับ</h2>
+          <div class="card about">
+            <span class="about-logo" data-icon="logo"></span>
+            <div>
+              <b>ChatDock <span data-text="version"></span></b>
+              <small>โอเพนซอร์ส · สัญญาอนุญาต MIT · © 2026 luraselenehalo</small>
+            </div>
+          </div>
+          <div class="link-row">
+            <button class="secondary small" data-action="open-repo">GitHub</button>
+            <button class="secondary small" data-action="open-license">License (MIT)</button>
+            <button class="secondary small" data-action="help">วิธีใช้</button>
+            <button class="secondary small" data-action="open-logs">ไฟล์ log</button>
+          </div>
+          <button class="danger ghost quit" data-action="quit">ออกจาก ChatDock</button>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="icons.js"></script>
+  <script src="panel.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

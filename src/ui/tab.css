@@ -1,0 +1,81 @@
+/* The white pill that slides out of the screen edge (right, or left with body.left). The window height
+   grows with the number of apps (see tabHeight() in main.js); the pill fills it minus 16px top and
+   bottom for the shadow. */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  cursor: pointer;
+}
+
+.pill {
+  position: absolute;
+  top: 16px; bottom: 16px; right: 0;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  border-radius: 20px 0 0 20px;
+  box-shadow: -3px 0 16px rgba(0, 0, 0, .32), 0 1px 3px rgba(0, 0, 0, .22);
+  transform: translateX(115%);
+  transition: transform 150ms cubic-bezier(.4, 0, 1, 1), width 120ms ease;
+}
+.pill.in {
+  transform: translateX(0);
+  transition: transform 200ms cubic-bezier(.2, .9, .25, 1.15), width 120ms ease;
+}
+.pill.instant { transition: none; }
+body:hover .pill { width: 46px; }
+
+.chev { height: 14px; color: #a1a1ab; }
+.chev svg { display: block; width: 14px; height: 14px; }
+
+.app {
+  position: relative;
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #111; /* single-colour icons (X) */
+  cursor: pointer;
+  transition: background .12s, transform .12s;
+}
+.app:hover { background: #f0f0f4; transform: scale(1.06); }
+.app:active { transform: scale(.94); }
+.app svg { display: block; width: 22px; height: 22px; }
+
+.badge {
+  position: absolute;
+  top: -4px; left: -5px; /* away from the screen edge */
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #ff3040;
+  color: #fff;
+  font: 700 10px/17px "Segoe UI", system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+[hidden] { display: none !important; }
+
+.apps { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+/* Docked on the left edge: the same pill, mirrored */
+body.left .pill {
+  right: auto; left: 0;
+  border-radius: 0 20px 20px 0;
+  box-shadow: 3px 0 16px rgba(0, 0, 0, .32), 0 1px 3px rgba(0, 0, 0, .22);
+  transform: translateX(-115%);
+}
+body.left .pill.in { transform: translateX(0); }
+body.left .badge { left: auto; right: -5px; }

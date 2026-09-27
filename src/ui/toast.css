@@ -1,0 +1,129 @@
+/* Message pop-ups. Always dark so they read well over any game. #wrap padding = PAD in toasts.js */
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Leelawadee UI", "Noto Sans Thai", Tahoma, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#wrap { padding: 16px; }
+
+#stack { display: flex; flex-direction: column; gap: 10px; }
+body.bottom #stack { flex-direction: column-reverse; }
+
+.card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 360px;
+  box-sizing: border-box;
+  padding: 12px 38px 12px 15px;
+  border-radius: 16px;
+  background: rgba(27, 28, 38, .97);
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+  color: #f3f3f7;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background .15s;
+}
+.card::before { /* app colour strip */
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--accent, #0866ff);
+}
+.card:hover { background: rgba(38, 40, 54, .98); }
+.card.enter { animation: slide-in .34s cubic-bezier(.2, .9, .25, 1.08); }
+@keyframes slide-in {
+  from { transform: translateX(115%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+body.left .card.enter { animation-name: slide-in-left; }
+@keyframes slide-in-left {
+  from { transform: translateX(-115%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.avatar { position: relative; flex: none; width: 46px; height: 46px; }
+.avatar img,
+.avatar .big {
+  display: block;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2c2e3c;
+}
+.avatar .big { display: grid; place-items: center; color: #fff; }
+.avatar .big svg { width: 26px; height: 26px; }
+.app-badge {
+  position: absolute;
+  right: -3px; bottom: -3px;
+  width: 21px; height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #111;
+  box-shadow: 0 0 0 2px rgb(27, 28, 38);
+}
+.app-badge svg { width: 14px; height: 14px; }
+
+.text { flex: 1; min-width: 0; }
+.meta { display: flex; gap: 6px; font-size: 12px; line-height: 1.4; color: #a4a4b4; }
+.title {
+  margin-top: 1px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.body {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.42;
+  color: #dcdce7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.hint { margin-top: 5px; font-size: 11.5px; color: #8f90a2; }
+
+.close {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 24px; height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #a4a4b4;
+  font: 16px/24px "Segoe UI", sans-serif;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s, background .15s;
+}
+.card:hover .close { opacity: 1; }
+.close:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+
+.more {
+  width: 360px;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: rgba(27, 28, 38, .92);
+  border: 1px solid rgba(255, 255, 255, .08);
+  color: #d4d4de;
+  font-size: 12.5px;
+  text-align: center;
+  cursor: pointer;
+}
+.more:hover { background: rgba(38, 40, 54, .96); }

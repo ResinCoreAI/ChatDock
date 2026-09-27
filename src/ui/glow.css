@@ -1,0 +1,27 @@
+/* A thin light strip hugging the dock edge while there are unread chats. Click-through. */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#bar {
+  position: absolute;
+  top: 12px; bottom: 12px; right: 0;
+  width: 4px;
+  border-radius: 4px 0 0 4px;
+  background: var(--c, #0866ff);
+  box-shadow: 0 0 9px 1px var(--g, rgba(8, 102, 255, .75));
+  opacity: .9;
+}
+
+#bar.pulse { animation: pulse 1.6s ease-out; }
+
+@keyframes pulse {
+  0%   { opacity: 0; transform: scaleY(.35); }
+  30%  { opacity: 1; transform: scaleY(1.06); }
+  100% { opacity: .9; transform: scaleY(1); }
+}
+
+body.left #bar { right: auto; left: 0; border-radius: 0 4px 4px 0; }
