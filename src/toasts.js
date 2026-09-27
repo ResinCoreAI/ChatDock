@@ -25,6 +25,7 @@ let watchTimer = null;
 let seq = 0;
 let pendingShow = false;
 let showFallback = null;
+let hideFallback = null;
 
 function init(deps) {
   d = deps;
@@ -53,6 +54,8 @@ function init(deps) {
     place();
     if (pendingShow) reveal();
   });
+  // The last card has finished sliding away.
+  ipcMain.on('toast:empty', (e) => { if (fromToast(e) && !items.length) hide(); });
   ipcMain.on('toast:click', (e, key) => { if (fromToast(e)) openFrom(remove(key)); });
   ipcMain.on('toast:more', (e) => { if (fromToast(e)) openFrom(items[0] ? remove(items[0].key) : null); });
   ipcMain.on('toast:dismiss', (e, key) => {
@@ -82,14 +85,7 @@ function push(toast) {
   render(true);
 }
 
-function render(isNew) {
-  if (!win) return;
-  if (!items.length) {
-    hide();
-    return;
-  }
-  const visible = items.slice(0, maxVisible());
-  const more = items.length - visible.length;
+function send(visible, more, isNew) {
   win.webContents.send('toasts', {
     items: visible.map(({ key, appId, appName, iconName, accent, title, body, icon, meta, hint }) => ({
       key, appId, appName, iconName, accent, title, body, icon, meta, hint,
@@ -98,8 +94,28 @@ function render(isNew) {
     labels: { more: d.t('toast.more', { n: more }), close: d.t('toast.close') },
     lang: d.lang(),
     position: d.position(),
-    chime: !!(isNew && items[0].chime), // the newest card decides (per-app chime switch)
+    shown: win.isVisible(), // cards only slide in / out / along while the window is on screen
+    chime: !!(isNew && items[0] && items[0].chime), // the newest card decides (per-app chime switch)
   });
+}
+
+function render(isNew) {
+  if (!win) return;
+  if (!items.length) {
+    if (win.isVisible() && !pendingShow) {
+      // The last cards slide away first; the page says 'toast:empty' when they are gone.
+      send([], 0, false);
+      clearTimeout(hideFallback);
+      hideFallback = setTimeout(hide, 900);
+    } else {
+      hide();
+    }
+    return;
+  }
+  clearTimeout(hideFallback);
+  const visible = items.slice(0, maxVisible());
+  const more = items.length - visible.length;
+  send(visible, more, isNew);
   if (!win.isVisible() && !pendingShow) {
     // Wait for the renderer to report the stack's height, so the window never shows at a wrong size.
     const fg = d.foreground();
@@ -206,6 +222,7 @@ function dismissAll() {
 function hide() {
   stopWatch();
   clearTimeout(showFallback);
+  clearTimeout(hideFallback);
   pendingShow = false;
   hovered = false;
   contentHeight = 0;

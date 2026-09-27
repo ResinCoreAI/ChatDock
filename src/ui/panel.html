@@ -142,6 +142,19 @@
                 <option value="off" data-i18n="edge.off"></option>
               </select>
             </div>
+            <div class="row" data-dim-when="edge-off">
+              <div class="label"><b data-i18n="set.edgeHold"></b><small data-i18n="set.edgeHoldNote"></small></div>
+              <select data-pref="edgeHold" data-type="number">
+                <option value="0" data-i18n="hold.instant"></option>
+                <option value="0.5" data-i18n="hold.s" data-n="0.5"></option>
+                <option value="1" data-i18n="hold.s" data-n="1"></option>
+                <option value="1.5" data-i18n="hold.s" data-n="1.5"></option>
+                <option value="2" data-i18n="hold.s" data-n="2"></option>
+                <option value="3" data-i18n="hold.s" data-n="3"></option>
+                <option value="4" data-i18n="hold.s" data-n="4"></option>
+                <option value="5" data-i18n="hold.s" data-n="5"></option>
+              </select>
+            </div>
             <div class="row" data-show="multiDisplay">
               <div class="label"><b data-i18n="set.display"></b><small data-i18n="set.displayNote"></small></div>
               <select data-pref="displayId" data-type="number" data-displays></select>

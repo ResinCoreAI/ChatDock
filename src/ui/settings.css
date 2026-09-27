@@ -23,6 +23,13 @@
 }
 
 #settings { min-height: 100%; background: var(--page); }
+/* Each time the settings or the welcome screen comes up (it was display: none), it eases in. */
+#settings,
+#welcome { animation: screen-in .26s cubic-bezier(.16, 1, .3, 1); }
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
 
 .set-top {
   position: sticky;
@@ -93,7 +100,9 @@
   overflow: hidden;
   transition: opacity .2s;
 }
-.card.dim { opacity: .55; }
+.card.dim,
+.row.dim { opacity: .55; }
+.row { transition: opacity .2s; }
 
 .row {
   display: flex;

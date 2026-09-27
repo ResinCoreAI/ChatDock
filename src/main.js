@@ -19,6 +19,7 @@ const logger = require('./logger');
 const apps = require('./apps');
 const toasts = require('./toasts');
 const updater = require('./updater');
+const frames = require('./frames');
 const i18n = require('./ui/i18n');
 const pkg = require('../package.json');
 
@@ -77,7 +78,7 @@ function applyLanguage() {
   t = i18n.make(uiLang());
 }
 
-// Releases are called "Beta Build N" (version 1.N.0)
+// Releases are called "Beta Build 1.4" (version 1.4.0)
 const buildName = (version) => i18n.buildName(t, version);
 process.on('unhandledRejection', (err) => log('UNHANDLED REJECTION', err));
 
@@ -124,12 +125,15 @@ const GLOW_W = 32; // Windows won't make these windows narrower than 32px; the s
 const GLOW_H = 128;
 
 const EDGE_PX = 2; // cursor within this many px of the dock edge counts as "on the edge"
-const DWELL_MS = 150; // how long it has to rest there before the tab appears
+const DWELL_MS = 150; // with no hold time set: how long it has to rest there before the tab appears
+const HOLD_LINE_MS = 110; // with a hold time: the line along the edge starts after this long
+const HOLD_SLACK_PX = 10; // once holding, a shaky hand may drift this far off the edge
+const EDGE_W = 32; // edge line window (Windows won't make it narrower); the line is drawn at the edge
 const TAB_LINGER_MS = 900; // tab stays this long after the cursor wanders off
 const TAB_FOLLOW_MARGIN = 26; // sliding along the edge, the cursor stays this far inside the pill
-const TAB_GLIDE = 0.35; // share of the remaining distance the tab covers per frame (~60 fps)
-const OPEN_MS = 200;
-const CLOSE_MS = 160;
+const TAB_GLIDE_MS = 30; // the tab closes about 63% of its distance to the cursor in this time
+const OPEN_MS = 260;
+const CLOSE_MS = 170;
 const AUTO_RETRY_MS = 15000;
 const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5];
 
@@ -139,6 +143,7 @@ const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5];
 let panelWin = null;
 let tabWin = null;
 let glowWin = null;
+let edgeWin = null; // the line that grows along the edge while the cursor is held there
 let tray = null;
 let ownHwnds = [];
 const views = {}; // only switched-on apps have a view
@@ -171,6 +176,7 @@ let lastAutoHideAt = 0;
 let blurredWhileOpening = false;
 let lastEscAt = 0;
 let anim = null;
+let animFrames = 0; // counted for the self-test
 let quitting = false;
 let hotkeyOk = false;
 let autostartCache = false;
@@ -188,9 +194,15 @@ let tabY = 0; // where the tab is drawn (top edge, can be fractional while it gl
 let tabTargetY = 0; // where it is heading
 let tabDrawnY = null;
 let lastInsideAt = 0;
-let dwellStart = 0;
+let dwellStart = 0; // when the cursor came to rest on the edge (0 = it isn't there)
+let holdLine = false; // the growing line is on screen
+let holdY = null; // cursor height last sent to the line
+let edgeHideTimer = null;
+let glowHideTimer = null;
+let lastEdgeFrame = 0;
 let tabHideTimer = null;
 let edgeTimer = null;
+let testCursor = null; // self-test: a pretend cursor for the edge logic
 let trayUnread = null;
 
 // ---------------------------------------------------------------------------
@@ -230,9 +242,12 @@ function init() {
   if (!enabledApps().length) settings.set('apps', { ...settings.get('apps'), instagram: true });
   if (!isEnabled(settings.get('active'))) settings.set('active', enabledApps()[0]);
 
+  frames.init({ onError: (err) => log('frame clock:', String(err)) });
+  frames.setDisplay(targetDisplay());
   createPanel();
   createTab();
   createGlow();
+  createEdge();
   toasts.init({
     webPreferences: uiWebPreferences,
     lockDown,
@@ -253,7 +268,7 @@ function init() {
     open: openFromToast,
   });
   toasts.setContentProtection(!!settings.get('hideFromCapture'));
-  ownHwnds = [panelWin, tabWin, glowWin].map(win32.hwndOf).concat(toasts.hwnd());
+  ownHwnds = [panelWin, tabWin, glowWin].map(win32.hwndOf).concat(toasts.hwnd(), win32.hwndOf(edgeWin));
   for (const id of enabledApps()) {
     if (sleepEligible(id)) asleep[id] = true; // loads when it is first opened
     else createView(id);
@@ -497,6 +512,23 @@ function createGlow() {
   lockDown(glowWin.webContents);
   glowWin.on('close', (e) => { if (!quitting) e.preventDefault(); });
   glowWin.loadURL(uiUrl('glow.html'));
+}
+
+// A full-height strip on the dock edge. While the cursor is held against the edge, a line grows
+// from the cursor to the top and bottom of the screen; the tab comes out when it gets there.
+// Shown only while that happens, so it never sits over a game otherwise. Click-through.
+function createEdge() {
+  edgeWin = new BrowserWindow({
+    width: EDGE_W, height: 200, show: false, frame: false, transparent: true, resizable: false,
+    minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, focusable: false,
+    alwaysOnTop: true, hasShadow: false, thickFrame: false, roundedCorners: false,
+    webPreferences: uiWebPreferences({ backgroundThrottling: false }),
+  });
+  edgeWin.setAlwaysOnTop(true, 'screen-saver');
+  edgeWin.setIgnoreMouseEvents(true);
+  lockDown(edgeWin.webContents);
+  edgeWin.on('close', (e) => { if (!quitting) e.preventDefault(); });
+  edgeWin.loadURL(uiUrl('edge.html'));
 }
 
 function raise(win) {
@@ -1139,7 +1171,7 @@ function detectUpdate() {
 function whatsNewState() {
   const now = app.getVersion();
   const n = i18n.build(now);
-  const key = `whatsnew.b${n}`;
+  const key = `whatsnew.${n}`; // e.g. whatsnew.1.4 in ui/i18n.js
   const local = n ? t(key) : key;
   const w = settings.get('whatsNew');
   const mine = w && w.version === now;
@@ -1288,6 +1320,8 @@ function onThemeUpdated() {
 
 function onDisplaysChanged() {
   hideTab(true);
+  stopHold(false);
+  frames.setDisplay(targetDisplay()); // refresh rate and vertical blank of the dock's screen
   if (panelState === 'open' || panelState === 'opening') {
     panelWin.setBounds(panelGeometry());
     layoutViews();
@@ -1299,23 +1333,29 @@ function onDisplaysChanged() {
 // ---------------------------------------------------------------------------
 // Panel open / close
 // ---------------------------------------------------------------------------
-const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+const easeOutQuint = (t) => 1 - (1 - t) ** 5; // quick start, long soft landing
 const easeInCubic = (t) => t ** 3;
 
+// One step per screen refresh (see frames.js); positions come from the time, so a late frame
+// never slows the slide down, it just lands a little further along. The clock starts at the first
+// frame, not at the call: getting the window ready (focus, layout) must not eat the start of the slide.
 function animate(ms, ease, step, done) {
-  if (anim) clearInterval(anim);
-  const t0 = performance.now();
-  const tick = () => {
-    const t = Math.min(1, (performance.now() - t0) / ms);
+  if (anim) frames.cancel(anim);
+  let t0 = null;
+  const frame = (now) => {
+    animFrames += 1;
+    if (t0 === null) t0 = now;
+    const t = Math.min(1, (now - t0) / ms);
     step(ease(t));
-    if (t >= 1) {
-      clearInterval(anim);
-      anim = null;
-      done();
+    if (t < 1) {
+      frames.request(frame);
+      return;
     }
+    anim = null;
+    done();
   };
-  anim = setInterval(tick, 8);
-  tick();
+  anim = frame;
+  frames.request(frame);
 }
 
 function isOurs(hwnd) {
@@ -1358,7 +1398,8 @@ function openPanel(appId, source = 'user') {
   blurredWhileOpening = false;
   bannerShown = !bannerDismissed && win32.isExclusiveFullscreen();
   hideTab(true);
-  glowWin.hide();
+  stopHold(false);
+  hideGlowNow();
 
   const d = targetDisplay();
   const g = panelGeometry(d);
@@ -1384,9 +1425,16 @@ function openPanel(appId, source = 'user') {
   toasts.reposition(); // other pop-ups move beside the chat
   log('open', { source, slide, prevForeground });
 
-  animate(OPEN_MS, easeOutCubic, (p) => {
-    if (slide) panelWin.setBounds({ x: Math.round(fromX + (g.x - fromX) * p), y: g.y, width: g.width, height: g.height });
-    else panelWin.setOpacity(fromOpacity + (opacity - fromOpacity) * p);
+  let lastX = fromX;
+  animate(OPEN_MS, easeOutQuint, (p) => {
+    if (!slide) {
+      panelWin.setOpacity(fromOpacity + (opacity - fromOpacity) * p);
+      return;
+    }
+    const x = Math.round(fromX + (g.x - fromX) * p);
+    if (x === lastX) return; // the soft landing moves less than a pixel per frame
+    lastX = x;
+    panelWin.setBounds({ x, y: g.y, width: g.width, height: g.height });
   }, () => {
     panelState = 'open';
     fitPanelToApp(); // the app or the dock side changed while it was sliding in
@@ -1426,9 +1474,16 @@ function closePanel(restoreFocus, reason = '') {
   broadcastState();
   log('close', { restoreFocus, target });
 
+  let lastX = b.x;
   animate(CLOSE_MS, easeInCubic, (p) => {
-    if (slide) panelWin.setBounds({ x: Math.round(b.x + (toX - b.x) * p), y: b.y, width: b.width, height: b.height });
-    else panelWin.setOpacity(fromOpacity * (1 - p));
+    if (!slide) {
+      panelWin.setOpacity(fromOpacity * (1 - p));
+      return;
+    }
+    const x = Math.round(b.x + (toX - b.x) * p);
+    if (x === lastX) return;
+    lastX = x;
+    panelWin.setBounds({ x, y: b.y, width: b.width, height: b.height });
   }, () => {
     panelWin.hide();
     panelState = 'hidden';
@@ -1593,6 +1648,7 @@ function resizeTo(edge) {
 function setSide(side) {
   if (settings.get('side') === side) return;
   hideTab(true);
+  stopHold(false);
   settings.set('side', side);
   log('dock side', side);
   broadcastState(); // panel, tab and glow mirror themselves
@@ -1604,7 +1660,7 @@ function setSide(side) {
     panelWin.setBounds(slide ? { ...g, x: fromX } : g);
     layoutViews();
     if (slide) {
-      animate(OPEN_MS, easeOutCubic, (p) => {
+      animate(OPEN_MS, easeOutQuint, (p) => {
         panelWin.setBounds({ x: Math.round(fromX + (g.x - fromX) * p), y: g.y, width: g.width, height: g.height });
       }, () => toasts.reposition());
     }
@@ -1644,23 +1700,28 @@ function finishOnboarding(opts = {}) {
 // Right-edge tab + unread glow
 // ---------------------------------------------------------------------------
 function edgeTick() {
+  if (quitting) return;
   let next = 150;
   try {
     next = edgeStep();
   } catch (err) {
     log('edge error', err);
   }
-  edgeTimer = setTimeout(edgeTick, next);
+  if (next === 0) frames.request(edgeTick); // every screen refresh while the tab or the line moves
+  else edgeTimer = setTimeout(edgeTick, next);
 }
+
+// How long the cursor has to be held against the edge before the tab comes out (0 = right away).
+const holdTime = () => Math.round(clamp(Number(settings.get('edgeHold')) || 0, 0, 10) * 1000);
 
 function edgeStep() {
   const mode = settings.get('edgeMode');
   if (DEMO) return 200; // the demo recorder drives the tab itself
   if (panelState !== 'hidden' || mode === 'off') {
-    dwellStart = 0;
+    stopHold(false);
     return 200;
   }
-  const pt = screen.getCursorScreenPoint();
+  const pt = testCursor || screen.getCursorScreenPoint();
   const d = targetDisplay();
   const b = d.bounds;
   const left = onLeft();
@@ -1670,11 +1731,12 @@ function edgeStep() {
   const margin = Math.max(90, Math.round(b.height * 0.1));
   const zoneTop = b.y + margin;
   const zoneBottom = d.workArea.y + d.workArea.height - margin;
-  const atEdge = left ? pt.x >= b.x && pt.x < b.x + EDGE_PX : pt.x >= right - EDGE_PX && pt.x <= right;
+  const reach = dwellStart ? HOLD_SLACK_PX : EDGE_PX; // once holding, a little drift is fine
+  const atEdge = left ? pt.x >= b.x && pt.x < b.x + reach : pt.x >= right - reach && pt.x <= right;
   const onEdge = atEdge && pt.y >= zoneTop && pt.y <= zoneBottom;
   // A game that has taken the mouse (pointer hidden, or held inside the game) pushes the pointer
   // against the screen edge whenever you aim or turn. That must never bring the tab out.
-  const captured = (onEdge || tabShown) && win32.mouseCaptured();
+  const captured = (onEdge || tabShown) && (testCursor ? !!testCursor.captured : win32.mouseCaptured());
 
   if (tabShown) {
     if (captured) {
@@ -1698,18 +1760,23 @@ function edgeStep() {
       hideTab(false);
     }
     glideTab();
-    return 16; // ~60 fps while the tab is out, so it glides instead of jumping
+    return tabShown ? 0 : 16; // every screen refresh while the tab is out, so it follows the cursor smoothly
   }
 
-  if (onEdge && !captured && !win32.mouseButtonDown() && !(mode === 'no-fullscreen' && win32.isFullscreenAppActive())) {
+  const busyMouse = !testCursor && win32.mouseButtonDown(); // e.g. dragging a window or a scrollbar
+  if (onEdge && !captured && !busyMouse && !(mode === 'no-fullscreen' && win32.isFullscreenAppActive())) {
     if (!dwellStart) dwellStart = now;
-    else if (now - dwellStart >= DWELL_MS) {
-      dwellStart = 0;
+    const held = now - dwellStart;
+    const holdMs = holdTime();
+    if (held >= (holdMs || DWELL_MS)) {
+      stopHold(true); // the line lights up and fades as the tab slides out
       showTab(pt.y);
+      return 0;
     }
-    return 30;
+    if (holdMs && held >= HOLD_LINE_MS) showHoldLine(pt.y, held, holdMs, b);
+    return holdLine ? 0 : 16;
   }
-  dwellStart = 0;
+  stopHold(false);
   const dist = left ? pt.x - b.x : right - pt.x;
   const near = dist >= 0 && dist < 250 && pt.y >= b.y && pt.y <= b.y + b.height;
   return near ? 40 : 110; // poll faster only while the cursor is near the edge
@@ -1740,12 +1807,50 @@ function followCursor(cursorY) {
   tabTargetY = clampTabY(tabTargetY, h);
 }
 
-// One animation frame: cover part of the way to the target, so fast moves stay smooth.
+// One animation frame: cover part of the way to the target, so fast moves stay smooth. The share
+// depends on the time since the last frame, so it glides the same at 60 Hz and at 300 Hz.
 function glideTab() {
+  const now = performance.now();
+  const dt = lastEdgeFrame ? Math.min(100, now - lastEdgeFrame) : 1000 / 60;
+  lastEdgeFrame = now;
   const diff = tabTargetY - tabY;
   if (Math.abs(diff) < 0.5) tabY = tabTargetY;
-  else tabY += diff * TAB_GLIDE;
+  else tabY += diff * (1 - Math.exp(-dt / TAB_GLIDE_MS));
   moveTab();
+}
+
+// The cursor is being held against the edge: the line grows from it towards the top and bottom
+// of the screen and reaches both when the hold time is up (edge.js draws it at the screen's
+// refresh rate; here it only learns where the cursor is).
+function showHoldLine(cursorY, held, total, b) {
+  if (!edgeWin) return;
+  if (!holdLine) {
+    clearTimeout(edgeHideTimer);
+    holdLine = true;
+    holdY = cursorY;
+    edgeWin.setBounds({ x: onLeft() ? b.x : b.x + b.width - EDGE_W, y: b.y, width: EDGE_W, height: b.height });
+    edgeWin.webContents.send('edge:start', { y: cursorY - b.y, held, total, side: settings.get('side') });
+    edgeWin.showInactive();
+    raise(edgeWin);
+    return;
+  }
+  if (cursorY !== holdY) {
+    holdY = cursorY;
+    edgeWin.webContents.send('edge:move', cursorY - b.y);
+  }
+}
+
+// The hold ended: done (the tab comes out; the line lights up and fades) or given up (it shrinks back).
+function stopHold(done) {
+  dwellStart = 0;
+  if (!holdLine) return;
+  holdLine = false;
+  holdY = null;
+  edgeWin.webContents.send(done ? 'edge:done' : 'edge:cancel');
+  clearTimeout(edgeHideTimer);
+  edgeHideTimer = setTimeout(() => {
+    if (!holdLine) edgeWin.hide();
+  }, done ? 360 : 260);
 }
 
 function moveTab() {
@@ -1769,7 +1874,8 @@ function showTab(cursorY) {
   tabShown = true;
   tabShownAt = Date.now();
   lastInsideAt = tabShownAt;
-  glowWin.hide();
+  lastEdgeFrame = 0;
+  hideGlowNow();
   log('tab show', tabWin.getBounds());
 }
 
@@ -1791,18 +1897,34 @@ function updateGlow(pulse) {
   if (!glowWin) return;
   const show = settings.get('glow') && totalUnread() > 0 && panelState === 'hidden' && !tabShown;
   if (!show) {
-    if (glowWin.isVisible()) glowWin.hide();
+    if (glowWin.isVisible() && !glowHideTimer) { // fade out first (a fade already running is left alone)
+      glowWin.webContents.send('glow:hide');
+      glowHideTimer = setTimeout(() => {
+        glowHideTimer = null;
+        glowWin.hide();
+      }, 240);
+    }
     return;
   }
+  const appear = !glowWin.isVisible() || !!glowHideTimer;
+  clearTimeout(glowHideTimer);
+  glowHideTimer = null;
   const d = targetDisplay();
   const b = d.bounds;
   const cy = tabCenterY ?? (b.y + b.height / 2);
   const y = clamp(Math.round(cy - GLOW_H / 2), b.y, d.workArea.y + d.workArea.height - GLOW_H);
   glowWin.setBounds({ x: onLeft() ? b.x : b.x + b.width - GLOW_W, y, width: GLOW_W, height: GLOW_H });
   const colors = enabledApps().filter((id) => shownCount(id) > 0).flatMap((id) => A(id).colors);
-  glowWin.webContents.send('glow:state', { colors, pulse: !!pulse, side: settings.get('side') });
+  glowWin.webContents.send('glow:state', { colors, pulse: !!pulse, side: settings.get('side'), appear });
   if (!glowWin.isVisible()) glowWin.showInactive();
   raise(glowWin);
+}
+
+// Out of the way at once (the panel or the tab takes its place).
+function hideGlowNow() {
+  clearTimeout(glowHideTimer);
+  glowHideTimer = null;
+  if (glowWin.isVisible()) glowWin.hide();
 }
 
 // ---------------------------------------------------------------------------
@@ -2034,6 +2156,7 @@ const PREFS = {
   lang: { values: ['auto', ...i18n.IDS], apply: setLanguage },
   side: { values: ['right', 'left'], apply: setSide },
   edgeMode: { values: ['always', 'no-fullscreen', 'off'], apply: (v) => { settings.set('edgeMode', v); if (v === 'off') hideTab(true); } },
+  edgeHold: { values: [0, 0.5, 1, 1.5, 2, 3, 4, 5], apply: (v) => { settings.set('edgeHold', v); stopHold(false); } },
   displayId: { check: (v) => screen.getAllDisplays().some((d) => d.id === v), apply: setDisplay },
   glow: { type: 'boolean', apply: (v) => { settings.set('glow', v); updateGlow(false); } },
   theme: { values: ['system', 'dark', 'light'], apply: setTheme },
@@ -2375,6 +2498,7 @@ function migrateLoginItem() {
 function quit() {
   quitting = true;
   clearTimeout(edgeTimer);
+  frames.cancel(edgeTick);
   app.quit();
 }
 
@@ -2462,6 +2586,105 @@ function startDemo() {
 // ---------------------------------------------------------------------------
 // Self-test (npm start -- --selftest --profile=<dir> [--shots=<dir>] [--keep])
 // ---------------------------------------------------------------------------
+// Frame clock, the tab following the cursor, holding on the edge, pop-ups sliding away. Only the
+// panel slide (withPanel) takes focus; the rest can run while a game is being played.
+async function edgeSelfTest(wait, shot, withPanel) {
+  // Frame clock: how many frames a second it delivers (the screen's refresh rate with vertical blanks)
+  const clock = await new Promise((resolve) => {
+    let n = 0;
+    const t0 = performance.now();
+    const f = (now) => {
+      n += 1;
+      if (now - t0 < 500) frames.request(f);
+      else resolve({ fps: Math.round(n / ((now - t0) / 1000)), ...frames.info() });
+    };
+    frames.request(f);
+  });
+  log('frame clock:', JSON.stringify(clock), '(expect fps close to hz, mode vblank)');
+  if (withPanel) { // opening the panel takes focus
+    animFrames = 0;
+    openPanel(null, 'selftest');
+    await wait(OPEN_MS + 150);
+    log('panel slide-in:', animFrames, 'frames in', OPEN_MS, 'ms =', Math.round(animFrames / (OPEN_MS / 1000)), 'fps',
+      `(expect close to ${clock.hz})`);
+    closePanel(true);
+    await wait(500);
+  }
+
+  // The tab follows the cursor along the edge on every frame: a pretend cursor slides 300 px down in
+  // 0.3 s; the tab must move in small steps (about the cursor's own speed per frame), never jump
+  const dsp = targetDisplay().bounds;
+  const edgeX = onLeft() ? dsp.x : dsp.x + dsp.width - 1;
+  const y0 = dsp.y + Math.round(dsp.height / 2) - 150;
+  testCursor = { x: edgeX, y: y0 };
+  showTab(y0);
+  await wait(250);
+  let biggest = 0;
+  let moves = 0;
+  let prev = tabWin.getBounds().y;
+  await new Promise((resolve) => {
+    const t0 = performance.now();
+    const f = (now) => {
+      testCursor = { x: edgeX, y: y0 + Math.round(300 * Math.min(1, (now - t0) / 300)) };
+      const y = tabWin.getBounds().y;
+      if (y !== prev) {
+        biggest = Math.max(biggest, Math.abs(y - prev));
+        moves += 1;
+        prev = y;
+      }
+      if (now - t0 < 650) frames.request(f);
+      else resolve();
+    };
+    frames.request(f);
+  });
+  const tb2 = tabWin.getBounds();
+  log('tab follows the cursor:', moves, 'moves | biggest step', biggest, 'px | cursor inside the pill at the end',
+    testCursor.y >= tb2.y + 16 && testCursor.y <= tb2.y + tb2.height - 16, `(expect many moves, <= ${Math.ceil(1000 / clock.hz) + 4} px, true)`);
+  hideTab(true);
+  testCursor = null;
+  await wait(300);
+
+  // Holding the cursor on the edge: the line grows, and the tab only comes out when the time is up
+  const holdWas = settings.get('edgeHold');
+  settings.set('edgeHold', 1);
+  const hy = dsp.y + Math.round(dsp.height * 0.4);
+  testCursor = { x: edgeX, y: hy };
+  await wait(550);
+  const lineState = await edgeWin.webContents.executeJavaScript('JSON.stringify({ mode, h: H })').catch((err) => `err:${err.message}`);
+  const mid = { line: edgeWin.isVisible(), tab: tabShown };
+  await shot('33-hold-line');
+  await wait(700);
+  log('hold 1 s: at 0.55 s line shown', mid.line, lineState, '| tab', mid.tab, '| at 1.25 s tab', tabShown,
+    '(expect true {"mode":"hold",...}, false, true)');
+  hideTab(true);
+  testCursor = { x: edgeX - 300, y: hy };
+  await wait(500);
+  testCursor = { x: edgeX, y: hy }; // held half way, then let go
+  await wait(500);
+  testCursor = { x: edgeX - 300, y: hy };
+  await wait(60);
+  log('hold given up half way: tab', tabShown, '| line holding', holdLine, '(expect false, false)');
+  await wait(400);
+  log('line window gone after shrinking back:', !edgeWin.isVisible(), '(expect true)');
+  testCursor = { x: edgeX, y: hy, captured: true }; // a game holds the mouse against the edge
+  await wait(1300);
+  log('mouse held by a game: line', holdLine, '| tab', tabShown, '(expect false, false)');
+  testCursor = null;
+  settings.set('edgeHold', holdWas);
+  log('mouse taken by a game right now:', win32.mouseCaptured(), '| pointer hidden', win32.cursorHidden(), '| confined', win32.cursorConfined());
+
+  // A pop-up that closes slides away first; the window goes once it is gone
+  testPopup();
+  await wait(900);
+  toasts.dismissAll();
+  await wait(60);
+  const leaving = await toasts.webContents().executeJavaScript("document.querySelectorAll('.card.leaving').length");
+  const upMeanwhile = toasts.snapshot().visible;
+  await wait(500);
+  log('pop-up closing: sliding away', leaving, '| window still up meanwhile', upMeanwhile, '| window gone after', !toasts.snapshot().visible,
+    '(expect 1, true, true)');
+}
+
 async function runSelfTest() {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const vis = async (id) => {
@@ -2498,6 +2721,7 @@ async function runSelfTest() {
       out.panelBounds = panelWin.getBounds();
     }
     if (glowWin.isVisible()) out.glow = await grab(glowWin.webContents, 'glow');
+    if (edgeWin.isVisible()) out.edge = await grab(edgeWin.webContents, 'edge');
     if (toasts.snapshot().visible) out.toast = await grab(toasts.webContents(), 'toast');
     if (argv.includes('--screen')) { // whole-screen grab; only meaningful while the PC is unlocked
       const d = targetDisplay();
@@ -2515,6 +2739,13 @@ async function runSelfTest() {
   };
 
   log('selftest: win32 available =', win32.available(), '| hotkey ok =', hotkeyOk, '| apps', enabledApps());
+  if (argValue('selftest-only') === 'edge') {
+    await wait(3000);
+    await edgeSelfTest(wait, shot, false);
+    log('selftest done');
+    if (!argv.includes('--keep')) quit();
+    return;
+  }
   await wait(11000);
   for (const id of enabledApps()) {
     const wc = views[id].webContents;
@@ -2639,7 +2870,7 @@ async function runSelfTest() {
   log('pop-up from the unread count:', JSON.stringify(toasts.snapshot()), '(expect visible, count 1)');
   await shot('09-popup-fallback');
   setCount(quietApp, 0);
-  await wait(400);
+  await wait(600); // it slides away first
   log('pop-up gone once read elsewhere:', JSON.stringify(toasts.snapshot()), '(expect not visible)');
 
   // Switching an app on and off at runtime
@@ -2827,31 +3058,12 @@ async function runSelfTest() {
   await wait(600);
   log('RAM now:', JSON.stringify(memoryStats()));
 
-  // The tab glides along the edge: the cursor slides 300 px down; no frame may jump
-  const dsp = targetDisplay().bounds;
-  showTab(dsp.y + dsp.height / 2 - 150);
-  await wait(250);
-  let cursorY = dsp.y + dsp.height / 2 - 150;
-  let biggest = 0;
-  let prev = tabWin.getBounds().y;
-  for (let i = 0; i < 60; i += 1) {
-    if (i < 30) cursorY += 10; // 10 px per frame for 30 frames, then stop
-    followCursor(cursorY);
-    glideTab();
-    const y = tabWin.getBounds().y;
-    biggest = Math.max(biggest, Math.abs(y - prev));
-    prev = y;
-    await wait(16);
-  }
-  const tb2 = tabWin.getBounds();
-  log('tab glide: biggest step', biggest, 'px | cursor inside the pill at the end',
-    cursorY >= tb2.y + 16 && cursorY <= tb2.y + tb2.height - 16, '(expect <= 15, true)');
-  hideTab(true);
-  log('mouse taken by a game right now:', win32.mouseCaptured(), '| pointer hidden', win32.cursorHidden(), '| confined', win32.cursorConfined());
+  await edgeSelfTest(wait, shot, true);
 
   // Updating: the "Updating ChatDock" window, then the start after an update
-  log('build names:', buildName(app.getVersion()), '|', buildName('1.4.0'), '|', buildName('2.0.0'));
-  const shown = showUpdateWindow({ version: '1.4.0', notes: '' });
+  log('build names:', buildName(app.getVersion()), '|', buildName('1.5.0'), '|', buildName('2.0.1'),
+    '(expect Beta Build 1.4, Beta Build 1.5, Beta Build 2.0.1)');
+  const shown = showUpdateWindow({ version: '1.5.0', notes: '' });
   await wait(1300);
   if (updateWin && !updateWin.isDestroyed()) {
     await shot('30-update-window');

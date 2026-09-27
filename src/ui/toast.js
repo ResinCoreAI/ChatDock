@@ -1,10 +1,24 @@
 'use strict';
 
 // Renders the pop-up stack. All site-provided text goes in with textContent (never as HTML).
+// Cards slide in, slide away when they close, and the others glide into their new places
+// (transform and opacity only, so it all runs at the screen's refresh rate).
 
 const stack = document.getElementById('stack');
 const wrap = document.getElementById('wrap');
+const LEAVE_MS = 240;
+const MOVE_MS = 300;
+const EASE_LEAVE = 'cubic-bezier(.4, 0, 1, 1)';
+const EASE_MOVE = 'cubic-bezier(.2, .8, .2, 1)';
 let labels = { more: '', close: '' }; // translated by the main process
+let bottom = false; // bottom corners: the stack grows upwards from the window's bottom edge
+let shown = false; // the window is on screen (animations only make sense then)
+let sizedTo = 0; // height the window was last given
+let shrinkTimer = null;
+const moreEl = document.createElement('div');
+moreEl.className = 'more';
+moreEl.hidden = true;
+moreEl.addEventListener('click', () => chatdock.send('toast:more'));
 
 function appIcon(name) {
   const span = document.createElement('span');
@@ -75,34 +89,95 @@ function createCard(it) {
   return card;
 }
 
+const liveCards = () => [...stack.querySelectorAll('.card:not(.leaving)')];
+
+// Distance from the edge the stack grows away from. It stays put on screen while the window
+// changes size, so old and new places can be compared.
+function anchorPos(el) {
+  return bottom ? stack.offsetHeight - el.offsetTop - el.offsetHeight : el.offsetTop;
+}
+
+// No cards left at all (the last one has finished sliding away): the window can go.
+function settle() {
+  if (stack.querySelector('.card')) return;
+  sizedTo = 0;
+  chatdock.send('toast:empty');
+}
+
+// A card closes: it slides away where it was (pos, measured before anything moved), while the
+// others close the gap.
+function leave(el, pos) {
+  if (!shown || pos === undefined) {
+    el.remove();
+    return;
+  }
+  for (const a of el.getAnimations()) a.cancel();
+  el.classList.add('leaving');
+  el.style.position = 'absolute';
+  el.style.left = '0';
+  el.style[bottom ? 'bottom' : 'top'] = `${pos}px`;
+  const dir = document.body.classList.contains('left') ? -1 : 1;
+  el.animate([
+    { transform: 'none', opacity: 1 },
+    { transform: `translateX(${dir * 45}%) scale(.97)`, opacity: 0 },
+  ], { duration: LEAVE_MS, easing: EASE_LEAVE, fill: 'forwards' }).onfinish = () => {
+    el.remove();
+    settle();
+  };
+}
+
 function render(state) {
   labels = state.labels || labels;
+  shown = !!state.shown;
   if (state.lang) document.documentElement.lang = state.lang;
   const pos = String(state.position || 'top-right');
-  document.body.classList.toggle('bottom', pos.startsWith('bottom'));
+  bottom = pos.startsWith('bottom');
+  document.body.classList.toggle('bottom', bottom);
   document.body.classList.toggle('left', pos.endsWith('left')); // cards slide in from the left edge
+  if (!shown) for (const el of stack.querySelectorAll('.card.leaving')) el.remove();
+
+  const before = new Map(); // where each card is now
+  if (shown) for (const el of liveCards()) before.set(el.dataset.key, anchorPos(el));
+
   const keep = new Set(state.items.map((it) => it.key));
-  for (const el of [...stack.children]) {
-    if (!el.dataset.key || !keep.has(el.dataset.key)) el.remove();
-  }
+  for (const el of liveCards()) if (!keep.has(el.dataset.key)) leave(el, before.get(el.dataset.key));
   for (const b of stack.querySelectorAll('.close')) b.title = labels.close;
   state.items.forEach((it, i) => {
-    const el = stack.querySelector(`.card[data-key="${it.key}"]`) || createCard(it);
-    if (stack.children[i] !== el) stack.insertBefore(el, stack.children[i] || null);
+    const el = stack.querySelector(`.card[data-key="${it.key}"]:not(.leaving)`) || createCard(it);
+    const cards = liveCards();
+    if (cards[i] !== el) stack.insertBefore(el, cards[i] || moreEl);
   });
-  if (state.more > 0) {
-    const more = document.createElement('div');
-    more.className = 'more';
-    more.textContent = labels.more;
-    more.addEventListener('click', () => chatdock.send('toast:more'));
-    stack.append(more);
+  moreEl.textContent = labels.more;
+  moreEl.hidden = !(state.more > 0);
+  stack.append(moreEl); // always last
+
+  // Cards that changed place glide there from where they were (added on top of a slide-in).
+  for (const el of liveCards()) {
+    const was = before.get(el.dataset.key);
+    if (was === undefined) continue;
+    const moved = was - anchorPos(el);
+    if (Math.abs(moved) < 1) continue;
+    el.animate([{ transform: `translateY(${bottom ? -moved : moved}px)` }, { transform: 'translateY(0)' }],
+      { duration: MOVE_MS, easing: EASE_MOVE, composite: 'add' });
   }
+  if (!state.items.length && !stack.querySelector('.card')) settle();
 }
 
 // Measured right away (layout is synchronous); no requestAnimationFrame, which never fires while
-// the window is still hidden. The main process shows the window once it knows the height.
+// the window is still hidden. The main process shows the window once it knows the height. Growing
+// happens at once; shrinking waits until the cards have finished sliding.
 function reportSize() {
-  chatdock.send('toast:size', wrap.offsetHeight);
+  const h = wrap.offsetHeight;
+  clearTimeout(shrinkTimer);
+  if (h >= sizedTo || !shown) {
+    sizedTo = h;
+    chatdock.send('toast:size', h);
+    return;
+  }
+  shrinkTimer = setTimeout(() => {
+    sizedTo = wrap.offsetHeight;
+    chatdock.send('toast:size', sizedTo);
+  }, Math.max(LEAVE_MS, MOVE_MS) + 40);
 }
 
 function chime() {
@@ -131,8 +206,10 @@ wrap.addEventListener('mouseleave', () => chatdock.send('toast:hover', false));
 
 chatdock.on('toasts', (state) => {
   render(state);
-  reportSize();
+  if (state.items.length) reportSize();
   if (state.chime) chime();
 });
+
+stack.append(moreEl);
 
 chatdock.send('ui:ready');

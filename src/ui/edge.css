@@ -1,0 +1,13 @@
+/* Full-height, click-through strip on the dock edge; edge.js draws the line on the canvas. */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#line {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

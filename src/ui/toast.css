@@ -12,9 +12,12 @@ html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Micr
 html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", "Leelawadee UI", sans-serif; }
 
 #wrap { padding: 16px; }
+/* Bottom corners: the cards hug the window's bottom edge, which stays put while the window resizes */
+body.bottom #wrap { position: absolute; left: 0; right: 0; bottom: 0; }
 
-#stack { display: flex; flex-direction: column; gap: 10px; }
+#stack { position: relative; display: flex; flex-direction: column; gap: 10px; }
 body.bottom #stack { flex-direction: column-reverse; }
+.card.leaving { pointer-events: none; }
 
 .card {
   position: relative;
@@ -41,14 +44,16 @@ body.bottom #stack { flex-direction: column-reverse; }
   background: var(--accent, #0866ff);
 }
 .card:hover { background: rgba(38, 40, 54, .98); }
-.card.enter { animation: slide-in .34s cubic-bezier(.2, .9, .25, 1.08); }
+.card.enter { animation: slide-in .44s cubic-bezier(.16, 1, .3, 1); }
 @keyframes slide-in {
-  from { transform: translateX(115%); opacity: 0; }
+  from { transform: translateX(110%); opacity: 0; }
+  40% { opacity: 1; }
   to { transform: none; opacity: 1; }
 }
 body.left .card.enter { animation-name: slide-in-left; }
 @keyframes slide-in-left {
-  from { transform: translateX(-115%); opacity: 0; }
+  from { transform: translateX(-110%); opacity: 0; }
+  40% { opacity: 1; }
   to { transform: none; opacity: 1; }
 }
 
@@ -118,6 +123,7 @@ body.left .card.enter { animation-name: slide-in-left; }
 .close:hover { background: rgba(255, 255, 255, .1); color: #fff; }
 
 .more {
+  animation: more-in .25s ease-out;
   width: 360px;
   box-sizing: border-box;
   padding: 7px 10px;
@@ -130,3 +136,4 @@ body.left .card.enter { animation-name: slide-in-left; }
   cursor: pointer;
 }
 .more:hover { background: rgba(38, 40, 54, .96); }
+@keyframes more-in { from { opacity: 0; } to { opacity: 1; } }

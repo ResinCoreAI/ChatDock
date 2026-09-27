@@ -301,6 +301,7 @@
 
     setText('cornerLabel', CORNERS[p.popupPosition] ? t(CORNERS[p.popupPosition]) : '');
     for (const node of qa('[data-dim-when="popups-off"]')) node.classList.toggle('dim', !p.popups);
+    for (const node of qa('[data-dim-when="edge-off"]')) node.classList.toggle('dim', p.edgeMode === 'off');
   }
 
   function renderSecurity() {

@@ -5,7 +5,7 @@
 // installs when the user presses the button. The download is checked against the SHA-512 in the
 // release's latest.yml before it runs. Installing shows ChatDock's "Updating" window, then the
 // installer's own progress window, and ChatDock starts again by itself.
-// Releases are called "Beta Build N" and carry version 1.N.0 (see buildName in ui/i18n.js).
+// Releases are called "Beta Build 1.4" for version 1.4.0 (see buildName in ui/i18n.js).
 
 const { app } = require('electron');
 

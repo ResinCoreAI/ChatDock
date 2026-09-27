@@ -44,7 +44,7 @@
       'toast.updated': 'updated',
       'toast.updatedTitle': 'ChatDock is now on {version} ✓',
       'toast.updatedBody': 'Click to see what’s new',
-      'whatsnew.b3': '• Games that lock the mouse no longer pull the edge tab out while you aim or turn\n• The edge tab glides smoothly along the screen edge instead of jumping\n• Updating shows its progress and tells you when it is done\n• Releases are now called Beta Build 1, 2, 3 …',
+      'whatsnew.1.4': '• Hold the cursor at the screen edge: a line grows to the top and bottom, then the tab comes out (a quick flick to the side no longer opens it)\n• Smoother everything: the chat panel and the edge tab now move with every screen refresh, up to 300 fps on a 300 Hz screen\n• Pop-ups slide away when they close, and the others glide into place\n• Releases are now numbered Beta Build 1.4, 1.5, …',
       'panel.updateReadyTitle': 'ChatDock {version} is downloaded — click to install (takes a few seconds, then it reopens)',
       'panel.updateAvailableTitle': 'ChatDock {version} is available — click for details',
       'banner.exclusive': '🎮 The game runs in <b>exclusive fullscreen</b>, so it has to minimize while the chat is open. Switch it to <b>Borderless / Windowed fullscreen</b> and the chat floats right over it',
@@ -55,8 +55,8 @@
       'error.retry': 'Try again',
 
       'welcome.tagline': 'IG · Facebook · X · Discord chats on the edge of your screen — no window switching',
-      'welcome.step1.right': '<b>Open the chat</b> — rest the cursor on the <b>right edge of the screen</b>; a white tab slides out, then click it<small>Click an app icon on the tab to jump straight to that app · you can move it to the left edge in Settings</small>',
-      'welcome.step1.left': '<b>Open the chat</b> — rest the cursor on the <b>left edge of the screen</b>; a white tab slides out, then click it<small>Click an app icon on the tab to jump straight to that app · you can move it to the right edge in Settings</small>',
+      'welcome.step1.right': '<b>Open the chat</b> — hold the cursor against the <b>right edge of the screen</b>: a line grows to the top and bottom, then a white tab slides out; click it<small>Click an app icon on the tab to jump straight to that app · the hold time and the left edge are in Settings</small>',
+      'welcome.step1.left': '<b>Open the chat</b> — hold the cursor against the <b>left edge of the screen</b>: a line grows to the top and bottom, then a white tab slides out; click it<small>Click an app icon on the tab to jump straight to that app · the hold time and the right edge are in Settings</small>',
       'welcome.step2': '<b>Hotkey</b> — press {hotkey} anywhere, even in a game',
       'welcome.step2none': '<b>Hotkey</b> — not set yet: pick one in Settings to open the chat from anywhere, even in a game',
       'welcome.step3': '<b>Hide</b> — click anywhere else, press the hotkey again or press <kbd>Esc</kbd> twice<small>You go straight back to your game or app — no extra click needed</small>',
@@ -109,6 +109,10 @@
       'edge.always': 'Always (including in games)',
       'edge.noFullscreen': 'Not during fullscreen games or videos',
       'edge.off': 'Off (hotkey only)',
+      'set.edgeHold': 'Hold time at the edge',
+      'set.edgeHoldNote': 'While you hold the cursor there, a line grows to the top and bottom of the screen; the tab comes out when it gets there',
+      'hold.instant': 'Right away (no hold)',
+      'hold.s': '{n} s',
       'set.display': 'Monitor',
       'set.displayNote': 'Several monitors: choose the one ChatDock lives on',
       'display.label': 'Monitor {n}',
@@ -270,8 +274,8 @@
       'tip.update': 'Update {version} ready to install',
       'tip.hotkey': 'Show/hide: {hotkey}',
       'balloon.hereTitle': 'ChatDock lives in this icon',
-      'balloon.here.right': 'Click to show or hide the chat · right-click for settings · rest the cursor on the right screen edge for the white tab',
-      'balloon.here.left': 'Click to show or hide the chat · right-click for settings · rest the cursor on the left screen edge for the white tab',
+      'balloon.here.right': 'Click to show or hide the chat · right-click for settings · hold the cursor on the right screen edge for the white tab',
+      'balloon.here.left': 'Click to show or hide the chat · right-click for settings · hold the cursor on the left screen edge for the white tab',
       'balloon.hotkeyTitle': 'Hotkey not working',
       'balloon.hotkeyBody': '{hotkey} is taken by another program — pick another one in Settings → General',
 
@@ -313,7 +317,7 @@
       'toast.updated': 'อัปเดตแล้ว',
       'toast.updatedTitle': 'ChatDock เป็น {version} แล้ว ✓',
       'toast.updatedBody': 'คลิกเพื่อดูว่ามีอะไรใหม่',
-      'whatsnew.b3': '• เกมที่ล็อกเมาส์จะไม่ทำให้แถบข้างจอเด้งออกมาระหว่างเล็งหรือหันกล้องแล้ว\n• แถบข้างจอเลื่อนตามเมาส์ได้ลื่นขึ้น ไม่วาร์ป\n• ตอนอัปเดตจะเห็นความคืบหน้า และบอกเมื่ออัปเดตเสร็จ\n• เวอร์ชันต่อจากนี้เรียกว่า Beta Build 1, 2, 3 …',
+      'whatsnew.1.4': '• ค้างเมาส์ไว้ที่ขอบจอ จะมีเส้นวิ่งไปจนสุดขอบบนและล่าง แล้วแถบถึงจะโผล่ (ปัดเมาส์ไปชนขอบเร็วๆ ไม่เด้งแล้ว)\n• ทุกอย่างลื่นขึ้น: หน้าแชทกับแถบข้างจอขยับตามทุกเฟรมของจอ สูงสุด 300 FPS บนจอ 300 Hz\n• ป๊อปอัปค่อยๆ เลื่อนออกตอนปิด ใบที่เหลือเลื่อนเข้าที่อย่างนุ่มนวล\n• ชื่อเวอร์ชันเปลี่ยนเป็น Beta Build 1.4, 1.5 …',
       'panel.updateReadyTitle': 'ChatDock {version} ดาวน์โหลดแล้ว — คลิกเพื่อติดตั้ง (ใช้เวลาไม่กี่วินาที แล้วเปิดขึ้นมาเอง)',
       'panel.updateAvailableTitle': 'มี ChatDock {version} — คลิกเพื่อดูรายละเอียด',
       'banner.exclusive': '🎮 เกมเปิดแบบ <b>Fullscreen เต็มรูปแบบ</b> แชทเลยต้องพับเกมลงชั่วคราว — ตั้งเกมเป็น <b>Borderless / Windowed Fullscreen</b> แชทจะลอยทับเกมได้เลย',
@@ -324,8 +328,8 @@
       'error.retry': 'ลองใหม่',
 
       'welcome.tagline': 'แชท IG · Facebook · X · Discord ข้างจอ ไม่ต้องสลับหน้าต่าง',
-      'welcome.step1.right': '<b>เปิดแชท</b> — ชี้เมาส์ไปที่<b>ขอบขวาของจอ</b> แถบสีขาวจะโผล่ออกมา แล้วคลิก<small>คลิกไอคอนแอปบนแถบ เพื่อเปิดแอปนั้นได้ทันที · ย้ายไปขอบซ้ายได้ในตั้งค่า</small>',
-      'welcome.step1.left': '<b>เปิดแชท</b> — ชี้เมาส์ไปที่<b>ขอบซ้ายของจอ</b> แถบสีขาวจะโผล่ออกมา แล้วคลิก<small>คลิกไอคอนแอปบนแถบ เพื่อเปิดแอปนั้นได้ทันที · ย้ายไปขอบขวาได้ในตั้งค่า</small>',
+      'welcome.step1.right': '<b>เปิดแชท</b> — ค้างเมาส์ไว้ที่<b>ขอบขวาของจอ</b> จะมีเส้นวิ่งไปจนสุดขอบบนและล่าง แล้วแถบสีขาวจะโผล่ออกมา จากนั้นคลิก<small>คลิกไอคอนแอปบนแถบ เพื่อเปิดแอปนั้นได้ทันที · ตั้งเวลาค้างเมาส์ และย้ายไปขอบซ้ายได้ในตั้งค่า</small>',
+      'welcome.step1.left': '<b>เปิดแชท</b> — ค้างเมาส์ไว้ที่<b>ขอบซ้ายของจอ</b> จะมีเส้นวิ่งไปจนสุดขอบบนและล่าง แล้วแถบสีขาวจะโผล่ออกมา จากนั้นคลิก<small>คลิกไอคอนแอปบนแถบ เพื่อเปิดแอปนั้นได้ทันที · ตั้งเวลาค้างเมาส์ และย้ายไปขอบขวาได้ในตั้งค่า</small>',
       'welcome.step2': '<b>ปุ่มลัด</b> — กด {hotkey} ได้ทุกที่ แม้กำลังเล่นเกม',
       'welcome.step2none': '<b>ปุ่มลัด</b> — ยังไม่ได้ตั้ง: เลือกได้ในตั้งค่า แล้วจะเปิดแชทได้จากทุกที่ แม้กำลังเล่นเกม',
       'welcome.step3': '<b>ซ่อน</b> — คลิกที่อื่น, กดปุ่มลัดซ้ำ หรือกด <kbd>Esc</kbd> 2 ครั้ง<small>ระบบจะพากลับไปที่เกม/โปรแกรมเดิมให้เอง ไม่ต้องคลิกเกมซ้ำ</small>',
@@ -378,6 +382,10 @@
       'edge.always': 'แสดงเสมอ (รวมตอนเล่นเกม)',
       'edge.noFullscreen': 'ไม่แสดงตอนเกม/วิดีโอเต็มจอ',
       'edge.off': 'ปิด (ใช้ปุ่มลัดอย่างเดียว)',
+      'set.edgeHold': 'ค้างเมาส์ที่ขอบนานเท่าไร',
+      'set.edgeHoldNote': 'ระหว่างค้างเมาส์ไว้ จะมีเส้นวิ่งไปจนสุดขอบบนและขอบล่างของจอ พอเส้นวิ่งสุด แถบจะโผล่ออกมา',
+      'hold.instant': 'ทันที (ไม่ต้องค้าง)',
+      'hold.s': '{n} วินาที',
       'set.display': 'จอที่ใช้',
       'set.displayNote': 'มีหลายจอ: เลือกจอที่ ChatDock อยู่',
       'display.label': 'จอ {n}',
@@ -537,8 +545,8 @@
       'tip.update': 'อัปเดต {version} พร้อมติดตั้ง',
       'tip.hotkey': 'เปิด/ซ่อน: {hotkey}',
       'balloon.hereTitle': 'ChatDock อยู่ที่ไอคอนนี้',
-      'balloon.here.right': 'คลิกเพื่อเปิด/ซ่อนแชท · คลิกขวาเพื่อตั้งค่า · ชี้เมาส์ที่ขอบจอขวาเพื่อเรียกแถบสีขาว',
-      'balloon.here.left': 'คลิกเพื่อเปิด/ซ่อนแชท · คลิกขวาเพื่อตั้งค่า · ชี้เมาส์ที่ขอบจอซ้ายเพื่อเรียกแถบสีขาว',
+      'balloon.here.right': 'คลิกเพื่อเปิด/ซ่อนแชท · คลิกขวาเพื่อตั้งค่า · ค้างเมาส์ไว้ที่ขอบจอขวาเพื่อเรียกแถบสีขาว',
+      'balloon.here.left': 'คลิกเพื่อเปิด/ซ่อนแชท · คลิกขวาเพื่อตั้งค่า · ค้างเมาส์ไว้ที่ขอบจอซ้ายเพื่อเรียกแถบสีขาว',
       'balloon.hotkeyTitle': 'ปุ่มลัดใช้ไม่ได้',
       'balloon.hotkeyBody': '{hotkey} ถูกโปรแกรมอื่นใช้อยู่ — เลือกปุ่มลัดอื่นได้ที่ ตั้งค่า → ทั่วไป',
 
@@ -581,7 +589,7 @@
       'toast.updated': '已更新',
       'toast.updatedTitle': 'ChatDock 已更新到 {version} ✓',
       'toast.updatedBody': '点击查看新功能',
-      'whatsnew.b3': '• 锁定鼠标的游戏在瞄准或转视角时，不会再把屏幕边缘的标签弹出来\n• 边缘标签会沿着屏幕边缘平滑移动，不再跳动\n• 更新时会显示进度，完成后会告诉你\n• 版本现在称为 Beta Build 1、2、3 …',
+      'whatsnew.1.4': '• 在屏幕边缘停住鼠标：一条线延伸到屏幕顶部和底部后，标签才会滑出（把鼠标快速甩到边上不会再弹出）\n• 更流畅：聊天面板和边缘标签随屏幕的每次刷新移动，300 Hz 屏幕上最高 300 FPS\n• 弹窗关闭时会滑出，其余弹窗平滑地移到新位置\n• 版本现在称为 Beta Build 1.4、1.5 …',
       'panel.updateReadyTitle': 'ChatDock {version} 已下载 — 点击安装（只需几秒，之后会自动重新打开）',
       'panel.updateAvailableTitle': 'ChatDock {version} 已发布 — 点击查看详情',
       'banner.exclusive': '🎮 游戏以<b>独占全屏</b>运行，打开聊天时游戏必须暂时最小化 — 将游戏设为<b>无边框 / 窗口化全屏</b>，聊天就能直接浮在游戏上方',
@@ -592,8 +600,8 @@
       'error.retry': '重试',
 
       'welcome.tagline': '在屏幕边缘使用 IG · Facebook · X · Discord 聊天，无需切换窗口',
-      'welcome.step1.right': '<b>打开聊天</b> — 将鼠标停在<b>屏幕右边缘</b>，白色标签滑出后点击它<small>点击标签上的应用图标可直接打开该应用 · 可在设置中移到左边缘</small>',
-      'welcome.step1.left': '<b>打开聊天</b> — 将鼠标停在<b>屏幕左边缘</b>，白色标签滑出后点击它<small>点击标签上的应用图标可直接打开该应用 · 可在设置中移到右边缘</small>',
+      'welcome.step1.right': '<b>打开聊天</b> — 将鼠标停在<b>屏幕右边缘</b>不动：一条线会延伸到屏幕顶部和底部，然后白色标签滑出，点击它<small>点击标签上的应用图标可直接打开该应用 · 停留时间和左边缘可在设置中调整</small>',
+      'welcome.step1.left': '<b>打开聊天</b> — 将鼠标停在<b>屏幕左边缘</b>不动：一条线会延伸到屏幕顶部和底部，然后白色标签滑出，点击它<small>点击标签上的应用图标可直接打开该应用 · 停留时间和右边缘可在设置中调整</small>',
       'welcome.step2': '<b>快捷键</b> — 随时随地按 {hotkey}，游戏中也可以',
       'welcome.step2none': '<b>快捷键</b> — 尚未设置：在设置中选一个，就能随时随地打开聊天，游戏中也可以',
       'welcome.step3': '<b>隐藏</b> — 点击其他地方、再按一次快捷键，或按两次 <kbd>Esc</kbd><small>会自动回到之前的游戏或程序，无需再次点击</small>',
@@ -646,6 +654,10 @@
       'edge.always': '始终（包括游戏中）',
       'edge.noFullscreen': '全屏游戏或视频时不显示',
       'edge.off': '关闭（仅用快捷键）',
+      'set.edgeHold': '在边缘停留多久',
+      'set.edgeHoldNote': '鼠标停住时，一条线会延伸到屏幕顶部和底部；到达后标签才会滑出',
+      'hold.instant': '立即（无需停留）',
+      'hold.s': '{n} 秒',
       'set.display': '显示器',
       'set.displayNote': '多台显示器时，选择 ChatDock 所在的显示器',
       'display.label': '显示器 {n}',
@@ -806,8 +818,8 @@
       'tip.update': '更新 {version} 可以安装',
       'tip.hotkey': '显示/隐藏：{hotkey}',
       'balloon.hereTitle': 'ChatDock 在这个图标里',
-      'balloon.here.right': '单击显示或隐藏聊天 · 右键打开设置 · 将鼠标停在屏幕右边缘即可调出白色标签',
-      'balloon.here.left': '单击显示或隐藏聊天 · 右键打开设置 · 将鼠标停在屏幕左边缘即可调出白色标签',
+      'balloon.here.right': '单击显示或隐藏聊天 · 右键打开设置 · 将鼠标停在屏幕右边缘不动即可调出白色标签',
+      'balloon.here.left': '单击显示或隐藏聊天 · 右键打开设置 · 将鼠标停在屏幕左边缘不动即可调出白色标签',
       'balloon.hotkeyTitle': '快捷键无法使用',
       'balloon.hotkeyBody': '{hotkey} 已被其他程序占用 — 请在 设置 → 常规 中换一个',
 
@@ -850,7 +862,7 @@
       'toast.updated': '更新しました',
       'toast.updatedTitle': 'ChatDock が {version} になりました ✓',
       'toast.updatedBody': 'クリックで新機能を見る',
-      'whatsnew.b3': '• マウスをロックするゲームで、エイムや視点移動中に画面端のタブが出てこなくなりました\n• 画面端のタブが飛ばずに、なめらかに移動します\n• 更新中は進行状況が表示され、完了するとお知らせします\n• リリースの名前が Beta Build 1、2、3 … になりました',
+      'whatsnew.1.4': '• 画面の端でマウスを止めると、線が上下の端まで伸びてからタブが出ます（マウスを端にさっと振っても出なくなりました）\n• 全体がなめらかに：チャットパネルと画面端のタブが画面のリフレッシュごとに動きます（300 Hz の画面で最大 300 FPS）\n• ポップアップは閉じるときにスライドして消え、残りはなめらかに位置を詰めます\n• リリース名が Beta Build 1.4、1.5 … になりました',
       'panel.updateReadyTitle': 'ChatDock {version} をダウンロードしました — クリックでインストール（数秒で終わり、自動で再起動します）',
       'panel.updateAvailableTitle': 'ChatDock {version} が公開されました — クリックで詳細',
       'banner.exclusive': '🎮 ゲームが<b>排他的フルスクリーン</b>で動いているため、チャットを開いている間はゲームが最小化されます。ゲームを<b>ボーダーレス / ウィンドウ化フルスクリーン</b>にすると、チャットをゲームの上に表示できます',
@@ -861,8 +873,8 @@
       'error.retry': '再試行',
 
       'welcome.tagline': 'IG・Facebook・X・Discord のチャットを画面の端に。ウィンドウの切り替えは不要',
-      'welcome.step1.right': '<b>チャットを開く</b> — マウスを<b>画面の右端</b>に置くと白いタブが出てくるので、クリック<small>タブのアプリアイコンをクリックすると、そのアプリをすぐ開けます · 設定で左端に移動できます</small>',
-      'welcome.step1.left': '<b>チャットを開く</b> — マウスを<b>画面の左端</b>に置くと白いタブが出てくるので、クリック<small>タブのアプリアイコンをクリックすると、そのアプリをすぐ開けます · 設定で右端に移動できます</small>',
+      'welcome.step1.right': '<b>チャットを開く</b> — マウスを<b>画面の右端</b>で止めておくと、線が上下の端まで伸びてから白いタブが出てくるので、クリック<small>タブのアプリアイコンをクリックすると、そのアプリをすぐ開けます · 止める時間と左端への移動は設定で変更できます</small>',
+      'welcome.step1.left': '<b>チャットを開く</b> — マウスを<b>画面の左端</b>で止めておくと、線が上下の端まで伸びてから白いタブが出てくるので、クリック<small>タブのアプリアイコンをクリックすると、そのアプリをすぐ開けます · 止める時間と右端への移動は設定で変更できます</small>',
       'welcome.step2': '<b>ショートカット</b> — どこでも {hotkey} を押すだけ。ゲーム中でも使えます',
       'welcome.step2none': '<b>ショートカット</b> — まだ設定されていません。設定で選ぶと、ゲーム中でもどこからでもチャットを開けます',
       'welcome.step3': '<b>隠す</b> — ほかの場所をクリック、ショートカットをもう一度、または <kbd>Esc</kbd> を 2 回<small>元のゲームやアプリに自動で戻るので、クリックし直す必要はありません</small>',
@@ -915,6 +927,10 @@
       'edge.always': '常に（ゲーム中も）',
       'edge.noFullscreen': 'フルスクリーンのゲームや動画では出さない',
       'edge.off': 'オフ（ショートカットのみ）',
+      'set.edgeHold': '端で止める時間',
+      'set.edgeHoldNote': 'マウスを止めている間、線が画面の上下の端まで伸び、届いたところでタブが出ます',
+      'hold.instant': 'すぐ（止めなくてよい）',
+      'hold.s': '{n} 秒',
       'set.display': 'ディスプレイ',
       'set.displayNote': '複数のディスプレイがある場合、ChatDock を置く画面を選びます',
       'display.label': 'ディスプレイ {n}',
@@ -1075,8 +1091,8 @@
       'tip.update': '更新 {version} をインストールできます',
       'tip.hotkey': '表示/非表示：{hotkey}',
       'balloon.hereTitle': 'ChatDock はこのアイコンにいます',
-      'balloon.here.right': 'クリックでチャットを表示/非表示 · 右クリックで設定 · マウスを画面の右端に置くと白いタブが出ます',
-      'balloon.here.left': 'クリックでチャットを表示/非表示 · 右クリックで設定 · マウスを画面の左端に置くと白いタブが出ます',
+      'balloon.here.right': 'クリックでチャットを表示/非表示 · 右クリックで設定 · マウスを画面の右端で止めると白いタブが出ます',
+      'balloon.here.left': 'クリックでチャットを表示/非表示 · 右クリックで設定 · マウスを画面の左端で止めると白いタブが出ます',
       'balloon.hotkeyTitle': 'ショートカットが使えません',
       'balloon.hotkeyBody': '{hotkey} はほかのプログラムが使っています — 設定 → 一般 で別のキーを選んでください',
 
@@ -1120,7 +1136,7 @@
       'toast.updated': 'aktualisiert',
       'toast.updatedTitle': 'ChatDock ist jetzt auf {version} ✓',
       'toast.updatedBody': 'Klicken, um die Neuigkeiten zu sehen',
-      'whatsnew.b3': '• Spiele, die die Maus festhalten, holen beim Zielen oder Umsehen nicht mehr den Reiter am Bildschirmrand heraus\n• Der Reiter gleitet flüssig am Bildschirmrand entlang, statt zu springen\n• Updates zeigen ihren Fortschritt und sagen dir, wann sie fertig sind\n• Releases heißen jetzt Beta Build 1, 2, 3 …',
+      'whatsnew.1.4': '• Halte den Mauszeiger am Bildschirmrand: Eine Linie wächst bis ganz nach oben und unten, dann kommt der Reiter heraus (ein schneller Schwung zur Seite öffnet ihn nicht mehr)\n• Alles flüssiger: Chat-Panel und Reiter bewegen sich mit jeder Bildwiederholung, bis 300 FPS auf einem 300-Hz-Bildschirm\n• Pop-ups gleiten beim Schließen hinaus, die übrigen rücken sanft nach\n• Releases heißen jetzt Beta Build 1.4, 1.5 …',
       'panel.updateReadyTitle': 'ChatDock {version} ist heruntergeladen — klicken zum Installieren (dauert ein paar Sekunden, danach startet es neu)',
       'panel.updateAvailableTitle': 'ChatDock {version} ist verfügbar — klicken für Details',
       'banner.exclusive': '🎮 Das Spiel läuft im <b>exklusiven Vollbild</b> und muss deshalb minimiert werden, solange der Chat offen ist. Stell es auf <b>Randlos / Fenster-Vollbild</b>, dann schwebt der Chat direkt darüber',
@@ -1131,8 +1147,8 @@
       'error.retry': 'Erneut versuchen',
 
       'welcome.tagline': 'IG · Facebook · X · Discord am Bildschirmrand — ohne Fensterwechsel',
-      'welcome.step1.right': '<b>Chat öffnen</b> — lass den Mauszeiger am <b>rechten Bildschirmrand</b> ruhen; ein weißer Reiter gleitet heraus, dann klicken<small>Ein Klick auf ein App-Symbol im Reiter öffnet direkt diese App · in den Einstellungen kannst du ihn an den linken Rand verschieben</small>',
-      'welcome.step1.left': '<b>Chat öffnen</b> — lass den Mauszeiger am <b>linken Bildschirmrand</b> ruhen; ein weißer Reiter gleitet heraus, dann klicken<small>Ein Klick auf ein App-Symbol im Reiter öffnet direkt diese App · in den Einstellungen kannst du ihn an den rechten Rand verschieben</small>',
+      'welcome.step1.right': '<b>Chat öffnen</b> — halte den Mauszeiger am <b>rechten Bildschirmrand</b>: Eine Linie wächst bis nach oben und unten, dann gleitet ein weißer Reiter heraus; klick ihn an<small>Ein Klick auf ein App-Symbol im Reiter öffnet direkt diese App · Haltezeit und linken Rand stellst du in den Einstellungen ein</small>',
+      'welcome.step1.left': '<b>Chat öffnen</b> — halte den Mauszeiger am <b>linken Bildschirmrand</b>: Eine Linie wächst bis nach oben und unten, dann gleitet ein weißer Reiter heraus; klick ihn an<small>Ein Klick auf ein App-Symbol im Reiter öffnet direkt diese App · Haltezeit und rechten Rand stellst du in den Einstellungen ein</small>',
       'welcome.step2': '<b>Tastenkürzel</b> — drück überall {hotkey}, auch im Spiel',
       'welcome.step2none': '<b>Tastenkürzel</b> — noch nicht festgelegt: wähl eins in den Einstellungen, dann öffnest du den Chat von überall, auch im Spiel',
       'welcome.step3': '<b>Ausblenden</b> — woanders klicken, das Tastenkürzel noch einmal drücken oder zweimal <kbd>Esc</kbd><small>Du landest direkt wieder im Spiel oder Programm, ohne extra Klick</small>',
@@ -1185,6 +1201,10 @@
       'edge.always': 'Immer (auch im Spiel)',
       'edge.noFullscreen': 'Nicht bei Vollbild-Spielen oder -Videos',
       'edge.off': 'Aus (nur Tastenkürzel)',
+      'set.edgeHold': 'Haltezeit am Rand',
+      'set.edgeHoldNote': 'Solange du den Mauszeiger dort hältst, wächst eine Linie bis zum oberen und unteren Bildschirmrand; dann kommt der Reiter heraus',
+      'hold.instant': 'Sofort (ohne Halten)',
+      'hold.s': '{n} s',
       'set.display': 'Bildschirm',
       'set.displayNote': 'Mehrere Bildschirme: wähl den, auf dem ChatDock wohnt',
       'display.label': 'Bildschirm {n}',
@@ -1345,8 +1365,8 @@
       'tip.update': 'Update {version} bereit zur Installation',
       'tip.hotkey': 'Ein-/Ausblenden: {hotkey}',
       'balloon.hereTitle': 'ChatDock wohnt in diesem Symbol',
-      'balloon.here.right': 'Klick blendet den Chat ein oder aus · Rechtsklick für Einstellungen · Mauszeiger an den rechten Bildschirmrand für den weißen Reiter',
-      'balloon.here.left': 'Klick blendet den Chat ein oder aus · Rechtsklick für Einstellungen · Mauszeiger an den linken Bildschirmrand für den weißen Reiter',
+      'balloon.here.right': 'Klick blendet den Chat ein oder aus · Rechtsklick für Einstellungen · Mauszeiger am rechten Bildschirmrand halten für den weißen Reiter',
+      'balloon.here.left': 'Klick blendet den Chat ein oder aus · Rechtsklick für Einstellungen · Mauszeiger am linken Bildschirmrand halten für den weißen Reiter',
       'balloon.hotkeyTitle': 'Tastenkürzel funktioniert nicht',
       'balloon.hotkeyBody': '{hotkey} ist von einem anderen Programm belegt — wähl ein anderes unter Einstellungen → Allgemein',
 
@@ -1385,13 +1405,14 @@
     };
   }
 
-  // Releases are called "Beta Build N" and carry version 1.N.0.
+  // Releases are called "Beta Build 1.4" for version 1.4.0: the version without its trailing ".0".
   function build(version) {
-    const m = /^1\.(\d+)\.\d+/.exec(String(version || ''));
-    return m ? Number(m[1]) : null;
+    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(version || ''));
+    if (!m) return null;
+    return m[3] === '0' ? `${m[1]}.${m[2]}` : `${m[1]}.${m[2]}.${m[3]}`;
   }
 
-  // "1.3.0" -> "Beta Build 3" (anything else stays as it is)
+  // "1.4.0" -> "Beta Build 1.4" (anything that isn't a version stays as it is)
   function buildName(t, version) {
     const n = build(version);
     return n ? t('build.name', { n }) : String(version || '');
@@ -1421,7 +1442,9 @@
     },
     apply(scope) {
       const t = page.t;
-      const vars = (el) => (el.dataset.n !== undefined ? { ...page.vars, n: el.dataset.n } : page.vars);
+      // "0.5" is written the local way ("0,5" in German)
+      const num = (n) => (/^\d+\.\d+$/.test(n) ? Number(n).toLocaleString(page.locale) : n);
+      const vars = (el) => (el.dataset.n !== undefined ? { ...page.vars, n: num(el.dataset.n) } : page.vars);
       for (const el of (scope || document).querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n, vars(el));
       for (const el of (scope || document).querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml, vars(el));
       for (const el of (scope || document).querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle, vars(el));

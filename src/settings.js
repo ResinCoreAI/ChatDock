@@ -27,6 +27,7 @@ const DEFAULTS = {
   hotkey: 'Control+Alt+C',  // global toggle
   side: 'right',            // which screen edge the dock lives on: 'right' | 'left'
   edgeMode: 'always',       // 'always' | 'no-fullscreen' | 'off'
+  edgeHold: 3,              // seconds the cursor has to be held against the edge before the tab comes out (0 = right away)
   displayId: null,          // null = primary display
   glow: true,               // light strip on the screen edge when there are unread chats
   popups: true,             // ChatDock's own always-on-top pop-up when someone messages you

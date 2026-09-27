@@ -25,9 +25,10 @@ borderless game.
 ## Why
 
 Reading a message while you play usually means Alt+Tab, a browser, and a game that loses focus
-(or a stray click that fires a gun). ChatDock keeps the real chat sites one flick of the mouse away:
+(or a stray click that fires a gun). ChatDock keeps the real chat sites right at the edge of the screen:
 
-- **Hidden until you want it** – nothing on screen until you rest the cursor on the screen edge.
+- **Hidden until you want it** – nothing on screen until you hold the cursor on the screen edge (a line
+  grows along it, so a quick flick of the mouse to the side never opens anything).
 - **Always on top** – the panel and the pop-ups float over borderless / windowed-fullscreen games.
 - **Never steals the game** – the edge tab and pop-ups don't take focus; closing the panel hands
   focus straight back to the game, no extra click.
@@ -39,7 +40,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 |---|---|
 | 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram and WhatsApp one switch away. Each app keeps its own login. |
 | ↔️ **Left or right** | Dock on either screen edge (and on any monitor). The panel, edge tab and unread glow all follow. |
-| 🖱️ **Open it your way** | Rest the cursor on the edge → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
+| 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 3 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
 | ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
@@ -47,6 +48,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
 | 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, locked-down app files. See [Privacy & security](#privacy--security). |
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, and installs only when you press **Update**. |
+| ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
 | 🎥 **Streaming-safe** | Optionally hide the panel and pop-ups from screenshots, OBS and Discord screen share. |
 
@@ -79,7 +81,7 @@ To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*.
 
 | To… | Do this |
 |---|---|
-| **Open the chat** | Rest the cursor on the screen edge (middle part), a white tab slides out → click it |
+| **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Position & look* (or *Right away*) |
 | Open a specific app | Click that app's icon on the white tab |
 | **Reply to a pop-up** | Click the pop-up → the panel opens on that conversation |
 | Open / hide from anywhere | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> (works in games; changeable) |
@@ -113,8 +115,8 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 - **Exclusive fullscreen** games can't be drawn over by anything. Opening the chat minimizes the game
   for a moment (a yellow bar explains this), and hiding the chat brings it back.
 - Games where the mouse lives on the screen edge (MOBA / RTS camera scrolling): set
-  *Settings → Position → Cursor on the screen edge* to “not during fullscreen games” and use the hotkey instead. Or move
-  the dock to the other edge.
+  *Settings → Position → Cursor on the screen edge* to “not during fullscreen games” (or raise the hold time) and use
+  the hotkey instead. Or move the dock to the other edge.
 - ChatDock never touches the game's files or memory. It is just a window that stays on top.
 
 ## Privacy & security
@@ -144,17 +146,18 @@ ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/Chat
 shortly after it starts and every 6 hours. It downloads a new version in the background (usually just
 the changed parts, a few MB), then shows a pop-up and an **Update** button in the panel header.
 Nothing is installed until you press it. Then an *Updating ChatDock* window shows the progress, the
-installer's progress window follows, and ChatDock starts again by itself with a “now on Beta Build N ✓”
+installer's progress window follows, and ChatDock starts again by itself with a “now on Beta Build 1.4 ✓”
 pop-up and a *What's new* list. Both automatic checking and background downloading can be turned off
 under Settings → Updates.
 
-Releases are called **Beta Build 1, 2, 3, …**; build *N* is version `1.N.0` inside.
+Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number without its trailing `.0`
+(Beta Build 1.4 is version `1.4.0`).
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off and the right monitor/edge is chosen. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle. Holding a mouse button down also suppresses it. |
+| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off and the right monitor/edge is chosen. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
 | The hotkey does nothing | Another program took it. Pick another one in Settings → General. |
 | No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *Test pop-up*. Check that app’s own switches under Settings → Notifications → Per app. Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |
@@ -177,14 +180,15 @@ npm run dist         # build the installer: dist/ChatDock-Setup-<version>.exe (+
 Publishing a release (the installed apps pick it up automatically):
 
 ```bash
-# Beta Build N = version 1.N.0: raise the middle number of "version" in package.json
-# (and add "whatsnew.bN" to src/ui/i18n.js for the in-app What's new), then
+# Beta Build 1.N = version 1.N.0: raise the middle number of "version" in package.json
+# (and add "whatsnew.1.N" to src/ui/i18n.js for the in-app What's new), then
 npm run dist
-gh release create v1.4.0 dist/ChatDock-Setup-1.4.0.exe dist/ChatDock-Setup-1.4.0.exe.blockmap dist/latest.yml --title "ChatDock Beta Build 4" --notes "What changed"
+gh release create v1.5.0 dist/ChatDock-Setup-1.5.0.exe dist/ChatDock-Setup-1.5.0.exe.blockmap dist/latest.yml --title "ChatDock Beta Build 1.5" --notes "What changed"
 ```
 
 Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>]`
-(automatic end-to-end check) · `--no-occlusion` (test with the screen locked) ·
+(automatic end-to-end check; add `--selftest-only=edge` for just the frame clock, edge tab, hold line
+and pop-up checks, which never take focus from a game) · `--no-occlusion` (test with the screen locked) ·
 `--stress[=tab|keys|popup] [--side=left]` (real mouse/keyboard; needs a window titled `FAKE GAME`
 covering the screen) · `--demo-frames=<dir>` (records the README animation; see
 `scripts/make_demo_gif.py`). The stress and demo modules are not shipped in the installer.
@@ -196,12 +200,13 @@ covering the screen) · `--demo-frames=<dir>` (records the README animation; see
 src/main.js          windows, edge detection, animations, hotkey, tray, settings, unread counts
 src/updater.js       GitHub release updates (electron-updater)
 src/toasts.js        message pop-ups (topmost, never take focus)
+src/frames.js        frame clock: moves windows once per screen refresh (vertical blank) while animating
 src/apps.js          the chat services (URLs, domains, colours, widths): add new ones here
 src/settings.js      settings store (%APPDATA%\ChatDock\settings.json)
 src/win32.js         Windows calls Electron lacks (focus hand-back, fullscreen detection) via koffi
 src/preload.js       bridge for ChatDock's own pages
 src/preload-site.js  passkey guard + notification hand-off for the chat sites
-src/ui/              panel + settings, edge tab, glow, pop-ups (served from chatdock://ui/)
+src/ui/              panel + settings, edge tab, glow, hold line, pop-ups (served from chatdock://ui/)
 src/ui/i18n.js       every UI text in English, Thai, Chinese, Japanese and German
 src/stress.js        real-input stress test (dev only)
 src/demo.js          README animation recorder (dev only)

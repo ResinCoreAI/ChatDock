@@ -14,6 +14,14 @@ html, body {
   background: var(--c, #0866ff);
   box-shadow: 0 0 9px 1px var(--g, rgba(8, 102, 255, .75));
   opacity: .9;
+  transition: opacity .22s ease;
+}
+
+#bar.out { opacity: 0; }
+#bar.in { animation: glow-in .3s cubic-bezier(.2, .8, .2, 1); }
+@keyframes glow-in {
+  from { opacity: 0; transform: scaleY(.7); }
+  to { opacity: .9; transform: none; }
 }
 
 #bar.pulse { animation: pulse 1.6s ease-out; }
