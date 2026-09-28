@@ -75,9 +75,12 @@ impl Core {
         (self.settings.f64("edgeHold").clamp(0.0, 10.0) * 1000.0).round() as i64
     }
 
-    fn tab_size(&self, d: &Display) -> (i32, i32) {
+    pub(crate) fn tab_size(&self, d: &Display) -> (i32, i32) {
         let n = self.enabled_apps().len() as f64;
-        ((TAB_W * d.ui).round() as i32, ((74.0 + 40.0 * n) * d.ui).round() as i32)
+        // the phone / screen icons of calls go under the apps, after a line (tab.css)
+        let chips = self.call_chips().len() as f64;
+        let calls = if chips > 0.0 { 10.0 + 40.0 * chips } else { 0.0 };
+        ((TAB_W * d.ui).round() as i32, ((74.0 + 40.0 * n + calls) * d.ui).round() as i32)
     }
 
     /// One look at the cursor. Returns when to look again (0 = at the next screen refresh).
@@ -219,6 +222,14 @@ impl Core {
         self.edge.tab_target_y = self.edge.tab_y;
         self.edge.tab_drawn_y = None;
         self.move_tab(&d);
+    }
+
+    /// What's on the tab changed size (a call started or ended): fit it again while it's out.
+    pub fn refit_tab(&mut self) {
+        if self.edge.tab_shown {
+            let cy = self.edge.tab_center_y;
+            self.place_tab(cy);
+        }
     }
 
     /// The cursor slides along the edge: the pill is pushed along so the cursor stays inside it

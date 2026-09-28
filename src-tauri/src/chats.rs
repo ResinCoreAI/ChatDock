@@ -41,8 +41,9 @@ use crate::{
 ///    like other requests; Discord's page probes the desktop app on 127.0.0.1 and then nags
 ///    "Discord App Detected"). The socket goes to a name that never resolves instead.
 /// 4. Says when a call is on: a connected call (a voice channel stays connected while everyone is
-///    quiet), or a live mic, camera or screen share. A call keeps its app awake. Only weak
-///    references: the page still decides when its call and devices go.
+///    quiet), or a live mic, camera or screen share; and whether it's a call and whether the screen
+///    is being shared. A call keeps its app awake, and the edge tab shows a phone or a screen for
+///    it. Only weak references: the page still decides when its call and devices go.
 const SITE_SCRIPT: &str = r#"(() => {
   if (window.WebSocket) {
     const Real = window.WebSocket;
@@ -89,20 +90,34 @@ const SITE_SCRIPT: &str = r#"(() => {
   }
   if (window.WeakRef && window.MediaStreamTrack) {
     let held = [];
-    let said = 0;
+    let said = '';
     let timer = 0;
+    const shares = new WeakSet(); // screen-share tracks
     const isTrack = (x) => x instanceof MediaStreamTrack;
     const keep = (x) => (isTrack(x) ? x.readyState === 'live' : x.connectionState !== 'closed' && x.connectionState !== 'failed');
-    const counts = (x) => {
-      if (isTrack(x)) return true;
+    const connected = (x) => {
       try { return /^(connecting|connected|disconnected)$/.test(x.connectionState) && x.getTransceivers().length > 0; } catch (e) { return false; }
     };
     const tell = () => {
       held = held.filter((r) => { const x = r.deref(); return x && keep(x); });
-      const live = held.filter((r) => counts(r.deref())).length;
-      if (live !== said) {
-        said = live;
-        try { window.chrome.webview.postMessage(JSON.stringify({ type: 'call', live })); } catch (e) {}
+      let live = 0;
+      let call = false;
+      let share = false;
+      for (const r of held) {
+        const x = r.deref();
+        if (!x) continue;
+        if (isTrack(x)) {
+          live++;
+          if (shares.has(x)) share = true;
+        } else if (connected(x)) {
+          live++;
+          call = true;
+        }
+      }
+      const now = JSON.stringify({ type: 'call', live, call, share });
+      if (now !== said) {
+        said = now;
+        try { window.chrome.webview.postMessage(now); } catch (e) {}
       }
       if (held.length && !timer) timer = setInterval(tell, 15000);
       else if (!held.length && timer) { clearInterval(timer); timer = 0; }
@@ -112,16 +127,30 @@ const SITE_SCRIPT: &str = r#"(() => {
       for (const x of list) if (!has(x)) held.push(new WeakRef(x));
       tell();
     };
+    // a screen share can also end from the browser's own "Stop sharing" bar: hear it right away
+    const shared = (t) => { shares.add(t); t.addEventListener('ended', tell); };
     const track = MediaStreamTrack.prototype;
     const realStop = track.stop;
     track.stop = function stop() { const r = realStop.apply(this, arguments); if (has(this)) tell(); return r; };
     const realClone = track.clone;
-    track.clone = function clone() { const t = realClone.apply(this, arguments); if (has(this)) hold([t]); return t; };
+    track.clone = function clone() {
+      const t = realClone.apply(this, arguments);
+      if (has(this)) {
+        if (shares.has(this)) shared(t);
+        hold([t]);
+      }
+      return t;
+    };
     if (window.MediaStream) {
       const realStreamClone = MediaStream.prototype.clone;
       MediaStream.prototype.clone = function clone() {
         const copy = realStreamClone.apply(this, arguments);
-        if (this.getTracks().some(has)) hold(copy.getTracks());
+        const from = this.getTracks();
+        if (from.some(has)) {
+          const to = copy.getTracks();
+          to.forEach((t, i) => { if (shares.has(from[i])) shared(t); });
+          hold(to);
+        }
         return copy;
       };
     }
@@ -129,8 +158,16 @@ const SITE_SCRIPT: &str = r#"(() => {
     for (const name of md ? ['getUserMedia', 'getDisplayMedia'] : []) {
       const original = md[name];
       if (typeof original !== 'function') continue;
+      const display = name === 'getDisplayMedia';
       md[name] = function (...args) {
-        return original.apply(this, args).then((stream) => { try { hold(stream.getTracks()); } catch (e) {} return stream; });
+        return original.apply(this, args).then((stream) => {
+          try {
+            const tracks = stream.getTracks();
+            if (display) tracks.forEach((t) => shared(t));
+            hold(tracks);
+          } catch (e) {}
+          return stream;
+        });
       };
     }
     if (window.RTCPeerConnection) {
@@ -158,6 +195,9 @@ pub struct View {
     visible: bool,
     in_use: bool,
     in_call: bool,
+    /// the page is in a call (connected), and sharing the screen: the edge tab's icons
+    call: bool,
+    share: bool,
     low_memory: bool,
 }
 
@@ -271,6 +311,18 @@ impl Chats {
         if let Some(v) = self.views.get_mut(id) {
             v.in_call = on;
             set_memory_level(v);
+        }
+    }
+
+    /// In a call, and sharing the screen (the edge tab's phone and screen icons).
+    pub fn call_state(&self, id: &str) -> (bool, bool) {
+        self.views.get(id).map(|v| (v.call, v.share)).unwrap_or_default()
+    }
+
+    pub fn set_call_state(&mut self, id: &str, call: bool, share: bool) {
+        if let Some(v) = self.views.get_mut(id) {
+            v.call = call;
+            v.share = share;
         }
     }
 
@@ -691,7 +743,17 @@ impl Core {
         if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.debug) } {
             log!("chat view {id} setup: {err}");
         }
-        let view = View { controller, webview, playing: false, visible: true, in_use: false, in_call: false, low_memory: false };
+        let view = View {
+            controller,
+            webview,
+            playing: false,
+            visible: true,
+            in_use: false,
+            in_call: false,
+            call: false,
+            share: false,
+            low_memory: false,
+        };
         let (theme, dark) = self.chats.theme.clone();
         apply_theme(&view, &theme, dark);
         self.chats.views.insert(id.to_string(), view);
@@ -1101,7 +1163,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     wv.add_ContentLoading(
         &ContentLoadingEventHandler::create(Box::new(move |_, _| {
             let a = app.clone();
-            later(move |c| c.on_call(&a, false)); // a new page: the old one's call ended with it
+            later(move |c| c.on_call(&a, false, false, false)); // a new page: the old one's call ended with it
             Ok(())
         })),
         &mut token,
@@ -1293,8 +1355,9 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                         log!("passkey request blocked {app} {}", crate::core::clean_text(&msg, 200));
                     } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg) {
                         if v["type"] == "call" {
-                            let (a, on) = (app.clone(), v["live"].as_u64().unwrap_or(0) > 0);
-                            later(move |c| c.on_call(&a, on));
+                            let a = app.clone();
+                            let (live, call, share) = (v["live"].as_u64().unwrap_or(0) > 0, v["call"] == true, v["share"] == true);
+                            later(move |c| c.on_call(&a, live, call, share));
                         }
                     }
                 }

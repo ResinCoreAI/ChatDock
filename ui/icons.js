@@ -39,6 +39,7 @@ window.ICONS = {
     <circle cx="15" cy="7.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="16.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
   monitor: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="4" width="18.4" height="12.6" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/>
     <path d="M8.5 20.3h7M12 16.6v3.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  phone: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 3.5c.5 0 .9.3 1.1.8l1.3 3.2c.2.5 0 1-.4 1.3L7.6 10a12.5 12.5 0 0 0 6.4 6.4l1.2-1.6c.3-.4.8-.6 1.3-.4l3.2 1.3c.5.2.8.6.8 1.1v2.6c0 .9-.7 1.6-1.6 1.6C10.4 21 3 13.6 3 5.1c0-.9.7-1.6 1.6-1.6z" fill="currentColor"/></svg>`,
   pointerEdge: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.5v17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M5.2 4.6l9.9 6.6-4.4.9 2.4 4.9-2.1 1-2.3-4.9-3.3 3z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
   theme: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="2"/>

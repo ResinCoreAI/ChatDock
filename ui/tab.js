@@ -2,9 +2,11 @@
 
 const pill = document.getElementById('pill');
 const appsEl = document.getElementById('apps');
+const callsEl = document.getElementById('calls');
 const chev = pill.querySelector('.chev');
 let shownAt = 0;
 let appsKey = '';
+let callsKey = '';
 let side = '';
 let lang = '';
 
@@ -49,6 +51,30 @@ function render(s) {
     badge.textContent = n > 9 ? '9+' : String(n);
     badge.hidden = n === 0;
   }
+  // In a call: a phone; sharing the screen: a screen. Each with its app's icon, and opens that app.
+  const calls = s.calls || [];
+  const callKey = calls.map((c) => `${c.app}:${c.kind}`).join(',') + '|' + lang;
+  if (callKey !== callsKey) {
+    callsKey = callKey;
+    callsEl.textContent = '';
+    for (const c of calls) {
+      const app = s.apps.find((a) => a.id === c.app);
+      const btn = document.createElement('button');
+      btn.className = `chip ${c.kind}`;
+      btn.dataset.app = c.app;
+      btn.title = i18n.t(c.kind === 'share' ? 'tab.sharing' : 'tab.inCall', { name: app ? app.name : c.app });
+      btn.setAttribute('aria-label', btn.title);
+      const glyph = document.createElement('span');
+      glyph.className = 'glyph';
+      glyph.innerHTML = window.iconHTML(c.kind === 'share' ? 'monitor' : 'phone');
+      const from = document.createElement('span');
+      from.className = 'from';
+      from.innerHTML = app ? window.iconHTML(app.icon) : '';
+      btn.append(glyph, from);
+      callsEl.append(btn);
+    }
+    callsEl.hidden = calls.length === 0;
+  }
 }
 
 chatdock.on('state', render);
@@ -72,7 +98,7 @@ document.addEventListener('click', (e) => {
     chatdock.send('tab:log', `click ignored (${Math.round(performance.now() - shownAt)}ms after show)`);
     return;
   }
-  const btn = e.target.closest('.app');
+  const btn = e.target.closest('.app, .chip');
   chatdock.send('tab:open', btn ? btn.dataset.app : null);
 });
 

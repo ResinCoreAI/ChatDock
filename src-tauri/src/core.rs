@@ -563,6 +563,7 @@ impl Core {
             "canAutostart": self.can_autostart(),
             "autostart": self.autostart_cache,
             "panel": self.panel_state.as_str(),
+            "calls": self.call_chips().iter().map(|(app, kind)| json!({ "app": app, "kind": kind })).collect::<Vec<_>>(),
             "side": self.settings.str("side"),
             "dnd": self.dnd_active(),
             "update": {
@@ -998,14 +999,35 @@ impl Core {
     }
 
     /// A call (a voice channel, a screen share) started or ended in an app's page. During one the
-    /// app stays awake and keeps its memory, even when nobody talks.
-    pub fn on_call(&mut self, id: &str, on: bool) {
-        if self.chats.in_call(id) == on {
-            return;
+    /// app stays awake and keeps its memory, even when nobody talks. The edge tab shows a phone
+    /// while it's in a call and a screen while it shares the screen.
+    pub fn on_call(&mut self, id: &str, live: bool, call: bool, share: bool) {
+        if self.chats.in_call(id) != live {
+            self.chats.set_in_call(id, live);
+            self.last_used.insert(id.to_string(), rt::epoch_ms());
+            log!("call {id} {}", if live { "started" } else { "ended" });
         }
-        self.chats.set_in_call(id, on);
-        self.last_used.insert(id.to_string(), rt::epoch_ms());
-        log!("call {id} {}", if on { "started" } else { "ended" });
+        if self.chats.call_state(id) != (call, share) {
+            self.chats.set_call_state(id, call, share);
+            log!("call {id}: in a call {call}, sharing the screen {share}");
+            self.broadcast_state();
+            self.refit_tab(); // taller or shorter
+        }
+    }
+
+    /// The icons on the edge tab under the apps: (app, "call" | "share"), in the apps' order.
+    pub fn call_chips(&self) -> Vec<(&'static str, &'static str)> {
+        let mut chips = Vec::new();
+        for id in self.enabled_apps() {
+            let (call, share) = self.chats.call_state(id);
+            if call {
+                chips.push((id, "call"));
+            }
+            if share {
+                chips.push((id, "share"));
+            }
+        }
+        chips
     }
 
     pub fn apply_audio(&mut self, id: &str) {

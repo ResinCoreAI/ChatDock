@@ -1,6 +1,6 @@
 /* The white pill that slides out of the screen edge (right, or left with body.left). The window height
-   grows with the number of apps (see tabHeight() in main.js); the pill fills it minus 16px top and
-   bottom for the shadow. */
+   grows with the number of apps and call icons (see tab_size() in edge.rs); the pill fills it minus
+   16px top and bottom for the shadow. */
 html, body {
   margin: 0;
   height: 100%;
@@ -70,6 +70,41 @@ body:hover .pill { width: 46px; }
 [hidden] { display: none !important; }
 
 .apps { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+/* In a call: a phone on green; sharing the screen: a screen on red. The app's own icon sits on the
+   side away from the screen edge. Nothing here animates by itself: this page isn't told when its
+   window is hidden. */
+.calls { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.calls::before { content: ""; width: 18px; height: 1px; background: #e2e2e8; }
+.chip {
+  position: relative;
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  transition: transform .12s, filter .12s;
+}
+.chip.call { background: #23a55a; }
+.chip.share { background: #f23f43; }
+.chip:hover { transform: scale(1.06); filter: brightness(1.06); }
+.chip:active { transform: scale(.94); }
+.chip .glyph svg { display: block; width: 17px; height: 17px; }
+.chip .from {
+  position: absolute;
+  bottom: -3px; left: -5px;
+  width: 16px; height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+}
+.chip .from svg { display: block; width: 11px; height: 11px; }
+body.left .chip .from { left: auto; right: -5px; }
 
 /* Docked on the left edge: the same pill, mirrored */
 body.left .pill {

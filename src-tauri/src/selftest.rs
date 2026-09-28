@@ -48,6 +48,9 @@ pub fn start() {
             share_test();
         } else if only.as_deref() == Some("discord") {
             discord_test();
+        } else if only.as_deref() == Some("calls") {
+            wait(7000); // the pages load
+            call_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
         } else if only.as_deref() == Some("sharebar") {
@@ -1158,6 +1161,12 @@ fn discord_test() {
         c.broadcast_state();
     });
 
+    call_test();
+}
+
+/// A call in Discord's page (a real WebRTC call: no mic, camera or screen). It keeps the app awake
+/// and its memory up, and the edge tab shows its icons. Nothing takes the focus or the keyboard.
+fn call_test() {
     // A call keeps Discord awake and its memory up, even when nobody talks: a real WebRTC call in
     // the page (two connections talking to each other; no mic, camera or screen)
     let (active_was, sleep_was) = on(|c| {
@@ -1185,6 +1194,39 @@ fn discord_test() {
     view_js("discord", start_call);
     let started = wait_call(true);
     let states = view_js("discord", "JSON.stringify(window.__testCall.map((p) => p.connectionState))");
+
+    // The icons on the edge tab: a phone while in a call, a screen while sharing (the share comes
+    // from the page's own message here: a real one needs the screen picker). The tab is shown off
+    // screen and never activated.
+    let calls_in_call = on(|c| c.ui_state()["calls"].to_string());
+    view_js("discord", "window.chrome.webview.postMessage(JSON.stringify({ type: 'call', live: 3, call: true, share: true })), 1");
+    wait(400);
+    let calls_sharing = on(|c| c.ui_state()["calls"].to_string());
+    let tab_h = on(|c| {
+        let d = c.target_display();
+        let (w, h) = c.tab_size(&d);
+        win32::set_bounds(c.tab.hwnd, win32::Rect { x: -30000, y: d.bounds.y + 100, w, h });
+        c.emit("tab", "tab:show", json!([c.ui_state()]));
+        win32::show_inactive(c.tab.hwnd);
+        (h, ((74.0 + 40.0 * c.enabled_apps().len() as f64 + 90.0) * d.ui).round() as i32)
+    });
+    wait(700);
+    shot("82-tab-call");
+    let chips = page_js(
+        "tab",
+        "JSON.stringify([...document.querySelectorAll('.chip')].map((b) => b.className + ' ' + b.dataset.app + ' | ' + b.title))",
+    );
+    let fits = page_js("tab", "(() => { const p = document.getElementById('pill').getBoundingClientRect(), c = document.getElementById('calls').getBoundingClientRect(); return c.bottom <= p.bottom - 4 && c.top > p.top; })()");
+    on(|c| {
+        c.emit("tab", "tab:hide", json!([true]));
+        win32::hide(c.tab.hwnd);
+    });
+    view_js("discord", "window.chrome.webview.postMessage(JSON.stringify({ type: 'call', live: 2, call: true, share: false })), 1");
+    wait(400);
+    let calls_after_share = on(|c| c.ui_state()["calls"].to_string());
+    log!(
+        "discord call icons: in a call {calls_in_call} | sharing too {calls_sharing} | tab {tab_h:?} high, chips {chips}, inside the pill {fits} | share stopped {calls_after_share} (expect [call], [call, share], equal heights, 2 chips, true, [call])"
+    );
     let during = on(|c| {
         c.set_app_pref("discord", "sleep", true);
         c.last_used.insert("discord".into(), 0);
@@ -1193,6 +1235,7 @@ fn discord_test() {
     });
     view_js("discord", "window.__testCall.forEach((p) => p.close()), 1");
     let hung_up = wait_call(false);
+    let calls_end = on(|c| c.ui_state()["calls"].to_string());
     let low_after = on(|c| c.chats.memory_low("discord"));
     // a call, then the page reloads: the call ended with the old page
     view_js("discord", start_call);
@@ -1209,7 +1252,7 @@ fn discord_test() {
         c.set_active(&active_was, false);
     });
     log!(
-        "discord call: memory low before {low_before} | call seen {started} {states} | during: memory low, asleep {during:?} | hung up {hung_up}, memory low {low_after} | again {again}, after a reload {reloaded} | then asleep {slept} (expect true, true [connected x2], (false, false), true, true, true, true, true)"
+        "discord call: memory low before {low_before} | call seen {started} {states} | during: memory low, asleep {during:?} | hung up {hung_up} (icons {calls_end}), memory low {low_after} | again {again}, after a reload {reloaded} | then asleep {slept} (expect true, true [connected x2], (false, false), true ([]), true, true, true, true)"
     );
 }
 

@@ -122,6 +122,8 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 - **Share your screen**: join a voice channel → *Share Your Screen* → pick a window or *Entire Screen*
   (turn on *Share with system audio* for the game's sound). Hide ChatDock and it keeps going; stop it
   in Discord or with *Stop sharing* on the bar at the bottom of the screen.
+- **On the edge tab**: while you're in a call a green phone shows under the apps, and a red screen
+  while you share your screen. Click it to go straight back to that app.
 - **Pop-ups per server** say where a message is from ("Discord · Server · #channel"). A server shows up
   under *Settings → Discord* after its first pop-up, with its own switch (plus one for direct and group
   messages). Which messages notify at all is still up to Discord's own notification settings.
