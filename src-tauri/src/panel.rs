@@ -174,6 +174,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         update_win: None,
         ready: HashSet::new(),
         own_hwnds,
+        panel_page_hwnds: Vec::new(),
         chats: Default::default(),
         counts: HashMap::new(),
         load_state: HashMap::new(),
@@ -377,6 +378,13 @@ impl Core {
             let show = panel_up && id == active && self.view_showable(&id);
             self.chats.set_bounds(&id, bounds);
             self.chats.set_visible(&id, show, id == active);
+        }
+        // The panel page covers the whole window; the chat goes on top of it (like Electron's views).
+        // (Development builds can leave it as 1.5.0 had it, to check that the self-test notices.)
+        if !(cfg!(debug_assertions) && std::env::var_os("CHATDOCK_TEST_OLD_STACKING").is_some()) {
+            for &w in &self.panel_page_hwnds {
+                win32::keep_at_bottom(w);
+            }
         }
     }
 

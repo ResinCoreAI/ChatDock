@@ -83,3 +83,16 @@ pub fn electron_logins(data_dir: &Path) {
     }
     log!("logins moved over from the Electron build: {}", moved.join(", "));
 }
+
+/// The Electron builds' updater kept its downloaded installers in %LOCALAPPDATA%\chatdock-updater;
+/// nothing uses them any more. (Installed copies only: tests never touch it.)
+pub fn electron_leftovers() {
+    let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else { return };
+    let dir = local.join(if crate::core::test_product() { "chatdock-updtest-updater" } else { "chatdock-updater" });
+    if dir.is_dir() {
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => log!("removed the Electron updater's old downloads"),
+            Err(err) => log!("old Electron downloads not removed yet: {err}"),
+        }
+    }
+}

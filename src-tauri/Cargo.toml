@@ -1,6 +1,6 @@
 [package]
 name = "chatdock"
-version = "1.5.0"
+version = "1.5.1"
 description = "Instagram, Facebook, X and Discord chats docked on the edge of your screen, always on top of your games."
 authors = ["luraselenehalo"]
 license = "MIT"

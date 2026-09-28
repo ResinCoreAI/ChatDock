@@ -31,6 +31,9 @@ fn main() {
     log::init(&args.data_dir, args.debug);
     log!("start {:?}", std::env::args().skip(1).collect::<Vec<_>>());
     migrate::electron_logins(&args.data_dir); // before WebView2 first starts
+    if !args.profile && !cfg!(debug_assertions) {
+        migrate::electron_leftovers();
+    }
 
     let mut builder = tauri::Builder::default();
     if !args.profile {

@@ -22,11 +22,12 @@ use windows::{
             },
             WindowsAndMessaging::{
                 BringWindowToTop, GetAncestor, GetClassNameW, GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
-                GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-                SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, CURSORINFO, CURSOR_SHOWING,
-                GA_ROOTOWNER, GWL_EXSTYLE, HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL,
-                WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW,
+                GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow,
+                IsWindowVisible, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                WindowFromPoint, CURSORINFO, CURSOR_SHOWING, GA_PARENT, GA_ROOTOWNER, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT,
+                HWND_BOTTOM, HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
+                SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL,
+                WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_CLIPSIBLINGS, WS_EX_TOOLWINDOW,
             },
         },
     },
@@ -215,6 +216,50 @@ pub fn window_rect(hwnd: isize) -> Rect {
     let mut r = RECT::default();
     let _ = unsafe { GetWindowRect(h(hwnd), &mut r) };
     Rect::from_win(r)
+}
+
+/// The direct child windows of `parent`, top of the stack first.
+pub fn children(parent: isize) -> Vec<isize> {
+    let mut list = Vec::new();
+    unsafe {
+        let mut c = GetWindow(h(parent), GW_CHILD).ok();
+        while let Some(w) = c.filter(|w| !w.0.is_null()) {
+            list.push(w.0 as isize);
+            c = GetWindow(w, GW_HWNDNEXT).ok();
+        }
+    }
+    list
+}
+
+/// Keep a child window under its siblings, so they are drawn (and clicked) on top of it, and
+/// stop it painting over them.
+pub fn keep_at_bottom(hwnd: isize) {
+    unsafe {
+        let style = GetWindowLongPtrW(h(hwnd), GWL_STYLE);
+        if style & WS_CLIPSIBLINGS.0 as isize == 0 {
+            SetWindowLongPtrW(h(hwnd), GWL_STYLE, style | WS_CLIPSIBLINGS.0 as isize);
+        }
+        let below = GetWindow(h(hwnd), GW_HWNDNEXT).ok().is_some_and(|w| !w.0.is_null());
+        if below {
+            let _ = SetWindowPos(h(hwnd), Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+    }
+}
+
+/// Which direct child of `parent` is really on top at this screen point (0 = none): what a click
+/// there would hit.
+pub fn child_on_top_at(parent: isize, x: i32, y: i32) -> isize {
+    unsafe {
+        let mut w = WindowFromPoint(POINT { x, y });
+        while !w.0.is_null() {
+            let up = GetAncestor(w, GA_PARENT);
+            if up.0 as isize == parent {
+                return w.0 as isize;
+            }
+            w = up;
+        }
+    }
+    0
 }
 
 /// Never listed in Alt+Tab or on the taskbar (the tab, pop-ups and other small windows).

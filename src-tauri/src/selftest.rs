@@ -11,6 +11,10 @@ use webview2_com::{CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler
 use windows::{
     core::HSTRING,
     Win32::{
+        Graphics::Gdi::{
+            BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
+            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, SRCCOPY,
+        },
         System::Com::{STGM_CREATE, STGM_WRITE},
         UI::Shell::SHCreateStreamOnFileEx,
     },
@@ -28,6 +32,15 @@ pub fn start() {
         if only.as_deref() == Some("edge") {
             wait(3000);
             edge_test(false);
+        } else if only.as_deref() == Some("view") {
+            wait(9000); // the chats load
+            for id in on(|c| c.enabled_apps()) {
+                on(move |c| c.open_panel(Some(id), "selftest"));
+                wait(1500);
+                view_check(&format!("40-view-{id}"));
+            }
+            click_check();
+            close_panel();
         } else {
             full_test();
         }
@@ -186,6 +199,140 @@ fn shot(name: &str) {
         out.push(format!("view:{}", rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "timeout".into())));
     }
     log!("shot {name} {}", out.join(" "));
+}
+
+/// What is really on screen where the chat should be: which window a click in the middle of it
+/// would hit, and how much of it is still the empty panel background (a real screen capture, not
+/// the page's own rendering; black while the PC is locked).
+fn view_check(name: &str) {
+    let (id, panel, page, center, area, visible) = on(|c| {
+        let id = c.active();
+        let p = win32::window_rect(c.panel.hwnd);
+        let b = c.chats.bounds(&id).unwrap_or_default();
+        let area = win32::Rect { x: p.x + b.x, y: p.y + b.y, w: b.w, h: b.h };
+        (id.clone(), c.panel.hwnd, c.panel_page_hwnds.clone(), (area.x + area.w / 2, area.y + area.h / 2), area, c.chats.is_visible(&id))
+    });
+    let top = win32::child_on_top_at(panel, center.0, center.1);
+    let hit = if top == 0 {
+        "nothing".to_string()
+    } else if page.contains(&top) {
+        "the panel page".to_string()
+    } else {
+        format!("a chat window ({})", win32::class_name(top))
+    };
+    let bg = on(|c| {
+        let theme = c.settings.str("theme").to_string();
+        if theme == "light" || (theme != "dark" && !win32::system_dark()) {
+            (255, 255, 255)
+        } else {
+            (24, 25, 29)
+        }
+    });
+    let (blank, dark) = screen_grab(name, area, bg);
+    log!(
+        "view {id}: panel {:?} | visible {visible} | on top at its centre: {hit} | empty panel background {blank}% of it | black {dark}% (expect Open, true, a chat window, low %; black 100% only while locked)",
+        panel_state()
+    );
+}
+
+/// A real click in the middle of the chat (the pointer goes straight back): the click must reach
+/// the page, and the panel must stay open and in front (it hides when you click anything else).
+fn click_check() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
+    let (id, center, before) = on(|c| {
+        let id = c.active();
+        let p = win32::window_rect(c.panel.hwnd);
+        let b = c.chats.bounds(&id).unwrap_or_default();
+        (id, (p.x + b.x + b.w / 2, p.y + b.y + b.h / 3), c.panel_state)
+    });
+    if before != PanelState::Open {
+        log!("click into {id}: skipped, the panel is {before:?} (something else took the focus)");
+        return;
+    }
+    view_js(&id, "window.__cdFocus = 0; window.addEventListener('focus', () => { window.__cdFocus++; }); document.addEventListener('mousedown', () => { window.__cdDown = (window.__cdDown || 0) + 1; }, true); true");
+    let was = win32::cursor_pos();
+    let click = |flags| INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dwFlags: flags, ..Default::default() } } };
+    unsafe {
+        let _ = SetCursorPos(center.0, center.1);
+        SendInput(&[click(MOUSEEVENTF_LEFTDOWN), click(MOUSEEVENTF_LEFTUP)], std::mem::size_of::<INPUT>() as i32);
+    }
+    wait(60);
+    unsafe {
+        let _ = SetCursorPos(was.0, was.1);
+    }
+    wait(500);
+    let (state, front) = on(|c| (c.panel_state, win32::foreground_window() == c.panel.hwnd));
+    log!(
+        "click into {id}: page got the mouse {} | page has focus {} | panel {state:?} | panel in front {front} (expect 1, true, Open, true)",
+        view_js(&id, "window.__cdDown || 0"),
+        view_js(&id, "document.hasFocus()")
+    );
+}
+
+/// Screen pixels of `r` saved as <shots>/<name>-screen.bmp; returns how much of it is the empty
+/// panel background (dark or light theme) and how much is black, in %.
+fn screen_grab(name: &str, r: win32::Rect, bg: (u8, u8, u8)) -> (u32, u32) {
+    if r.w <= 0 || r.h <= 0 {
+        return (0, 0);
+    }
+    let mut px = vec![0u8; (r.w * r.h * 4) as usize];
+    unsafe {
+        let screen = GetDC(None);
+        let mem = CreateCompatibleDC(Some(screen));
+        let bmp = CreateCompatibleBitmap(screen, r.w, r.h);
+        let old = SelectObject(mem, bmp.into());
+        let _ = BitBlt(mem, 0, 0, r.w, r.h, Some(screen), r.x, r.y, SRCCOPY | CAPTUREBLT);
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: r.w,
+                biHeight: -r.h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        GetDIBits(mem, bmp, 0, r.h as u32, Some(px.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
+        SelectObject(mem, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
+    }
+    let n = (r.w * r.h) as usize;
+    let bg_color = bg;
+    let (mut bg, mut black) = (0usize, 0usize);
+    for p in px.chunks_exact(4) {
+        let (b, g, rr) = (p[0], p[1], p[2]);
+        if (rr, g, b) == bg_color {
+            bg += 1;
+        }
+        if (rr, g, b) == (0, 0, 0) {
+            black += 1;
+        }
+    }
+    if let Some(dir) = on(|c| c.args.shots.clone()) {
+        let _ = std::fs::create_dir_all(&dir);
+        let mut file = Vec::with_capacity(54 + px.len());
+        let size = 54 + px.len() as u32;
+        file.extend_from_slice(b"BM");
+        file.extend_from_slice(&size.to_le_bytes());
+        file.extend_from_slice(&[0, 0, 0, 0]);
+        file.extend_from_slice(&54u32.to_le_bytes());
+        file.extend_from_slice(&40u32.to_le_bytes());
+        file.extend_from_slice(&r.w.to_le_bytes());
+        file.extend_from_slice(&(-r.h).to_le_bytes());
+        file.extend_from_slice(&1u16.to_le_bytes());
+        file.extend_from_slice(&32u16.to_le_bytes());
+        file.extend_from_slice(&[0u8; 24]);
+        file.extend_from_slice(&px);
+        let _ = std::fs::write(dir.join(format!("{name}-screen.bmp")), file);
+    }
+    ((bg * 100 / n) as u32, (black * 100 / n) as u32)
 }
 
 fn toasts_snapshot() -> String {
@@ -455,6 +602,7 @@ fn full_test() {
         on(|c| !win32::is_visible(c.tab.hwnd))
     );
     shot("06-open-last-app");
+    view_check("06-open-last-app");
     close_panel();
     on(move |c| {
         for id in c.enabled_apps() {
@@ -805,7 +953,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.5, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.5.1, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

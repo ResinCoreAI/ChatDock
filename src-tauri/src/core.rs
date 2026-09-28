@@ -154,6 +154,8 @@ pub struct Core {
     pub update_win: Option<Win>,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
+    /// the panel page's own child windows (Tauri's WebView): kept under the chat views
+    pub panel_page_hwnds: Vec<isize>,
     pub chats: chats::Chats,
     // per app
     pub counts: HashMap<String, u32>,

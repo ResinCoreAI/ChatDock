@@ -412,7 +412,12 @@ impl Core {
                     }
                 }
             }
-            later(|c| c.chats_ready());
+            later(|c| {
+                // every child of the panel window so far belongs to the panel page itself
+                c.panel_page_hwnds = win32::children(c.panel.hwnd);
+                log!("panel page windows {:?}", c.panel_page_hwnds.iter().map(|w| win32::class_name(*w)).collect::<Vec<_>>());
+                c.chats_ready();
+            });
         });
     }
 
