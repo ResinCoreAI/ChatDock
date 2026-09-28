@@ -52,6 +52,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("newsdemo") {
+            wait(3000);
+            news_demo_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
         } else if only.as_deref() == Some("sharebar") {
@@ -1405,6 +1408,53 @@ fn call_window_test() {
     log!(
         "call windows: open {open:?} | sharing {sharing} | share stopped {share_stopped} | closed {closed:?} | none showed up, gave up {gave_up} (expect ([instagram call], true), [call, share], [call], ([], false), true)"
     );
+}
+
+/// The What's new window's demos: one picture per scene, a moment into it. The window is off
+/// screen and never activated.
+fn news_demo_test() {
+    // Settings → Updates and its "See what's new" button, pressed (the panel off screen, never
+    // activated)
+    on(|c| {
+        c.whatsnew.offscreen = true;
+        c.settings_mode = true;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+        c.emit("panel", "settings:goto", json!(["updates"]));
+    });
+    wait(1500);
+    shot("84-updates-page");
+    let button = page_js(
+        "panel",
+        "(() => { const b = document.querySelector('[data-action=\"whats-new\"]'); if (!b || b.hidden || !b.offsetWidth) return 'not shown'; b.click(); return 'pressed: ' + b.textContent; })()",
+    );
+    wait(2500);
+    log!("what's new from Settings: {button} | the window came {}", on(|c| c.whatsnew.win.is_some()));
+    on(|c| {
+        c.settings_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+    log!(
+        "what's new demos: {}",
+        page_js("whatsnew", "JSON.stringify({ title: document.getElementById('title').textContent, demos: document.querySelectorAll('#dots .dot').length, lines: document.querySelectorAll('.notes li').length, linked: document.querySelectorAll('.notes li[data-demo]').length, card: document.querySelector('.card').offsetHeight, window: innerHeight, scene: document.getElementById('scene').className })")
+    );
+    let n: usize = page_js("whatsnew", "document.querySelectorAll('#dots .dot').length").trim_matches('"').parse().unwrap_or(0);
+    for i in 0..n {
+        page_js("whatsnew", &format!("document.querySelectorAll('#dots .dot')[{i}].click(), 1"));
+        for (at, ms) in [("a", 1200), ("b", 1400), ("c", 2000)] {
+            wait(ms); // 1.2 s, 2.6 s and 4.6 s into the scene
+            shot(&format!("83-news-demo-{i}{at}"));
+        }
+    }
+    log!("what's new demo lit line: {}", page_js("whatsnew", "document.querySelector('.notes li.now')?.dataset.demo || ''"));
+    on(|c| {
+        c.close_whats_new(false);
+        c.whatsnew.offscreen = false;
+    });
 }
 
 /// What keeps running while ChatDock sits hidden: animations left running in its own pages (each

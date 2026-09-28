@@ -51,7 +51,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). While hidden it uses next to no CPU or graphics card. |
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
 | 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, signed updates. See [Privacy & security](#privacy--security). |
-| ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. |
+| ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. Afterwards a *What's new* window plays a short animated demo of each change (*Settings → Updates → See what's new* shows it again). |
 | ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
 | 🎥 **Streaming-safe** | Optionally hide the panel and pop-ups from screenshots, OBS and Discord screen share. |
@@ -123,7 +123,8 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
   (turn on *Share with system audio* for the game's sound). Hide ChatDock and it keeps going; stop it
   in Discord or with *Stop sharing* on the bar at the bottom of the screen.
 - **On the edge tab**: while you're in a call a green phone shows under the apps, and a red screen
-  while you share your screen. Click it to go straight back to that app.
+  while you share your screen. Click it to go straight back to that app. Messenger and Instagram calls
+  (in their own call window) show it too.
 - **Pop-ups per server** say where a message is from ("Discord · Server · #channel"). A server shows up
   under *Settings → Discord* after its first pop-up, with its own switch (plus one for direct and group
   messages). Which messages notify at all is still up to Discord's own notification settings.

@@ -48,7 +48,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-/* Hidden: nothing moves. This page isn't told when its window is hidden, and a running animation
+/* Window hidden: nothing moves. This page isn't told by WebView2 when its window is hidden, and a running animation
    redraws it on every screen refresh (300 times a second on a 300 Hz screen), e.g. the spinner of
    an app that sleeps until the chat is opened. */
 body.panel-hidden *, body.panel-hidden *::before, body.panel-hidden *::after { animation-play-state: paused !important; }

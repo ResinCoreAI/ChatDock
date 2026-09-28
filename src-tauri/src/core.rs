@@ -573,6 +573,8 @@ impl Core {
             "canAutostart": self.can_autostart(),
             "autostart": self.autostart_cache,
             "panel": self.panel_state.as_str(),
+            // the panel's window is on screen: its page keeps still while it isn't (panel.css)
+            "shown": win32::is_visible(self.panel.hwnd),
             "calls": self.call_chips().iter().map(|(app, kind)| json!({ "app": app, "kind": kind })).collect::<Vec<_>>(),
             "side": self.settings.str("side"),
             "dnd": self.dnd_active(),
@@ -890,6 +892,7 @@ impl Core {
             "download-update" => self.download_update(),
             "install-update" => self.install_update(),
             "open-releases" => win32::open_url(&format!("{REPO_URL}/releases")),
+            "whats-new" => self.open_whats_new(),
             "open-repo" => win32::open_url(REPO_URL),
             "open-license" => win32::open_url(&format!("{REPO_URL}/blob/main/LICENSE")),
             "open-logs" => {

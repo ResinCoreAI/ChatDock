@@ -140,8 +140,8 @@ function render(s) {
   const welcome = !settingsOn && (s.help || !s.onboarded);
   const cover = settingsOn || welcome; // a ChatDock screen instead of the chat
   const load = s.load[s.active];
-  document.body.classList.toggle('panel-hidden', s.panel === 'hidden');
-  $('#progress').classList.toggle('on', s.panel !== 'hidden' && !cover && load === 'loading' && s.firstShown[s.active]);
+  document.body.classList.toggle('panel-hidden', !s.shown);
+  $('#progress').classList.toggle('on', s.shown && !cover && load === 'loading' && s.firstShown[s.active]);
   $('#settings').hidden = !settingsOn;
   $('#welcome').hidden = !welcome;
   $('#error').hidden = cover || load !== 'error';

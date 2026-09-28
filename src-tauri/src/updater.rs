@@ -33,6 +33,10 @@ pub struct WhatsNew {
     /// the last other window in front: it gets the keyboard back when What's new closes
     fg_before: isize,
     watch: u64,
+    /// opened from Settings ("See what's new"), not after an update
+    pub manual: bool,
+    /// self-test: put it off screen
+    pub offscreen: bool,
 }
 
 /// While What's new is up: remember the last other window in front (the game, a browser), which
@@ -454,6 +458,18 @@ impl Core {
         win32::raise(w.hwnd);
     }
 
+    /// Settings → Updates → "See what's new": the same window, for the version running now.
+    pub fn open_whats_new(&mut self) {
+        if self.whatsnew.win.is_some() {
+            if let Some(w) = self.whatsnew.win.as_ref() {
+                win32::raise(w.hwnd);
+            }
+            return;
+        }
+        self.whatsnew.manual = true;
+        self.show_whats_new_window();
+    }
+
     /// "What's new" after an update (see announce_updated).
     pub fn show_whats_new_window(&mut self) {
         if self.whatsnew.win.is_some() || self.whatsnew.building {
@@ -485,21 +501,40 @@ impl Core {
         let sections = self.whats_new_sections();
         // one list, for this very release: "What's new" (the title above names the version)
         let only_now = sections.len() == 1 && sections[0].0 == now;
+        // "build" picks the release's animated demos in the page (whatsnew.js DEMOS)
         let sections: Vec<Value> = sections
             .iter()
-            .map(|(v, lines)| json!({ "title": if only_now { self.t("wn.heading") } else { self.build_name(v) }, "lines": lines }))
+            .map(|(v, lines)| {
+                json!({
+                    "title": if only_now { self.t("wn.heading") } else { self.build_name(v) },
+                    "build": i18n::build(v).unwrap_or_default(),
+                    "lines": lines,
+                })
+            })
             .collect();
+        let manual = self.whatsnew.manual;
         let route = match self.updated_from() {
-            Some(from) if i18n::build(&from).is_some() => format!("{} → {}", self.build_name(&from), self.build_name(&now)),
+            Some(from) if !manual && i18n::build(&from).is_some() => format!("{} → {}", self.build_name(&from), self.build_name(&now)),
             _ => String::new(),
+        };
+        let title = if manual {
+            self.tv("upd.notesFor", &[("version", self.build_name(&now))])
+        } else {
+            self.tv("toast.updatedTitle", &[("version", self.build_name(&now))])
         };
         self.emit(
             "whatsnew",
             "whatsnew:show",
             json!([{
                 "locale": i18n::locale(&self.lang),
-                "title": self.tv("toast.updatedTitle", &[("version", self.build_name(&now))]),
+                "title": title,
                 "route": route,
+                "demo": {
+                    "voice": self.t("dc.voice"),
+                    "popups": self.t("dc.popups"),
+                    "muted": self.t("dc.muted"),
+                    "unmuted": self.t("dc.unmuted"),
+                },
                 "sections": sections,
                 "ok": self.t("wn.ok"),
                 "github": self.t("wn.github"),
@@ -522,7 +557,10 @@ impl Core {
         };
         let d = self.display_at(x, y).unwrap_or_else(|| self.target_display());
         let (w_px, h_px) = ((NEWS_WIDTH * d.ui).round() as i32, ((css_height.max(160.0) * d.ui).round() as i32).min(d.work.h * 85 / 100));
-        let r = Rect { x: d.work.x + (d.work.w - w_px) / 2, y: d.work.y + (d.work.h - h_px) / 2, w: w_px, h: h_px };
+        let mut r = Rect { x: d.work.x + (d.work.w - w_px) / 2, y: d.work.y + (d.work.h - h_px) / 2, w: w_px, h: h_px };
+        if self.whatsnew.offscreen {
+            r.x = -30000;
+        }
         win32::set_bounds(w.hwnd, r);
         if !shown {
             win32::show_inactive(w.hwnd);
@@ -538,6 +576,7 @@ impl Core {
         let in_front = win32::foreground_window() == w.hwnd;
         self.own_hwnds.retain(|h| *h != w.hwnd);
         self.ready.remove("whatsnew");
+        self.whatsnew.manual = false;
         let _ = w.w.destroy();
         if releases {
             win32::open_url(&format!("{}/releases", crate::core::REPO_URL));

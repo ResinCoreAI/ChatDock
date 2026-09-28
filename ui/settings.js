@@ -647,6 +647,7 @@
     notes.hidden = !coming && !news;
     setText('notesTitle', coming ? t('upd.notes') : news ? news.title : '');
     setText('notes', coming ? u.notes : news ? news.text : '');
+    q('[data-action="whats-new"]').hidden = coming || !news; // the animated demos of this version
     q('.cat .dot').hidden = !(u.status === 'ready' || u.status === 'available');
   }
 
