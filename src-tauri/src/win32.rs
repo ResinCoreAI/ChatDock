@@ -294,6 +294,35 @@ pub fn window_pid(hwnd: isize) -> u32 {
     pid
 }
 
+/// The top-level windows of a process, shown or not.
+pub fn top_windows_of(pid: u32) -> Vec<isize> {
+    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
+    unsafe extern "system" fn each(hwnd: HWND, l: LPARAM) -> BOOL {
+        let (pid, list) = &mut *(l.0 as *mut (u32, Vec<isize>));
+        let mut p = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut p));
+        if p == *pid {
+            list.push(hwnd.0 as isize);
+        }
+        TRUE
+    }
+    let mut found = (pid, Vec::new());
+    if pid != 0 {
+        unsafe {
+            let _ = EnumWindows(Some(each), LPARAM(&mut found as *mut (u32, Vec<isize>) as isize));
+        }
+    }
+    found.1
+}
+
+/// A window's title. (Another program's window isn't asked: Windows keeps its title.)
+pub fn window_title(hwnd: isize) -> String {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetWindowTextW(h(hwnd), &mut buf) }.max(0) as usize;
+    String::from_utf16_lossy(&buf[..n])
+}
+
 /// The file name of the program that owns a window ("" if unknown).
 pub fn process_name(hwnd: isize) -> String {
     use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};

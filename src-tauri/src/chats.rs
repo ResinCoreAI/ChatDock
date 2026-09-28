@@ -198,6 +198,8 @@ pub struct View {
     /// the page is in a call (connected), and sharing the screen: the edge tab's icons
     call: bool,
     share: bool,
+    /// a call window it opened is open (Messenger, Instagram)
+    popup_call: bool,
     low_memory: bool,
 }
 
@@ -265,7 +267,7 @@ pub fn browser_version() -> String {
 
 /// A page out of sight that isn't the app in use gives memory back, unless it's in a call.
 fn set_memory_level(v: &mut View) {
-    let low = !v.visible && !v.in_use && !v.in_call;
+    let low = !v.visible && !v.in_use && !v.in_call && !v.popup_call;
     if v.low_memory != low {
         v.low_memory = low;
         if let Ok(wv19) = v.webview.cast::<ICoreWebView2_19>() {
@@ -302,9 +304,22 @@ impl Chats {
         self.views.get(id).is_some_and(|v| v.playing)
     }
 
-    /// In a call, a voice channel or sharing the screen (as the page says).
+    /// In a call, a voice channel or sharing the screen (as the page says), or in a call window
+    /// of its own.
     pub fn in_call(&self, id: &str) -> bool {
+        self.views.get(id).is_some_and(|v| v.in_call || v.popup_call)
+    }
+
+    /// What the page itself last said: a call, a voice channel or a screen share is live.
+    pub fn page_call_live(&self, id: &str) -> bool {
         self.views.get(id).is_some_and(|v| v.in_call)
+    }
+
+    pub fn set_popup_call(&mut self, id: &str, on: bool) {
+        if let Some(v) = self.views.get_mut(id) {
+            v.popup_call = on;
+            set_memory_level(v);
+        }
     }
 
     pub fn set_in_call(&mut self, id: &str, on: bool) {
@@ -345,10 +360,6 @@ impl Chats {
 
     pub fn webview(&self, id: &str) -> Option<ICoreWebView2> {
         self.views.get(id).map(|v| v.webview.clone())
-    }
-
-    pub fn popups_open(&self, _id: &str) -> u32 {
-        0
     }
 
     pub fn set_bounds(&self, id: &str, r: Rect) {
@@ -752,6 +763,7 @@ impl Core {
             in_call: false,
             call: false,
             share: false,
+            popup_call: false,
             low_memory: false,
         };
         let (theme, dark) = self.chats.theme.clone();
@@ -1220,7 +1232,24 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
             // Voice / video calls and "Sign in with Google/Apple" need their own small window
-            if uri == "about:blank" || apps::is_call_url(&app, &uri) || apps::is_auth_popup(&app, &uri) {
+            let call = apps::is_call_url(&app, &uri);
+            if uri == "about:blank" || call || apps::is_auth_popup(&app, &uri) {
+                let (a, kind) = (
+                    app.clone(),
+                    if call {
+                        "a call"
+                    } else if uri == "about:blank" {
+                        "a blank page"
+                    } else {
+                        "a sign-in"
+                    },
+                );
+                later(move |c| {
+                    log!("{a} opens a window of its own: {kind}");
+                    if call {
+                        c.call_window_opening(&a);
+                    }
+                });
                 return Ok(());
             }
             args.SetHandled(true)?;

@@ -51,6 +51,7 @@ pub fn start() {
         } else if only.as_deref() == Some("calls") {
             wait(7000); // the pages load
             call_test();
+            call_window_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
         } else if only.as_deref() == Some("sharebar") {
@@ -1336,6 +1337,73 @@ fn share_bar_test() {
         "share bar: a window of the chats' browser {} ({}) | watching {watching}, after 0.5 s {still} | the focus moves to the taskbar: {after} | back into the chat: {back:?} | our own window had it: watching {watching_own}, then the taskbar: {own_after} (expect true, true, open, hidden, (\"open\", false), false, open)",
         bar != 0,
         win32::class_name(bar)
+    );
+}
+
+/// Messenger and Instagram calls open a window of their own (made by WebView2, where the page
+/// script doesn't run). A new window of the chats' browser after a call link counts as a call until
+/// it closes, and a "… is sharing your screen" bar of its site as a screen share. Stand-ins: windows
+/// of ChatDock itself, off screen, never activated.
+fn call_window_test() {
+    use windows::{
+        core::{w, HSTRING},
+        Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, ShowWindow, SW_SHOWNOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+        },
+    };
+    let make = |title: &'static str, w: i32, h: i32| {
+        on(move |_| unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                w!("STATIC"),
+                &HSTRING::from(title),
+                WS_POPUP,
+                -30000,
+                -30000,
+                w,
+                h,
+                None,
+                None,
+                None,
+                None,
+            )
+            .map(|hwnd| {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                hwnd.0 as isize
+            })
+            .unwrap_or(0)
+        })
+    };
+    let destroy = |hwnd: isize| {
+        on(move |_| unsafe {
+            let _ = DestroyWindow(win32::h(hwnd));
+        })
+    };
+    let icons = || on(|c| c.ui_state()["calls"].to_string());
+    on(|c| c.test_browser_pid = Some(std::process::id()));
+    // a call link: its window appears a moment later
+    on(|c| c.call_window_opening("instagram"));
+    wait(300);
+    let call_win = make("Instagram call", 480, 360);
+    wait(900);
+    let open = (icons(), on(|c| c.chats.in_call("instagram")));
+    // the screen is shared from it
+    let bar = make("www.instagram.com is sharing your screen.", 520, 44);
+    wait(1500);
+    let sharing = icons();
+    destroy(bar);
+    wait(1500);
+    let share_stopped = icons();
+    destroy(call_win);
+    wait(1500);
+    let closed = (icons(), on(|c| c.chats.in_call("instagram")));
+    // a call link whose window never shows up
+    on(|c| c.call_window_opening("facebook"));
+    wait(8700);
+    let gave_up = on(|c| c.call_window_search.is_none() && c.call_windows.is_empty());
+    on(|c| c.test_browser_pid = None);
+    log!(
+        "call windows: open {open:?} | sharing {sharing} | share stopped {share_stopped} | closed {closed:?} | none showed up, gave up {gave_up} (expect ([instagram call], true), [call, share], [call], ([], false), true)"
     );
 }
 

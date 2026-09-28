@@ -35,6 +35,8 @@ pub const HOTKEYS: [(&str, &str); 4] = [
 ];
 pub const ZOOM_STEPS: [f64; 8] = [0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5];
 const SLEEP_AFTER_MS: i64 = 10 * 60 * 1000;
+/// How often an open call window is looked at (still open? sharing the screen?).
+const CALL_WATCH_MS: u64 = 1000;
 const COUNT_POPUP_GRACE_MS: i64 = 20_000;
 pub const AUTO_RETRY_MS: u64 = 15_000;
 
@@ -158,6 +160,14 @@ pub struct Core {
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
+    /// Call windows the chats opened (Messenger, Instagram): (window, app)
+    pub call_windows: Vec<(isize, String)>,
+    /// Looking for the call window a chat just asked for: the app, the windows there were, until when
+    pub call_window_search: Option<(String, Vec<isize>, i64)>,
+    /// Apps sharing the screen from a call window (the "… is sharing your screen" bar says so)
+    pub bar_shares: HashSet<String>,
+    /// self-test: whose windows count as the chats' browser's
+    pub test_browser_pid: Option<u32>,
     /// the panel page's own child windows (Tauri's WebView): kept under the chat views
     pub panel_page_hwnds: Vec<isize>,
     /// chat views with a reload coming after their renderer crashed
@@ -988,7 +998,7 @@ impl Core {
             if *self.asleep.get(id).unwrap_or(&false) || !self.chats.has(id) || !self.sleep_eligible(id) {
                 continue;
             }
-            if (showing && active == id) || self.chats.playing_audio(id) || self.chats.in_call(id) || self.chats.popups_open(id) > 0 {
+            if (showing && active == id) || self.chats.playing_audio(id) || self.chats.in_call(id) {
                 self.last_used.insert(id.to_string(), now); // on screen, playing sound, or in a call
                 continue;
             }
@@ -1002,7 +1012,7 @@ impl Core {
     /// app stays awake and keeps its memory, even when nobody talks. The edge tab shows a phone
     /// while it's in a call and a screen while it shares the screen.
     pub fn on_call(&mut self, id: &str, live: bool, call: bool, share: bool) {
-        if self.chats.in_call(id) != live {
+        if self.chats.page_call_live(id) != live {
             self.chats.set_in_call(id, live);
             self.last_used.insert(id.to_string(), rt::epoch_ms());
             log!("call {id} {}", if live { "started" } else { "ended" });
@@ -1015,11 +1025,112 @@ impl Core {
         }
     }
 
+    fn calls_browser_pid(&self) -> u32 {
+        self.test_browser_pid.unwrap_or_else(chats::browser_pid)
+    }
+
+    /// A chat opened a call window: Messenger and Instagram calls run in a window of their own,
+    /// which WebView2 makes by itself (the page script doesn't run there). It is found as a new
+    /// window of the chats' browser; while it's open the app is in a call.
+    pub fn call_window_opening(&mut self, app: &str) {
+        let before = win32::top_windows_of(self.calls_browser_pid());
+        self.call_window_search = Some((app.to_string(), before, rt::epoch_ms() + 8000));
+        timer(150, |c| c.find_call_window());
+    }
+
+    fn find_call_window(&mut self) {
+        let Some((app, before, until)) = self.call_window_search.clone() else { return };
+        let found = win32::top_windows_of(self.calls_browser_pid()).into_iter().find(|&h| {
+            let r = win32::window_rect(h);
+            !before.contains(&h) && !self.call_windows.iter().any(|(w, _)| *w == h) && win32::is_visible(h) && r.w >= 200 && r.h >= 150
+        });
+        match found {
+            Some(h) => {
+                self.call_window_search = None;
+                let watching = !self.call_windows.is_empty();
+                self.call_windows.push((h, app.clone()));
+                log!("call window {app} open");
+                self.call_windows_changed(&app);
+                if !watching {
+                    timer(CALL_WATCH_MS, |c| c.watch_call_windows());
+                }
+            }
+            None if rt::epoch_ms() > until => {
+                self.call_window_search = None;
+                log!("call window {app}: none showed up");
+            }
+            None => {
+                timer(150, |c| c.find_call_window());
+            }
+        }
+    }
+
+    /// Every second while a call window is open: closed, that call ended. And a small window of the
+    /// chats' browser whose title starts with the site ("www.messenger.com is sharing your
+    /// screen.") says the screen is shared from it.
+    fn watch_call_windows(&mut self) {
+        let closed: Vec<(isize, String)> =
+            self.call_windows.iter().filter(|(h, _)| !win32::is_window(*h) || !win32::is_visible(*h)).cloned().collect();
+        self.call_windows.retain(|w| !closed.contains(w));
+        let mut changed: Vec<String> = closed.into_iter().map(|(_, app)| app).collect();
+        for app in &changed {
+            log!("call window {app} closed");
+        }
+        let shares = self.share_bars();
+        if shares != self.bar_shares {
+            log!("screen shared from a call window: {:?}", shares.iter().collect::<Vec<_>>());
+            changed.extend(self.bar_shares.symmetric_difference(&shares).cloned());
+            self.bar_shares = shares;
+        }
+        changed.sort();
+        changed.dedup();
+        for app in changed {
+            self.call_windows_changed(&app);
+        }
+        if !self.call_windows.is_empty() {
+            timer(CALL_WATCH_MS, |c| c.watch_call_windows());
+        }
+    }
+
+    /// The apps with a call window whose site shares the screen right now.
+    fn share_bars(&self) -> HashSet<String> {
+        let mut sharing = HashSet::new();
+        if self.call_windows.is_empty() {
+            return sharing;
+        }
+        for h in win32::top_windows_of(self.calls_browser_pid()) {
+            if !win32::is_visible(h) || win32::window_rect(h).h >= 150 || self.call_windows.iter().any(|(w, _)| *w == h) {
+                continue;
+            }
+            let title = win32::window_title(h);
+            let host = title.split_whitespace().next().unwrap_or("");
+            if !host.contains('.') {
+                continue;
+            }
+            for (_, app) in &self.call_windows {
+                if apps::owns(app, &format!("https://{host}/")) {
+                    sharing.insert(app.clone());
+                }
+            }
+        }
+        sharing
+    }
+
+    fn call_windows_changed(&mut self, app: &str) {
+        let open = self.call_windows.iter().any(|(_, a)| a == app);
+        self.chats.set_popup_call(app, open); // stays awake and keeps its memory, like any call
+        self.last_used.insert(app.to_string(), rt::epoch_ms());
+        self.broadcast_state();
+        self.refit_tab(); // taller or shorter
+    }
+
     /// The icons on the edge tab under the apps: (app, "call" | "share"), in the apps' order.
     pub fn call_chips(&self) -> Vec<(&'static str, &'static str)> {
         let mut chips = Vec::new();
         for id in self.enabled_apps() {
-            let (call, share) = self.chats.call_state(id);
+            let (page_call, page_share) = self.chats.call_state(id);
+            let call = page_call || self.call_windows.iter().any(|(_, a)| a == id);
+            let share = page_share || self.bar_shares.contains(id);
             if call {
                 chips.push((id, "call"));
             }
