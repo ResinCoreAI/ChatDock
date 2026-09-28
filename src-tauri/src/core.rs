@@ -201,6 +201,11 @@ pub struct Core {
     pub prev_foreground: isize,
     pub last_auto_hide_at: i64,
     pub blurred_while_opening: bool,
+    /// A window of the chats' browser has the focus (the "… is sharing your screen" bar): watching
+    /// where the focus goes next, since a click elsewhere from there never reaches the panel.
+    pub focus_watch: bool,
+    /// self-test: a pretend foreground window
+    pub test_foreground: Option<isize>,
     pub last_esc_at: i64,
     pub anim_gen: u64,
     pub anim_frames: u32,
@@ -349,12 +354,18 @@ impl Core {
     }
 
     pub fn is_ours(&self, hwnd: isize) -> bool {
-        hwnd != 0
-            && (self.own_hwnds.contains(&hwnd)
-                || self.own_hwnds.contains(&win32::root_owner(hwnd))
-                // the chats' own WebView2 windows, e.g. the "… is sharing your screen" bar that takes
-                // the focus when a screen share starts: the chat must not hide for it
-                || (chats::browser_pid() != 0 && win32::window_pid(hwnd) == chats::browser_pid()))
+        hwnd != 0 && (self.is_own_window(hwnd) || self.is_chat_browser_window(hwnd))
+    }
+
+    /// ChatDock's own windows and the dialogs they own (a file picker, a menu).
+    pub fn is_own_window(&self, hwnd: isize) -> bool {
+        self.own_hwnds.contains(&hwnd) || self.own_hwnds.contains(&win32::root_owner(hwnd))
+    }
+
+    /// The chats' own WebView2 windows, e.g. the "… is sharing your screen" bar that takes the focus
+    /// when a screen share starts: the chat must not hide for it.
+    pub fn is_chat_browser_window(&self, hwnd: isize) -> bool {
+        chats::browser_pid() != 0 && win32::window_pid(hwnd) == chats::browser_pid()
     }
 
     // -----------------------------------------------------------------------------------------

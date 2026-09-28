@@ -48,7 +48,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🔎 **Settings that are easy to find** | A home page with search (in your language or English) and a one-line summary under each category, then a short page per category. |
 | 🔢 **Unread numbers that clear** | The number on each app counts only what's new since you last looked at it: open the app and it's gone, even when the site's own number also counts likes or follows. A message that arrives in the conversation you're reading never pops up afterwards. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
-| 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). |
+| 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). While hidden it uses next to no CPU or graphics card. |
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
 | 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, signed updates. See [Privacy & security](#privacy--security). |
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. |

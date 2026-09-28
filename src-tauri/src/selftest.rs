@@ -48,6 +48,11 @@ pub fn start() {
             share_test();
         } else if only.as_deref() == Some("discord") {
             discord_test();
+        } else if only.as_deref() == Some("perf") {
+            perf_test();
+        } else if only.as_deref() == Some("sharebar") {
+            wait(5000); // the chats' browser is up
+            share_bar_test();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -1206,6 +1211,111 @@ fn discord_test() {
     log!(
         "discord call: memory low before {low_before} | call seen {started} {states} | during: memory low, asleep {during:?} | hung up {hung_up}, memory low {low_after} | again {again}, after a reload {reloaded} | then asleep {slept} (expect true, true [connected x2], (false, false), true, true, true, true, true)"
     );
+}
+
+/// Screen sharing puts up the "… is sharing your screen" bar: a window of the chats' browser that
+/// takes the focus from the panel. A click elsewhere after that must still hide the chat (the
+/// panel gets no signal of its own then), while our own dialogs keep it open as before. A pretend
+/// foreground window: nothing takes the focus.
+fn share_bar_test() {
+    use windows::{
+        core::{BOOL, PCWSTR},
+        Win32::{
+            Foundation::{HWND, LPARAM, TRUE},
+            UI::WindowsAndMessaging::{EnumWindows, FindWindowW},
+        },
+    };
+    unsafe extern "system" fn each(h: HWND, l: LPARAM) -> BOOL {
+        let list = &mut *(l.0 as *mut Vec<isize>);
+        list.push(h.0 as isize);
+        TRUE
+    }
+    let mut all: Vec<isize> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(&mut all as *mut Vec<isize> as isize));
+    }
+    let browser = crate::chats::browser_pid();
+    let bar = on(move |c| all.into_iter().find(|&h| win32::window_pid(h) == browser && !c.is_own_window(h)).unwrap_or(0));
+    let elsewhere = unsafe { FindWindowW(windows::core::w!("Shell_TrayWnd"), PCWSTR::null()) }.map(|h| h.0 as isize).unwrap_or(0);
+    let toast = on(|c| c.toastwin.hwnd);
+    let panel = on(|c| c.panel.hwnd);
+    // the panel out (off screen, never activated)
+    let open = || {
+        on(|c| {
+            c.test_foreground = None;
+            c.focus_watch = false;
+            let d = c.target_display();
+            let g = c.panel_geometry(&d);
+            win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+            win32::show_inactive(c.panel.hwnd);
+            c.panel_state = PanelState::Open;
+        })
+    };
+    let state = || on(|c| c.panel_state.as_str());
+    let pretend = |h: isize| on(move |c| c.test_foreground = Some(h));
+
+    // 1. the bar takes the focus: the chat stays and watches; the focus moves on to the taskbar: it hides
+    open();
+    pretend(bar);
+    let watching = on(|c| {
+        c.check_auto_hide(false);
+        c.focus_watch
+    });
+    wait(500);
+    let still = state();
+    pretend(elsewhere);
+    wait(700);
+    let after = state();
+    wait(500);
+    // 2. the bar, then back into the chat: it stays, and stops watching
+    open();
+    pretend(bar);
+    on(|c| c.check_auto_hide(false));
+    wait(300);
+    pretend(panel);
+    wait(400);
+    let back = on(|c| (c.panel_state.as_str(), c.focus_watch));
+    // 3. one of our own windows had the focus (like our file picker), then the taskbar: as before,
+    //    the chat stays
+    pretend(toast);
+    on(|c| c.check_auto_hide(false));
+    let watching_own = on(|c| c.focus_watch);
+    pretend(elsewhere);
+    wait(600);
+    let own_after = state();
+    on(|c| {
+        c.test_foreground = None;
+        c.focus_watch = false;
+        c.close_panel(false, "selftest");
+    });
+    wait(600);
+    log!(
+        "share bar: a window of the chats' browser {} ({}) | watching {watching}, after 0.5 s {still} | the focus moves to the taskbar: {after} | back into the chat: {back:?} | our own window had it: watching {watching_own}, then the taskbar: {own_after} (expect true, true, open, hidden, (\"open\", false), false, open)",
+        bar != 0,
+        win32::class_name(bar)
+    );
+}
+
+/// What keeps running while ChatDock sits hidden: animations left running in its own pages (each
+/// one redraws on every screen refresh, 300 times a second on a 300 Hz screen), then a quiet
+/// stretch for measuring CPU from outside (scratchpad perf-sample.ps1).
+fn perf_test() {
+    wait(8000); // the pages load
+    for label in ["panel", "tab", "glow", "edge", "toasts"] {
+        let running = page_js(
+            label,
+            "JSON.stringify(document.getAnimations().filter((a) => a.playState === 'running').map((a) => { \
+             const t = a.effect && a.effect.target; \
+             return (a.animationName || a.constructor.name) + ' on ' + (t ? (t.id ? '#' + t.id : t.className || t.tagName) : '?') + ((a.effect && a.effect.pseudoElement) || ''); }))",
+        );
+        log!("animations running in {label}: {running}");
+    }
+    // A: as it is; B: with the panel page's animations paused (measure both from outside)
+    log!("perf: A (as it is) for 22 s");
+    wait(22000);
+    log!("perf: B (panel animations paused: {}) for 22 s", page_js("panel", "document.getAnimations().map((a) => a.pause()).length"));
+    wait(22000);
+    log!("perf: done");
 }
 
 /// A DevTools protocol call in an app's page; its JSON answer.

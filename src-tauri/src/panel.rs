@@ -30,6 +30,8 @@ pub const HEADER_H: f64 = 48.0;
 pub const BANNER_H: f64 = 52.0;
 pub const GRIP_W: f64 = 6.0;
 pub const MIN_W: f64 = 340.0;
+/// How often to look where the focus went while the screen-share bar has it.
+const FOCUS_WATCH_MS: u64 = 150;
 const OPEN_MS: f64 = 260.0;
 const CLOSE_MS: f64 = 170.0;
 
@@ -270,6 +272,8 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         prev_foreground: 0,
         last_auto_hide_at: 0,
         blurred_while_opening: false,
+        focus_watch: false,
+        test_foreground: None,
         last_esc_at: 0,
         anim_gen: 0,
         anim_frames: 0,
@@ -892,8 +896,13 @@ impl Core {
         win32::window_rect(self.panel.hwnd).contains(x, y)
     }
 
+    /// The foreground window (the self-test can pretend one).
+    fn foreground(&self) -> isize {
+        self.test_foreground.unwrap_or_else(win32::foreground_window)
+    }
+
     pub fn check_auto_hide(&mut self, dragging: bool) {
-        let fg = win32::foreground_window();
+        let fg = self.foreground();
         if self.panel_state != PanelState::Open || self.settings.bool("pinned") || fg == self.panel.hwnd {
             log!(
                 "autohide: skip {{\"st\":\"{}\",\"pinned\":{},\"foc\":{}}}",
@@ -905,6 +914,13 @@ impl Core {
         }
         if self.is_ours(fg) {
             log!("autohide: skip, our window has focus"); // e.g. our own dialog, menu or a file picker
+            if !self.is_own_window(fg) && !self.focus_watch {
+                // A window of the chats' browser that isn't a dialog of ours: the "… is sharing your
+                // screen" bar takes the focus when a share starts. The panel isn't the active window
+                // any more, so a click elsewhere from there never reaches it: watch where it goes.
+                self.focus_watch = true;
+                timer(FOCUS_WATCH_MS, |c| c.watch_focus());
+            }
             return;
         }
         if win32::mouse_button_down() {
@@ -919,6 +935,23 @@ impl Core {
         }
         self.last_auto_hide_at = rt::epoch_ms();
         self.close_panel(false, "clicked elsewhere"); // the user already clicked where they wanted to go
+    }
+
+    /// The focus is on a window of the chats' browser (the screen-share bar). When it moves on to
+    /// another program, that was a click elsewhere.
+    fn watch_focus(&mut self) {
+        let fg = self.foreground();
+        if self.panel_state != PanelState::Open || self.settings.bool("pinned") || fg == self.panel.hwnd || self.is_own_window(fg) {
+            self.focus_watch = false; // hidden, pinned, or back in ChatDock (whose own signals take over)
+            return;
+        }
+        if fg == 0 || self.is_chat_browser_window(fg) {
+            timer(FOCUS_WATCH_MS, |c| c.watch_focus()); // still there (none: the focus is changing hands)
+            return;
+        }
+        self.focus_watch = false;
+        log!("focus moved from the chats' window to {}", win32::class_name(fg));
+        timer(120, |c| c.check_auto_hide(false)); // like a blur: it may come straight back
     }
 
     // -----------------------------------------------------------------------------------------

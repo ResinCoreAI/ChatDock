@@ -207,12 +207,16 @@ body.left #bar, body.left #banner, body.left #stage { left: 0; right: var(--grip
 #progress::after {
   content: "";
   position: absolute;
-  top: 0; bottom: 0;
+  top: 0; bottom: 0; left: 0;
   width: 40%;
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: progress 1.1s linear infinite;
+  transform: translateX(-100%);
+  /* moves only while the bar shows: a running animation redraws the page on every screen refresh
+     (300 times a second on a 300 Hz screen), even with the chat hidden */
+  animation: progress 1.1s linear infinite paused;
 }
-@keyframes progress { from { left: -40%; } to { left: 100%; } }
+#progress.on::after { animation-play-state: running; }
+@keyframes progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
 /* narrow panel: icons only */
 @media (max-width: 400px) {
