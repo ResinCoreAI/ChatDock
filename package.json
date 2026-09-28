@@ -1,11 +1,11 @@
 {
   "name": "chatdock",
   "productName": "ChatDock",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Instagram, Facebook, X and Discord chats docked on the edge of your screen, always on top of your games.",
   "private": true,
   "license": "MIT",
-  "author": "luraselenehalo",
+  "author": "ResinCore",
   "homepage": "https://github.com/ResinCoreAI/ChatDock",
   "repository": {
     "type": "git",

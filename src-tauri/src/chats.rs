@@ -593,6 +593,7 @@ impl Core {
             }
         }
         self.counts.insert(id.to_string(), 0);
+        self.site_counts.insert(id.to_string(), 0);
         self.load_state.insert(id.to_string(), "loading");
         self.first_shown.insert(id.to_string(), false);
     }

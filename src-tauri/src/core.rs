@@ -178,7 +178,10 @@ pub struct Core {
     pub resize_grab: Option<i32>,
     pub chats: chats::Chats,
     // per app
+    /// unread counts ChatDock shows: what the site counts minus what the user has already seen
     pub counts: HashMap<String, u32>,
+    /// what each site counts right now (its page title, e.g. "(3) Instagram")
+    pub site_counts: HashMap<String, u32>,
     pub load_state: HashMap<String, &'static str>,
     pub first_shown: HashMap<String, bool>,
     pub asleep: HashMap<String, bool>,
@@ -970,15 +973,54 @@ impl Core {
             if let Some(t) = self.zero_timers.remove(id) {
                 rt::cancel(t);
             }
-            self.set_count(id, n);
-        } else if *self.counts.get(id).unwrap_or(&0) > 0 && !self.zero_timers.contains_key(id) {
+            self.set_site_count(id, n);
+        } else if *self.site_counts.get(id).unwrap_or(&0) > 0 && !self.zero_timers.contains_key(id) {
             // Titles flash ("Name sent you a message" <-> "(1) Facebook"), so only trust a zero that sticks.
             let app = id.to_string();
             let t = timer(3000, move |c| {
                 c.zero_timers.remove(&app);
-                c.set_count(&app, 0);
+                c.set_site_count(&app, 0);
             });
             self.zero_timers.insert(id.to_string(), t);
+        }
+    }
+
+    /// The user can see this app's chat right now: the panel is out on it (not on Settings or the
+    /// welcome screen).
+    pub fn chat_in_view(&self, id: &str) -> bool {
+        self.panel_state.showing() && !self.settings_mode && !self.help_mode && self.active() == id
+    }
+
+    fn seen_count(&self, id: &str) -> u32 {
+        self.settings.get("seenCounts").get(id).and_then(Value::as_u64).unwrap_or(0) as u32
+    }
+
+    fn set_site_count(&mut self, id: &str, n: u32) {
+        self.site_counts.insert(id.to_string(), n);
+        self.refresh_count(id);
+    }
+
+    /// Unread = what the site counts minus what the user has already seen. Whatever it counts while
+    /// its chat is on screen has been seen (a message that arrives in the conversation you're reading,
+    /// or the likes and follows a site adds to the same number), so it never pops up or shows as a
+    /// number once you look away. Remembered across restarts.
+    pub fn refresh_count(&mut self, id: &str) {
+        let site = *self.site_counts.get(id).unwrap_or(&0);
+        let seen = self.seen_count(id);
+        let seen_now = if self.chat_in_view(id) { site } else { seen.min(site) };
+        if seen_now != seen {
+            self.settings.set_in("seenCounts", id, json!(seen_now));
+            self.save_soon();
+        }
+        self.set_count(id, site - seen_now);
+    }
+
+    /// The chat on screen changed (the panel came out, another app, back from Settings): what its
+    /// site counts now has been seen.
+    pub fn counts_seen_in_view(&mut self) {
+        let active = self.active();
+        if self.chat_in_view(&active) {
+            self.refresh_count(&active);
         }
     }
 
@@ -988,7 +1030,7 @@ impl Core {
             return;
         }
         self.counts.insert(id.to_string(), n);
-        log!("unread {id} {before} -> {n}");
+        log!("unread {id} {before} -> {n} (the site counts {})", self.site_counts.get(id).copied().unwrap_or(0));
         self.broadcast_state();
         let badge = self.settings.app_pref(id, "badge");
         self.update_glow(n > before && badge);

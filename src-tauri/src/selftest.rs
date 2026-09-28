@@ -41,6 +41,9 @@ pub fn start() {
         } else if only.as_deref() == Some("settings") {
             wait(3000);
             settings_shots();
+        } else if only.as_deref() == Some("counts") {
+            wait(3000);
+            counts_test();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -964,6 +967,71 @@ fn identify_test() {
     on(|c| c.identify_close());
 }
 
+/// Unread numbers = what the site counts minus what was seen while its chat was on screen. Replays
+/// what happened on Instagram (a message arrives in the conversation being read, the title shows
+/// "(1)" and clears at once, the chat is closed in that moment: that must not pop up), then a new
+/// message while away, and a site that counts other things too. The panel isn't really opened
+/// (nothing takes the keyboard): "on screen" is set directly.
+fn counts_test() {
+    let app = on(|c| c.enabled_apps()[0]);
+    let count = move || on(move |c| c.counts.get(app).copied().unwrap_or(0));
+    let (popups_were, active_was) = on(|c| (c.settings.get("popups").clone(), c.active()));
+    on(move |c| {
+        c.settings.set("popups", json!(true));
+        c.settings.set_in("seenCounts", app, json!(0));
+        c.load_started_at.insert(app.to_string(), 0);
+        c.last_content_at.insert(app.to_string(), 0);
+        c.last_flash.remove(app);
+        c.set_setting("active", json!(app));
+        c.on_title(app, "Instagram");
+    });
+    wait(3300);
+    on(move |c| c.on_title(app, "(2) Instagram"));
+    let hidden = count();
+    on(|c| {
+        c.panel_state = PanelState::Open;
+        c.counts_seen_in_view();
+    });
+    let in_view = count();
+    on(move |c| c.on_title(app, "(3) Instagram"));
+    let while_reading = count();
+    on(move |c| c.on_title(app, "Instagram"));
+    wait(400);
+    on(|c| c.panel_state = PanelState::Hidden); // closed right after replying
+    wait(3400);
+    let (after_close, popups_after_close) = (count(), on(|c| c.toasts_count()));
+    on(move |c| {
+        c.last_content_at.insert(app.to_string(), 0);
+        c.on_title(app, "(1) Instagram");
+    });
+    wait(2900);
+    let (new_msg, popups_new) = (count(), on(|c| c.toasts_count()));
+    on(|c| c.toasts_dismiss_all());
+    on(move |c| c.on_title(app, "(5) Instagram"));
+    let five = count();
+    on(|c| {
+        c.panel_state = PanelState::Open;
+        c.counts_seen_in_view();
+    });
+    let opened = count();
+    on(|c| c.panel_state = PanelState::Hidden);
+    on(move |c| c.on_title(app, "(6) Instagram"));
+    let one_more = count();
+    let kept = on(move |c| c.settings.get("seenCounts").get(app).cloned());
+    on(move |c| c.on_title(app, "(1) Instagram"));
+    let dropped = count();
+    log!(
+        "counts ({app}): hidden {hidden} | on screen {in_view} | message while reading {while_reading} | closed right away: number {after_close}, pop-ups {popups_after_close} | new message while away: number {new_msg}, pop-ups {popups_new} | site counts 5 while away: {five}, opened: {opened}, a 6th: {one_more}, seen kept {kept:?} | site drops to 1: {dropped} (expect 2 | 0 | 0 | 0, 0 | 1, 1 | 5, 0, 1, Some(5) | 0)"
+    );
+    on(move |c| {
+        c.toasts_dismiss_all();
+        c.on_title(app, "Instagram");
+        c.settings.set("popups", popups_were);
+        c.set_setting("active", json!(active_was));
+    });
+    wait(3300);
+}
+
 /// The newest release before the running one that has a What's new text (updating from it lists
 /// just this release).
 fn previous_release() -> String {
@@ -1671,7 +1739,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.6.1, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.6.2, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

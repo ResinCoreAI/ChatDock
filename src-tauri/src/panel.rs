@@ -251,6 +251,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         resize_grab: None,
         chats: Default::default(),
         counts: HashMap::new(),
+        site_counts: HashMap::new(),
         load_state: HashMap::new(),
         first_shown: HashMap::new(),
         asleep: HashMap::new(),
@@ -711,6 +712,7 @@ impl Core {
             self.set_panel_alpha(opacity);
         }
         self.panel_state = PanelState::Opening;
+        self.counts_seen_in_view(); // the chat is on screen: its number is read
         self.layout_views();
         if !visible {
             win32::show(self.panel.hwnd);
@@ -948,6 +950,7 @@ impl Core {
         }
         self.settings_mode = false;
         self.identify_close();
+        self.counts_seen_in_view(); // back on the chat
         self.stop_settings_timer();
         self.layout_views();
         self.focus_panel();
@@ -984,6 +987,7 @@ impl Core {
             }
         }
         self.help_mode = false;
+        self.counts_seen_in_view(); // the chat is on screen now
         self.layout_views();
         self.focus_panel();
         self.broadcast_state();
@@ -1009,6 +1013,7 @@ impl Core {
         if self.panel_state.showing() {
             self.toasts_dismiss_app(id);
         }
+        self.counts_seen_in_view();
         if focus && self.panel_state != PanelState::Hidden {
             self.focus_panel();
         }

@@ -56,6 +56,7 @@ fn defaults() -> Map<String, Value> {
         "theme": "system",          // 'system' | 'dark' | 'light'
         "hideFromCapture": false,   // exclude the panel and pop-ups from screenshots / OBS / Discord streams
         "zoom": {},                 // per-app zoom factor (missing = 100%)
+        "seenCounts": {},           // per app: how much of the site's unread count the user has already seen
         "onboarded": false
     });
     match v {

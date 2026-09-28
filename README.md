@@ -45,6 +45,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
 | ⚙️ **Fully adjustable pop-ups** | Any screen corner · which monitor · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
 | 🔎 **Settings that are easy to find** | A home page with search (in your language or English) and a one-line summary under each category, then a short page per category. |
+| 🔢 **Unread numbers that clear** | The number on each app counts only what's new since you last looked at it: open the app and it's gone, even when the site's own number also counts likes or follows. A message that arrives in the conversation you're reading never pops up afterwards. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
 | 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). |
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
