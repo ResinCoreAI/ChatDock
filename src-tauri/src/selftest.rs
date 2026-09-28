@@ -1310,10 +1310,16 @@ fn perf_test() {
         );
         log!("animations running in {label}: {running}");
     }
-    // A: as it is; B: with the panel page's animations paused (measure both from outside)
+    // A: as it is; B: like before 1.7, animations allowed while hidden (measure both from outside)
     log!("perf: A (as it is) for 22 s");
     wait(22000);
-    log!("perf: B (panel animations paused: {}) for 22 s", page_js("panel", "document.getAnimations().map((a) => a.pause()).length"));
+    log!(
+        "perf: B (animations allowed while hidden, like before; running now: {}) for 22 s",
+        page_js(
+            "panel",
+            "document.body.classList.remove('panel-hidden'), document.getAnimations().filter((a) => a.playState === 'running').map((a) => a.animationName).join(' ')"
+        )
+    );
     wait(22000);
     log!("perf: done");
 }
