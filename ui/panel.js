@@ -116,6 +116,7 @@ function render(s) {
   }
   renderSide(s);
   renderTabs(s);
+  renderVolume(s);
   renderUpdate(s.update);
   renderLangSelects(s.langPref);
   const t = i18n.t;
@@ -160,6 +161,66 @@ function render(s) {
   }
   renderHotkey(s.hotkey);
 }
+
+// This app's volume (on top of the site's own): the speaker, its wheel, and the slider that takes
+// the tabs' place.
+let volState = { id: '', level: 100, on: true, name: '' };
+let volSendAt = 0;
+function volIcon(level, on) {
+  return !on || level === 0 ? 'volumeOff' : level < 50 ? 'volumeLow' : 'volume';
+}
+function renderVolume(s) {
+  const a = s.apps.find((x) => x.id === s.active);
+  const level = (s.volumes && s.volumes[s.active]) ?? 100;
+  const on = !(s.soundOn && s.soundOn[s.active] === false) && !s.allMuted;
+  volState = { id: s.active, level, on, name: a ? a.name : '' };
+  const icon = volIcon(level, on);
+  const btn = $('#vol');
+  if (btn.dataset.icon !== icon) {
+    btn.dataset.icon = icon;
+    btn.innerHTML = window.iconHTML(icon);
+  }
+  btn.classList.toggle('off', icon === 'volumeOff');
+  btn.classList.toggle('low', icon === 'volumeLow');
+  btn.title = i18n.t('panel.volumeOf', { name: volState.name, n: on ? level : 0 });
+  const mute = $('#vol-mute');
+  mute.innerHTML = window.iconHTML(icon);
+  mute.classList.toggle('off', !on);
+  mute.title = i18n.t(on ? 'panel.mute' : 'panel.unmute', { name: volState.name });
+  const range = $('#vol-range');
+  if (performance.now() - volSendAt > 600) range.value = String(level); // not while it's being dragged
+  range.setAttribute('aria-label', btn.title);
+  $('#vol-num').textContent = `${range.value}%`;
+  $('#vol-done').title = i18n.t('panel.volumeDone');
+}
+function setVolume(level) {
+  const v = Math.max(0, Math.min(100, Math.round(level)));
+  volSendAt = performance.now();
+  $('#vol-range').value = String(v);
+  $('#vol-num').textContent = `${v}%`;
+  chatdock.send('panel:volume', volState.id, v);
+}
+function openVolume(open) {
+  $('#volbar').hidden = !open;
+  document.body.classList.toggle('vol-open', open);
+  if (open) $('#vol-range').focus();
+}
+const wheelStep = (e) => {
+  e.preventDefault();
+  setVolume(Number($('#vol-range').value) + (e.deltaY < 0 ? 5 : -5));
+};
+$('#vol').addEventListener('click', () => openVolume($('#volbar').hidden));
+$('#vol').addEventListener('wheel', wheelStep, { passive: false });
+$('#volbar').addEventListener('wheel', wheelStep, { passive: false });
+$('#vol-range').addEventListener('input', (e) => setVolume(Number(e.target.value)));
+$('#vol-mute').addEventListener('click', () => chatdock.send('panel:sound', volState.id, !volState.on));
+$('#vol-done').addEventListener('click', () => openVolume(false));
+$('#volbar').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    openVolume(false);
+  }
+});
 
 $('#reload').addEventListener('click', () => chatdock.send('panel:reload'));
 $('#pin').addEventListener('click', () => chatdock.send('panel:pin'));

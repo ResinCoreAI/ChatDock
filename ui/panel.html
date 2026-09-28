@@ -13,9 +13,16 @@
 
   <header id="bar">
     <nav class="apps" role="tablist" data-i18n-aria="panel.appsNav"></nav>
+    <div id="volbar" class="volbar" hidden>
+      <button id="vol-mute" class="icon-btn"></button>
+      <input id="vol-range" type="range" min="0" max="100" step="1">
+      <b id="vol-num"></b>
+      <button id="vol-done" class="icon-btn"><span data-icon="close"></span></button>
+    </div>
     <div class="tools">
       <button id="update" class="chip update" hidden><span data-icon="arrowUp"></span><span class="label"></span></button>
       <button id="zoom" class="chip" data-i18n-title="panel.zoom" hidden></button>
+      <button id="vol" class="icon-btn"></button>
       <button id="reload" class="icon-btn" data-i18n-title="panel.reload"><span data-icon="reload"></span></button>
       <button id="pin" class="icon-btn"><span data-icon="pin"></span></button>
       <button id="settings-btn" class="icon-btn"><span data-icon="gear"></span></button>
@@ -363,6 +370,10 @@
 
         <h2 class="sec-title" data-i18n="dc.popups"></h2>
         <div class="card">
+          <div class="row dc-sleep" hidden>
+            <div class="label"><b data-i18n="dc.sleepTitle"></b><small data-i18n="dc.sleepNote"></small></div>
+            <button class="secondary small" data-action="discord-awake" data-i18n="dc.keepAwake"></button>
+          </div>
           <div class="row">
             <div class="label"><b data-i18n="dc.dms"></b></div>
             <label class="switch"><input type="checkbox" data-pref="discordDms"><span></span></label>

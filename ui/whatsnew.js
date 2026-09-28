@@ -16,7 +16,10 @@ let closing = false;
 // line or a dot shows its scene. Every animation plays once per showing, and after two rounds the
 // turns stop on the last frame: nothing keeps redrawing a window left open for hours.
 // ---------------------------------------------------------------------------------------------
-const DEMOS = { '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'] };
+const DEMOS = {
+  '1.7.1': ['spotify', 'volume', 'dcList'],
+  '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'],
+};
 const SCENE_MS = 6000;
 const ROUNDS = 2;
 const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -61,6 +64,20 @@ const SCENES = {
   // a call keeps Discord awake
   dcAwake: () => `<i class="wave w1"></i><i class="wave w2"></i><div class="orb">${icon('discordMono')}<i class="ph">${icon('phone')}</i></div>
     <div class="moon"><i></i><span>z</span><span>Z</span></div><i class="no"></i>`,
+  // Spotify in the chat; it plays on with ChatDock hidden
+  spotify: () => `${GAME}<div class="spot"><div class="sh"><i class="ic sp">${icon('spotify')}</i><b></b></div><div class="art"></div><b class="l1"></b><b class="l2"></b>
+    <div class="prog"><i></i></div><div class="ctl"><i class="prev"></i><i class="play"></i><i class="next"></i></div>
+    <div class="eq in"><i></i><i></i><i></i><i></i></div></div>
+    <i class="tuck"></i><div class="eq out"><i></i><i></i><i></i><i></i></div>`,
+  // each app's own volume
+  volume: () => ['discord', 'spotify'].map((app, n) => `<div class="vcard c${n + 1}"><i class="ic ${app}">${icon(app === 'discord' ? 'discordMono' : 'spotify')}</i>
+    <div class="sl"><i class="fill"></i><i class="thumb"></i></div><span class="pct">${n ? '<b>100%</b>' : '<b class="num"></b>'}</span>
+    <i class="spk hi">${icon('volume')}</i>${n ? '' : `<i class="spk lo">${icon('volumeLow')}</i>`}</div>`).join('') + CURSOR,
+  // Discord's servers listed right away; keep it awake
+  dcList: () => `<div class="side"><i class="g g1">G</i><i class="g g2">M</i><i class="g g3">V</i></div>
+    <div class="list"><p class="warn"><span class="moon"><i></i></span><b></b><em>${esc(texts.keepAwake)}</em></p>
+      <p class="r r1"><i class="d d1"></i><span>Gamers</span>${SWITCH(true)}</p><p class="r r2"><i class="d d2"></i><span>My Server</span>${SWITCH(true)}</p>
+      <p class="r r3"><i class="d d3"></i><span>Valorant TH</span>${SWITCH(true)}</p></div>${CURSOR}`,
   // lighter while hidden
   lighter: () => `<div class="meters"><p><span>CPU</span><i class="bar"><b class="b1"></b></i></p><p><span>GPU</span><i class="bar"><b class="b2"></b></i></p></div>
     <i class="tuck"></i><i class="done"></i>`,

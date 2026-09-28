@@ -44,6 +44,9 @@ use crate::{
 ///    quiet), or a live mic, camera or screen share; and whether it's a call and whether the screen
 ///    is being shared. A call keeps its app awake, and the edge tab shows a phone or a screen for
 ///    it. Only weak references: the page still decides when its call and devices go.
+/// 5. This app's volume in ChatDock (0-1, sent by ChatDock) on top of the site's own: media elements
+///    play at the site's volume times it (the site still reads back its own value), and Web Audio
+///    goes through one gain per context in front of the speakers.
 const SITE_SCRIPT: &str = r#"(() => {
   if (window.WebSocket) {
     const Real = window.WebSocket;
@@ -186,6 +189,87 @@ const SITE_SCRIPT: &str = r#"(() => {
       pc.close = function close() { const r = realClose.apply(this, arguments); if (has(this)) tell(); return r; };
     }
   }
+  (() => {
+    const desc = window.HTMLMediaElement && Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
+    if (!desc || !desc.get || !desc.set) return;
+    let level = 1;
+    const asked = new WeakMap(); // element -> the volume the site set
+    const seen = new WeakSet();
+    let elements = [];
+    let gains = [];
+    const apply = (el) => {
+      if (!(el instanceof HTMLMediaElement)) return;
+      if (!seen.has(el)) {
+        seen.add(el);
+        elements.push(new WeakRef(el));
+      }
+      try { desc.set.call(el, Math.max(0, Math.min(1, (asked.has(el) ? asked.get(el) : 1) * level))); } catch (e) {}
+    };
+    Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get() { return asked.has(this) ? asked.get(this) : seen.has(this) ? 1 : desc.get.call(this); },
+      set(v) {
+        const n = Number(v);
+        if (!(n >= 0 && n <= 1)) { desc.set.call(this, v); return; } // throws as usual
+        asked.set(this, n);
+        apply(this);
+      },
+    });
+    const realPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function play() { apply(this); return realPlay.apply(this, arguments); };
+    document.addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) apply(e.target); }, true);
+    const AN = window.AudioNode;
+    const ADN = window.AudioDestinationNode;
+    if (AN && ADN) {
+      const realConnect = AN.prototype.connect;
+      const realDisconnect = AN.prototype.disconnect;
+      const front = new WeakMap(); // context -> the gain in front of its speakers
+      const speakers = (d) => d instanceof ADN && !(window.OfflineAudioContext && d.context instanceof OfflineAudioContext);
+      const gainFor = (ctx) => {
+        let g = front.get(ctx);
+        if (!g) {
+          g = ctx.createGain();
+          g.gain.value = level;
+          realConnect.call(g, ctx.destination);
+          front.set(ctx, g);
+          gains.push(new WeakRef(g));
+        }
+        return g;
+      };
+      AN.prototype.connect = function connect(dest, ...rest) {
+        if (speakers(dest)) {
+          realConnect.call(this, gainFor(dest.context), ...rest);
+          return dest;
+        }
+        return realConnect.call(this, dest, ...rest);
+      };
+      AN.prototype.disconnect = function disconnect(dest, ...rest) {
+        if (speakers(dest)) {
+          const g = front.get(dest.context);
+          if (g) return realDisconnect.call(this, g, ...rest);
+        }
+        return realDisconnect.apply(this, arguments);
+      };
+    }
+    const setLevel = (v) => {
+      level = Math.max(0, Math.min(1, Number(v) || 0));
+      elements = elements.filter((r) => { const el = r.deref(); if (el) apply(el); return !!el; });
+      gains = gains.filter((r) => { const g = r.deref(); if (g) { try { g.gain.value = level; } catch (e) {} } return !!g; });
+    };
+    try {
+      window.chrome.webview.addEventListener('message', (e) => {
+        const d = e.data;
+        if (d && d.type === 'chatdock-volume') setLevel(d.level);
+        else if (d && d.type === 'chatdock-volume-check') {
+          const last = elements.length ? elements[elements.length - 1].deref() : null;
+          const g = gains.length ? gains[gains.length - 1].deref() : null;
+          window.chrome.webview.postMessage(JSON.stringify({ type: 'volume-state', level, elements: elements.length,
+            real: last ? desc.get.call(last) : null, seenBySite: last ? last.volume : null, gain: g ? g.gain.value : null }));
+        }
+      });
+    } catch (e) {}
+  })();
 })();"#;
 
 pub struct View {
@@ -267,7 +351,7 @@ pub fn browser_version() -> String {
 
 /// A page out of sight that isn't the app in use gives memory back, unless it's in a call.
 fn set_memory_level(v: &mut View) {
-    let low = !v.visible && !v.in_use && !v.in_call && !v.popup_call;
+    let low = !v.visible && !v.in_use && !v.in_call && !v.popup_call && !v.playing; // (music too)
     if v.low_memory != low {
         v.low_memory = low;
         if let Ok(wv19) = v.webview.cast::<ICoreWebView2_19>() {
@@ -489,6 +573,15 @@ impl Chats {
         if let Some(v) = self.views.get(id) {
             unsafe {
                 let _ = v.controller.SetZoomFactor(factor);
+            }
+        }
+    }
+
+    /// A message to the page's own script (volume).
+    pub fn post_json(&self, id: &str, msg: &serde_json::Value) {
+        if let Some(v) = self.views.get(id) {
+            unsafe {
+                let _ = v.webview.PostWebMessageAsJson(&HSTRING::from(msg.to_string()));
             }
         }
     }
@@ -889,6 +982,13 @@ impl Core {
     fn on_dom_ready(&mut self, id: &str) {
         let z = self.zoom_of(id);
         self.chats.set_zoom(id, z);
+        self.send_volume(id); // a new page starts at full volume
+        if id == "discord" {
+            // its sidebar fills in a moment after the page itself
+            for ms in [15_000u64, 60_000] {
+                crate::core::timer(ms, |c| c.read_discord_servers());
+            }
+        }
         if !*self.first_shown.get(id).unwrap_or(&false) {
             self.first_shown.insert(id.to_string(), true);
             self.layout_views();
@@ -1363,6 +1463,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                     later(move |c| {
                         if let Some(v) = c.chats.views.get_mut(&a) {
                             v.playing = on;
+                            set_memory_level(v);
                         }
                         c.last_used.insert(a, rt::epoch_ms()); // playing sound counts as in use
                     });
@@ -1383,7 +1484,12 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                     if msg.contains("\"passkey\"") {
                         log!("passkey request blocked {app} {}", crate::core::clean_text(&msg, 200));
                     } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg) {
-                        if v["type"] == "call" {
+                        if v["type"] == "volume-state" {
+                            let (a, m) = (app.clone(), msg.clone());
+                            later(move |c| {
+                                c.volume_states.insert(a, m);
+                            });
+                        } else if v["type"] == "call" {
                             let a = app.clone();
                             let (live, call, share) = (v["live"].as_u64().unwrap_or(0) > 0, v["call"] == true, v["share"] == true);
                             later(move |c| c.on_call(&a, live, call, share));

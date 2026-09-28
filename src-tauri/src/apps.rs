@@ -1,6 +1,7 @@
-//! The chat services ChatDock can host. Each one gets its own WebView2 profile (its own login).
+//! The chat services (and Spotify) ChatDock can host. Each one gets its own WebView2 profile (its own login).
 //!   domains       pages that stay inside the panel (anything else opens in the normal browser)
-//!   auth_domains  sign-in pop-ups that may open as a small window ("Sign in with Google" on X)
+//!   auth_domains  sign-in pages of other sites: as a small window ("Sign in with Google" on X) or
+//!                 in the panel itself (Spotify's "Continue with Google" goes there and comes back)
 //!   plain_title   the site's normal tab title, so other titles can be read as "someone messaged you"
 //!   colors        gradient for the unread glow on the screen edge
 //!   width         starting panel width for sites that need more room (Discord's sidebars)
@@ -95,6 +96,18 @@ pub const CATALOG: &[App] = &[
         width: Some(700), // chat list + conversation side by side
         enabled_by_default: false,
     },
+    App {
+        id: "spotify",
+        name: "Spotify",
+        icon: "spotify",
+        home: "https://open.spotify.com/",
+        home_path: "/",
+        colors: &["#5ee38a", "#1db954"],
+        domains: &["spotify.com", "scdn.co", "spotifycdn.com", "spotify.link"],
+        auth_domains: &["accounts.google.com", "appleid.apple.com", "facebook.com"],
+        width: Some(760), // the library on the side, and the player's controls
+        enabled_by_default: false,
+    },
 ];
 
 pub fn get(id: &str) -> Option<&'static App> {
@@ -157,7 +170,7 @@ pub fn unshim(url: &str) -> String {
 }
 
 pub fn keep_inside(id: &str, url: &str) -> bool {
-    owns(id, url) && !is_link_shim(url)
+    (owns(id, url) || is_auth_popup(id, url)) && !is_link_shim(url)
 }
 
 /// Voice / video call pages open in their own small window.
@@ -186,6 +199,7 @@ pub fn plain_title(id: &str, title: &str) -> bool {
         "discord" => t.contains("discord"),
         "telegram" => t.contains("telegram"),
         "whatsapp" => t.contains("whatsapp"),
+        "spotify" => true, // the song playing
         _ => false,
     }
 }

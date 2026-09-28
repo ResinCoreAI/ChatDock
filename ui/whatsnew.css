@@ -161,6 +161,11 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
 @media (prefers-reduced-motion: reduce) {
   .scene *, .scene *::before, .scene *::after { animation: none !important; }
   .scene .cur, .s-dockCalls .mini, .s-dcVoice .v1, .s-dcAwake .moon, .s-dcAwake .wave, .s-dcAwake .no { display: none; }
+  .s-spotify .eq.out, .s-spotify .tuck, .s-volume .c1 .spk.hi { display: none; }
+  .s-volume .c1 .num { --vol: 35; }
+  .s-volume .c1 .fill { transform: scaleX(.35); }
+  .s-volume .c1 .thumb { transform: translateX(49px); }
+  .s-dcList .r { opacity: 1; }
   .s-dcServers .t2 { opacity: .7; filter: grayscale(1); }
   .s-dcServers .flip { background: #4b4d5c; }
   .s-dcServers .flip::after { transform: none; }
@@ -345,6 +350,114 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
 .s-dcAwake .no::before, .s-dcAwake .no::after { content: ""; position: absolute; left: 5px; top: 10px; width: 12px; height: 2px; border-radius: 1px; background: #fff; transform: rotate(45deg); }
 .s-dcAwake .no::after { transform: rotate(-45deg); }
 @keyframes no { 0%, 44% { transform: scale(0); opacity: 0; } 48%, 62% { transform: none; opacity: 1; } 72%, 100% { transform: scale(.6); opacity: 0; } }
+
+/* Spotify in the chat, and on with ChatDock hidden */
+.s-spotify .spot { top: 0; right: 0; bottom: 0; width: 170px; background: #121212; box-shadow: -8px 0 20px rgba(0, 0, 0, .5); animation-name: sp-panel; animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+@keyframes sp-panel { 0%, 8% { transform: translateX(110%); } 20%, 56% { transform: none; } 66%, 100% { transform: translateX(110%); } }
+.s-spotify .sh { position: relative; height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 10px; }
+.s-spotify .sh .ic { width: 18px; height: 18px; background: none; }
+.s-spotify .sh .ic svg { width: 18px; height: 18px; }
+.s-spotify .sh b { position: relative; width: 60px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .22); }
+.s-spotify .art { left: 37px; top: 34px; width: 96px; height: 76px; border-radius: 8px; background: linear-gradient(135deg, #1ed760 0%, #0e7a4a 45%, #6d28d9 100%); box-shadow: 0 8px 18px rgba(0, 0, 0, .5); }
+.s-spotify .l1 { left: 16px; top: 120px; width: 96px; height: 7px; border-radius: 4px; background: #fff; }
+.s-spotify .l2 { left: 16px; top: 132px; width: 60px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .45); }
+.s-spotify .prog { left: 16px; top: 147px; width: 138px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+.s-spotify .prog i { left: 0; top: 0; bottom: 0; width: 100%; background: #1ed760; transform-origin: left center; animation-name: sp-prog; animation-timing-function: linear; }
+@keyframes sp-prog { from { transform: scaleX(.22); } to { transform: scaleX(.68); } }
+.s-spotify .ctl { left: 0; right: 0; top: 156px; display: flex; justify-content: center; align-items: center; gap: 16px; }
+.s-spotify .ctl i { position: relative; }
+.s-spotify .prev, .s-spotify .next { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.s-spotify .prev { border-right: 7px solid #b3b3b3; }
+.s-spotify .next { border-left: 7px solid #b3b3b3; }
+.s-spotify .play { width: 24px; height: 24px; border-radius: 50%; background: #fff; }
+.s-spotify .play::before, .s-spotify .play::after { content: ""; position: absolute; top: 7px; width: 3px; height: 10px; border-radius: 1px; background: #121212; }
+.s-spotify .play::before { left: 8px; }
+.s-spotify .play::after { left: 13px; }
+.s-spotify .eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+.s-spotify .eq i { position: relative; width: 3px; height: 14px; border-radius: 1px; background: #1ed760; transform-origin: bottom center; animation: sp-eq .42s ease-in-out 14 alternate; }
+.s-spotify .eq i:nth-child(2) { animation-duration: .31s; animation-iteration-count: 19; }
+.s-spotify .eq i:nth-child(3) { animation-duration: .5s; animation-iteration-count: 12; }
+.s-spotify .eq i:nth-child(4) { animation-duration: .37s; animation-iteration-count: 16; }
+@keyframes sp-eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+.s-spotify .eq.in { left: 120px; top: 118px; }
+.s-spotify .eq.out { right: 12px; top: 72px; padding: 6px; border-radius: 8px; background: rgba(0, 0, 0, .55); box-sizing: content-box; animation-name: sp-out; }
+@keyframes sp-out { 0%, 64% { opacity: 0; transform: translateX(20px); } 72%, 100% { opacity: 1; transform: none; } }
+.s-spotify .tuck { right: 0; top: 70px; width: 6px; height: 50px; border-radius: 6px 0 0 6px; background: #fff; opacity: .85; animation-name: sp-out; }
+
+/* each app's own volume */
+.s-volume .vcard { left: 52px; width: 300px; height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-radius: 12px; background: #1d1e2a; box-shadow: 0 8px 20px rgba(0, 0, 0, .4); }
+.s-volume .c1 { top: 36px; }
+.s-volume .c2 { top: 102px; }
+.s-volume .ic.discord { background: #5865f2; }
+.s-volume .ic.spotify { background: none; }
+.s-volume .ic.spotify svg { width: 26px; height: 26px; }
+.s-volume .sl { position: relative; width: 140px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .15); }
+.s-volume .fill { left: 0; top: 0; bottom: 0; width: 100%; border-radius: 3px; background: #3b82f6; transform-origin: left center; }
+.s-volume .thumb { left: -7px; top: -5px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); transform: translateX(140px); }
+.s-volume .c1 .fill { animation-name: vol-fill; }
+.s-volume .c1 .thumb { animation-name: vol-thumb; }
+@keyframes vol-fill { 0%, 26% { transform: none; } 54%, 100% { transform: scaleX(.35); } }
+@keyframes vol-thumb { 0%, 26% { transform: translateX(140px); } 54%, 100% { transform: translateX(49px); } }
+.s-volume .pct { position: relative; width: 40px; height: 16px; }
+.s-volume .pct b { left: 0; top: 0; width: 40px; color: #fff; font: 700 12px/16px "Segoe UI", sans-serif; text-align: right; }
+/* the number counts down with the slider */
+@property --vol { syntax: '<integer>'; inherits: false; initial-value: 100; }
+.s-volume .c1 .num { animation-name: vol-num; counter-reset: vol var(--vol); }
+.s-volume .c1 .num::after { content: counter(vol) "%"; }
+@keyframes vol-num { 0%, 26% { --vol: 100; } 54%, 100% { --vol: 35; } }
+.s-volume .c1 .spk.hi { animation-name: vol-hi; }
+.s-volume .c1 .spk.lo { animation-name: vol-lo; }
+@keyframes vol-hi { 0%, 44% { opacity: 1; } 48%, 100% { opacity: 0; } }
+@keyframes vol-lo { 0%, 44% { opacity: 0; } 48%, 100% { opacity: 1; } }
+.s-volume .spk { right: 14px; top: 16px; width: 20px; height: 20px; color: #cfcfe0; }
+.s-volume .spk svg { width: 20px; height: 20px; }
+.s-volume .cur { animation-name: vol-cur; }
+@keyframes vol-cur {
+  0% { transform: translate(300px, 170px); opacity: 0; }
+  8% { transform: translate(300px, 170px); opacity: 1; }
+  22% { transform: translate(245px, 64px) scale(1); }
+  26% { transform: translate(245px, 64px) scale(.85); }
+  54% { transform: translate(154px, 64px) scale(.85); }
+  58% { transform: translate(154px, 64px) scale(1); opacity: 1; }
+  72%, 100% { transform: translate(200px, 150px); opacity: 0; }
+}
+
+/* Discord's servers listed right away; keep it awake */
+.s-dcList .side { left: 0; top: 0; bottom: 0; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 14px; background: #1e1f22; }
+.s-dcList .g { position: relative; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 14px/1 "Segoe UI", sans-serif; font-style: normal; }
+.s-dcList .g1 { background: #22c55e; }
+.s-dcList .g2 { background: #f59e0b; }
+.s-dcList .g3 { background: #ef4444; }
+.s-dcList .list { left: 90px; top: 14px; width: 280px; padding: 6px 10px; border-radius: 12px; background: #1d1e2a; box-shadow: 0 8px 20px rgba(0, 0, 0, .4); }
+.s-dcList .list p { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; color: #e8e8f0; font-size: 11.5px; }
+.s-dcList .list span { position: relative; flex: 1; }
+.s-dcList .d { position: relative; width: 16px; height: 16px; border-radius: 50%; }
+.s-dcList .d1 { background: #22c55e; }
+.s-dcList .d2 { background: #f59e0b; }
+.s-dcList .d3 { background: #ef4444; }
+.s-dcList .r { opacity: 0; }
+.s-dcList .r1 { animation-name: dl-in1; }
+.s-dcList .r2 { animation-name: dl-in2; }
+.s-dcList .r3 { animation-name: dl-in3; }
+@keyframes dl-in1 { 0%, 8% { transform: translateX(-80px); opacity: 0; } 16%, 100% { transform: none; opacity: 1; } }
+@keyframes dl-in2 { 0%, 16% { transform: translateX(-80px); opacity: 0; } 24%, 100% { transform: none; opacity: 1; } }
+@keyframes dl-in3 { 0%, 24% { transform: translateX(-80px); opacity: 0; } 32%, 100% { transform: none; opacity: 1; } }
+.s-dcList .warn { margin: 2px -4px 4px; padding: 0 6px; border-radius: 8px; background: rgba(245, 165, 36, .14); animation-name: dl-warn; }
+@keyframes dl-warn { 0%, 38% { opacity: 0; transform: scale(.96); background: rgba(245, 165, 36, .14); } 44%, 70% { opacity: 1; transform: none; background: rgba(245, 165, 36, .14); } 76%, 100% { opacity: 1; transform: none; background: rgba(34, 197, 94, .16); } }
+.s-dcList .warn b { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(245, 165, 36, .55); }
+.s-dcList .warn em { position: relative; padding: 3px 8px; border-radius: 6px; background: #2b2d3a; color: #fff; font-size: 10px; font-style: normal; font-weight: 600; white-space: nowrap; animation-name: dl-btn; }
+@keyframes dl-btn { 0%, 66% { transform: none; } 69% { transform: scale(.9); } 73%, 100% { transform: none; } }
+.s-dcList .moon { position: relative; width: 16px; height: 16px; }
+.s-dcList .moon i { left: 1px; top: 1px; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset -4px -2px 0 0 #f5a524; }
+.s-dcList .cur { animation-name: dl-cur; }
+@keyframes dl-cur {
+  0%, 44% { transform: translate(340px, 170px); opacity: 0; }
+  50% { transform: translate(340px, 170px); opacity: 1; }
+  66% { transform: translate(330px, 30px) scale(1); }
+  69% { transform: translate(330px, 30px) scale(.85); }
+  73% { transform: translate(330px, 30px) scale(1); opacity: 1; }
+  86%, 100% { transform: translate(300px, 120px); opacity: 0; }
+}
 
 /* lighter while hidden */
 .s-lighter .meters { left: 60px; top: 56px; width: 250px; }

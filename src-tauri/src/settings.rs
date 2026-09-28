@@ -57,6 +57,7 @@ fn defaults() -> Map<String, Value> {
         "hideFromCapture": false,   // exclude the panel and pop-ups from screenshots / OBS / Discord streams
         "zoom": {},                 // per-app zoom factor (missing = 100%)
         "seenCounts": {},           // per app: how much of the site's unread count the user has already seen
+        "volumes": {},              // per app: its volume in ChatDock, 0-100 (100 when not set)
         "discordServers": {},       // Discord servers seen in notifications: name -> pop-ups on (this PC only)
         "discordDms": true,         // pop-ups for Discord direct and group messages
         "discordMuteKey": "",       // global hotkey that mutes / unmutes in Discord ("" = none)

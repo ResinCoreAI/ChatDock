@@ -52,6 +52,19 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("ui171") {
+            wait(8000); // the pages load
+            ui171_test();
+        } else if only.as_deref() == Some("notif") {
+            wait(8000); // the pages load
+            notification_path_test();
+        } else if only.as_deref() == Some("volume") {
+            wait(8000); // the pages load
+            volume_test();
+            spotify_test();
+        } else if only.as_deref() == Some("drm") {
+            wait(8000); // the pages load
+            drm_test();
         } else if only.as_deref() == Some("review") {
             wait(7000); // the pages load
             review_fixes_test();
@@ -1583,6 +1596,229 @@ fn review_fixes_test() {
     );
 }
 
+/// Each app's volume: what the page plays is the site's volume times ChatDock's, the site still
+/// reads back its own, and Web Audio goes through ChatDock's gain. Nothing makes a sound (nothing
+/// plays). In Discord's page.
+fn volume_test() {
+    let state = || {
+        on(|c| {
+            c.volume_states.remove("discord");
+            c.chats.post_json("discord", &json!({ "type": "chatdock-volume-check" }));
+        });
+        wait(400);
+        on(|c| c.volume_states.get("discord").cloned().unwrap_or_default())
+    };
+    let made = view_js(
+        "discord",
+        "(() => { const a = document.createElement('audio'); a.volume = 0.8; window.__va = a; const ctx = new AudioContext(); \
+         const o = ctx.createOscillator(); const r = o.connect(ctx.destination); window.__vctx = [ctx, o]; return r === ctx.destination && a.volume === 0.8; })()",
+    );
+    let full = state();
+    on(|c| c.set_app_volume("discord", 50.0));
+    wait(300);
+    let half = state();
+    let site_reads = view_js("discord", "window.__va.volume");
+    let disconnect = view_js(
+        "discord",
+        "(() => { try { const [ctx, o] = window.__vctx; o.disconnect(ctx.destination); o.connect(ctx.destination); o.disconnect(); return 'ok'; } catch (e) { return 'threw ' + e.message; } })()",
+    );
+    // a new page starts at the app's volume too
+    on(|c| c.set_app_volume("discord", 30.0));
+    view_js("discord", "location.reload(), 1");
+    wait(4000);
+    view_js("discord", "(() => { const b = new Audio(); b.volume = 1; window.__vb = b; return 1; })()");
+    let reloaded = state();
+    let saved = on(|c| (c.app_volume("discord"), c.ui_state()["volumes"]["discord"].clone()));
+    on(|c| c.set_app_volume("discord", 100.0));
+    log!(
+        "volume: made {made} | at 100% {full} | at 50% {half} (the site reads {site_reads}) | disconnect {disconnect} | after a reload at 30% {reloaded} | saved {saved:?} (expect true, real .8 gain 1, real .4 seenBySite .8 gain .5, .8, ok, real .3, (30, 30))"
+    );
+}
+
+/// Spotify: its page, protected media in it (Widevine), its sign-in pages, and song titles that
+/// never count as unread messages.
+fn spotify_test() {
+    use crate::apps::keep_inside;
+    let inside = [
+        keep_inside("spotify", "https://accounts.spotify.com/en/login"),
+        keep_inside("spotify", "https://accounts.google.com/o/oauth2/v2/auth?client_id=x"),
+        keep_inside("spotify", "https://www.google.com/search?q=x"),
+        keep_inside("x", "https://accounts.google.com/"),
+        keep_inside("discord", "https://accounts.google.com/"),
+    ];
+    let was = on(|c| {
+        let was = c.is_enabled("spotify");
+        c.set_app_enabled("spotify", true);
+        c.on_title("spotify", "(3) Song • Artist");
+        (was, c.site_counts.get("spotify").copied().unwrap_or(0))
+    });
+    wait(12000); // it loads
+    let info = on(|c| (c.load_state.get("spotify").copied().unwrap_or("?"), c.chats.source("spotify"), c.chats.has("spotify")));
+    let title = view_js("spotify", "document.title");
+    let drm = view_js_async(
+        "spotify",
+        "navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{ initDataTypes: ['cenc'], audioCapabilities: [{ contentType: 'audio/mp4; codecs=\"mp4a.40.2\"' }] }]).then(() => 'widevine', (e) => 'no: ' + e.message)",
+    );
+    // a picture of it (the panel off screen, never activated)
+    let active_was = on(|c| {
+        let was = c.active();
+        c.set_active("spotify", false);
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.panel_state = PanelState::Open;
+        c.layout_views();
+        c.broadcast_state();
+        was
+    });
+    wait(2500);
+    shot("85-spotify");
+    on(move |c| {
+        c.panel_state = PanelState::Hidden;
+        win32::hide(c.panel.hwnd);
+        c.set_active(&active_was, false);
+        c.layout_views();
+        c.broadcast_state();
+    });
+    if !was.0 {
+        on(|c| c.set_app_enabled("spotify", false));
+    }
+    log!(
+        "spotify: stays inside (its login, Google sign-in, Google search, X's Google sign-in, Discord to Google) {inside:?} | a song title's number {} | page {info:?} {title} | {drm} (expect [true, true, false, true, false], 0, loaded open.spotify.com, widevine)",
+        was.1
+    );
+}
+
+/// The real way a site's notification reaches ChatDock: the page itself raises one (as Discord
+/// does), WebView2 hands it over, and a Discord server's shows up in Settings. Pop-ups off.
+fn notification_path_test() {
+    let perms: Vec<String> =
+        on(|c| c.enabled_apps()).into_iter().map(|id| format!("{id} {}", view_js(id, "Notification.permission"))).collect();
+    let popups_was = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(false));
+        c.settings.set("discordServers", json!({}));
+        was
+    });
+    let made = view_js(
+        "discord",
+        "(() => { try { const n = new Notification('Alice (#general, Test Server)', { body: 'hello', tag: 'cd-test' }); window.__cdN = n; return 'made'; } catch (e) { return 'threw ' + e.message; } })()",
+    );
+    wait(1500);
+    let listed = on(|c| c.settings.get("discordServers").to_string());
+    // a service worker's notification (WhatsApp's way) goes the same way
+    let sw = view_js_async(
+        "discord",
+        "navigator.serviceWorker && navigator.serviceWorker.getRegistration ? navigator.serviceWorker.getRegistration().then((r) => r ? 'has a service worker' : 'no service worker') : 'no api'",
+    );
+    on(move |c| c.settings.set("popups", popups_was));
+    log!("notification path: permission {perms:?} | page notification {made} | Discord servers now {listed} | {sw} (expect granted everywhere, made, {{\"Test Server\":true}})");
+}
+
+/// 1.7.1's screens: Discord's servers read from its sidebar (a stand-in for it here), the "Discord
+/// sleeps" warning and its button, and the header's volume (the panel off screen, never
+/// activated).
+fn ui171_test() {
+    // a stand-in for Discord's server sidebar: two servers, the home button and the "add" button
+    on(|c| c.settings.set("discordServers", json!({})));
+    view_js(
+        "discord",
+        "(() => { const nav = document.createElement('nav'); nav.id = 'cd-guilds'; \
+         nav.innerHTML = '<div data-dnd-name=\"Gamers\"><div data-list-item-id=\"guildsnav___1111\"></div></div>' \
+         + '<div data-list-item-id=\"guildsnav___2222\"><span data-dnd-name=\"My Server\"></span></div>' \
+         + '<div data-list-item-id=\"guildsnav___home\" data-dnd-name=\"Direct Messages\"></div>' \
+         + '<div data-list-item-id=\"guildsnav___create-join-button\"></div>'; document.body.append(nav); return 1; })()",
+    );
+    on(|c| c.read_discord_servers());
+    wait(800);
+    let listed = on(|c| c.settings.get("discordServers").to_string());
+
+    // the panel out off screen, on Discord's settings page, Discord set to sleep
+    let (active_was, sleep_was) = on(|c| {
+        let was = (c.active(), c.settings.app_pref("discord", "sleep"));
+        c.settings.set_app_pref("discord", "sleep", true);
+        c.set_active("discord", false);
+        c.settings_mode = true;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.panel_state = PanelState::Open;
+        c.broadcast_state();
+        c.emit("panel", "settings:goto", json!(["discord"]));
+        was
+    });
+    wait(1500);
+    shot("86-discord-page");
+    let warning = page_js("panel", "!document.querySelector('.dc-sleep').hidden");
+    let pressed = js_click("panel", "[data-action=\"discord-awake\"]");
+    wait(500);
+    let awake = on(|c| !c.settings.app_pref("discord", "sleep"));
+
+    // the header's volume: closed, then open at 60 %, then the wheel on the speaker
+    on(|c| {
+        c.settings_mode = false;
+        c.set_app_volume("discord", 60.0);
+        c.layout_views();
+        c.broadcast_state();
+    });
+    wait(800);
+    shot("87-volume-closed");
+    let icon = page_js("panel", "document.getElementById('vol').dataset.icon + ' | ' + document.getElementById('vol').title");
+    js_click("panel", "#vol");
+    wait(600);
+    shot("88-volume-open");
+    let open = page_js("panel", "JSON.stringify({ bar: !document.getElementById('volbar').hidden, tabs: getComputedStyle(document.querySelector('.apps')).display, value: document.getElementById('vol-range').value, num: document.getElementById('vol-num').textContent })");
+    page_js(
+        "panel",
+        "document.getElementById('vol').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true })), 1",
+    );
+    wait(400);
+    let after_wheel = on(|c| c.app_volume("discord"));
+    js_click("panel", "#vol-mute");
+    wait(400);
+    let muted = on(|c| (c.settings.app_pref("discord", "sound"), c.ui_state()["soundOn"]["discord"].clone()));
+    shot("89-volume-muted");
+    js_click("panel", "#vol-mute");
+    js_click("panel", "#vol-done");
+    wait(300);
+    let closed = page_js("panel", "document.getElementById('volbar').hidden");
+    on(move |c| {
+        c.set_app_volume("discord", 100.0);
+        c.settings.set_app_pref("discord", "sleep", sleep_was);
+        c.panel_state = PanelState::Hidden;
+        win32::hide(c.panel.hwnd);
+        c.set_active(&active_was, false);
+        c.layout_views();
+        c.broadcast_state();
+    });
+    log!(
+        "1.7.1 screens: servers from the sidebar {listed} | sleep warning {warning}, button pressed {pressed}, awake {awake} | speaker {icon} | open {open} | wheel up -> {after_wheel} | mute (sound on, state) {muted:?} | closed {closed} (expect Gamers + My Server only, true, true, true, volume at 60 %, bar shown + tabs hidden + 60, 65, (false, false), true)"
+    );
+}
+
+/// Which protected-media (DRM) systems the chats' browser offers: Spotify's web player needs
+/// Widevine to play anything.
+fn drm_test() {
+    let probe = |system: &str| {
+        view_js_async(
+            "discord",
+            &format!(
+                "navigator.requestMediaKeySystemAccess('{system}', [{{ initDataTypes: ['cenc'], audioCapabilities: [{{ contentType: 'audio/mp4; codecs=\"mp4a.40.2\"' }}], \
+                 videoCapabilities: [{{ contentType: 'video/mp4; codecs=\"avc1.42E01E\"' }}] }}]).then((a) => 'yes: ' + a.keySystem + ' ' + JSON.stringify(a.getConfiguration().audioCapabilities), (e) => 'no: ' + e.name + ' ' + e.message)"
+            ),
+        )
+    };
+    log!(
+        "drm: widevine {} | playready {} | clearkey {}",
+        probe("com.widevine.alpha"),
+        probe("com.microsoft.playready.recommendation"),
+        probe("org.w3.clearkey")
+    );
+    log!("drm: browser {} | user agent {}", crate::chats::browser_version(), view_js("discord", "navigator.userAgent"));
+}
+
 /// What keeps running while ChatDock sits hidden: animations left running in its own pages (each
 /// one redraws on every screen refresh, 300 times a second on a 300 Hz screen), then a quiet
 /// stretch for measuring CPU from outside (scratchpad perf-sample.ps1).
@@ -2458,7 +2694,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.7, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.7.1, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

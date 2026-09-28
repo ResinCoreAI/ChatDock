@@ -160,6 +160,8 @@ pub struct Core {
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
+    /// what each page's volume script said when asked (self-test)
+    pub volume_states: HashMap<String, String>,
     /// the chat's hotkey another program holds, already said
     pub hotkey_warned: String,
     /// Call windows the chats opened (Messenger, Instagram): (window, app)
@@ -466,6 +468,19 @@ impl Core {
                 self.resize_to();
                 self.resize_grab = None;
             }
+            ("panel:volume", "panel") => {
+                let id = arg_str(&args, 0);
+                if let Some(level) = args.get(1).and_then(Value::as_f64) {
+                    self.set_app_volume(&id, level);
+                }
+            }
+            ("panel:sound", "panel") => {
+                let id = arg_str(&args, 0);
+                let on = args.get(1).and_then(Value::as_bool).unwrap_or(true);
+                if apps::get(&id).is_some() {
+                    self.set_app_pref(&id, "sound", on);
+                }
+            }
             ("panel:zoom-reset", "panel") => {
                 let id = self.active();
                 self.zoom_step(&id, 0);
@@ -578,6 +593,10 @@ impl Core {
             // the panel's window is on screen: its page keeps still while it isn't (panel.css)
             "shown": win32::is_visible(self.panel.hwnd),
             "calls": self.call_chips().iter().map(|(app, kind)| json!({ "app": app, "kind": kind })).collect::<Vec<_>>(),
+            // each app's volume in ChatDock, and whether its sound is on (the header's speaker)
+            "volumes": apps::ids().map(|id| (id.to_string(), json!(self.app_volume(id)))).collect::<Map<String, Value>>(),
+            "soundOn": apps::ids().map(|id| (id.to_string(), json!(self.settings.app_pref(id, "sound")))).collect::<Map<String, Value>>(),
+            "allMuted": self.settings.bool("muted"),
             "side": self.settings.str("side"),
             "dnd": self.dnd_active(),
             "update": {
@@ -896,6 +915,10 @@ impl Core {
             "install-update" => self.install_update(),
             "open-releases" => win32::open_url(&format!("{REPO_URL}/releases")),
             "whats-new" => self.open_whats_new(),
+            "discord-awake" => {
+                self.set_app_pref("discord", "sleep", false);
+                self.broadcast_state();
+            }
             "open-repo" => win32::open_url(REPO_URL),
             "open-license" => win32::open_url(&format!("{REPO_URL}/blob/main/LICENSE")),
             "open-logs" => {
@@ -1147,6 +1170,32 @@ impl Core {
         chips
     }
 
+    /// This app's volume in ChatDock, 0-100 (on top of the site's own).
+    pub fn app_volume(&self, id: &str) -> u8 {
+        self.settings.get("volumes").get(id).and_then(Value::as_u64).map(|v| v.min(100) as u8).unwrap_or(100)
+    }
+
+    /// The speaker in the chat's header: how loud this app plays, without touching the others.
+    pub fn set_app_volume(&mut self, id: &str, level: f64) {
+        if apps::get(id).is_none() || !level.is_finite() {
+            return;
+        }
+        let level = level.round().clamp(0.0, 100.0) as u8;
+        if level == self.app_volume(id) {
+            return;
+        }
+        let mut all = self.settings.get("volumes").as_object().cloned().unwrap_or_default();
+        all.insert(id.to_string(), json!(level));
+        self.set_setting("volumes", Value::Object(all));
+        self.send_volume(id);
+        self.broadcast_state();
+    }
+
+    /// Tell the app's page its volume (its script scales everything it plays).
+    pub fn send_volume(&self, id: &str) {
+        self.chats.post_json(id, &json!({ "type": "chatdock-volume", "level": self.app_volume(id) as f64 / 100.0 }));
+    }
+
     pub fn apply_audio(&mut self, id: &str) {
         let muted = self.settings.bool("muted") || !self.settings.app_pref(id, "sound");
         self.chats.set_muted(id, muted);
@@ -1156,6 +1205,9 @@ impl Core {
     // Unread counts (read from the page title, e.g. "(3) Instagram")
     // -----------------------------------------------------------------------------------------
     pub fn on_title(&mut self, id: &str, title: &str) {
+        if id == "spotify" {
+            return; // the song playing: no unread numbers there
+        }
         let n = parse_count(title);
         if n.is_none() {
             let text = title.trim();
@@ -1374,7 +1426,36 @@ impl Core {
             "servers": servers.iter().map(|(name, on)| json!({ "name": name, "on": on })).collect::<Vec<_>>(),
             "muteOk": registered("discord-mute", "discordMuteKey"),
             "deafenOk": registered("discord-deafen", "discordDeafenKey"),
+            // asleep it sends nothing: the page offers to keep it awake
+            "sleeps": self.settings.app_pref("discord", "sleep"),
         })
+    }
+
+    /// The servers in Discord's own sidebar: each gets its switch in Settings right away, not only
+    /// after its first pop-up. (Servers inside a closed folder aren't drawn there; they come with
+    /// their first pop-up.)
+    pub fn read_discord_servers(&mut self) {
+        if !self.chats.has("discord") {
+            return;
+        }
+        let js = "JSON.stringify([...document.querySelectorAll('[data-list-item-id^=\"guildsnav___\"]')]\
+            .filter((e) => /^guildsnav___\\d+$/.test(e.getAttribute('data-list-item-id')))\
+            .map((e) => { const n = e.closest('[data-dnd-name]') || e.querySelector('[data-dnd-name]'); return (n && n.getAttribute('data-dnd-name')) || ''; })\
+            .filter(Boolean))";
+        self.chats.execute("discord", js, |r| {
+            let names: Vec<String> =
+                serde_json::from_str::<String>(&r).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+            later(move |c| {
+                let before = c.settings.get("discordServers").as_object().map(|m| m.len()).unwrap_or(0);
+                for name in &names {
+                    c.note_discord_server(&clean_text(name, 100));
+                }
+                let after = c.settings.get("discordServers").as_object().map(|m| m.len()).unwrap_or(0);
+                if after != before {
+                    log!("discord servers from its sidebar: {} seen, {} new", names.len(), after - before);
+                }
+            });
+        });
     }
 
     /// A Discord server seen in a notification: listed in Settings (pop-ups on at first).

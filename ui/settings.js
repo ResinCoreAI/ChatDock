@@ -307,6 +307,7 @@
         box.append(row);
       }
     }
+    q('.dc-sleep').hidden = !dc.sleeps; // asleep, Discord sends no pop-ups
     for (const input of box.querySelectorAll('input[data-dc-server]')) {
       const s = dc.servers.find((x) => x.name === input.dataset.dcServer);
       if (s) input.checked = s.on;

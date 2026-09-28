@@ -275,6 +275,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         focus_watch: false,
         test_foreground: None,
         call_windows: Vec::new(),
+        volume_states: HashMap::new(),
         hotkey_warned: String::new(),
         call_window_search: None,
         bar_shares: Default::default(),
@@ -964,6 +965,7 @@ impl Core {
     // -----------------------------------------------------------------------------------------
     pub fn open_settings(&mut self, section: &str, source: &str) {
         let was_open = self.settings_mode;
+        self.read_discord_servers(); // (the Discord page lists them)
         self.settings_mode = true;
         self.help_mode = false;
         self.start_settings_timer();

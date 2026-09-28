@@ -535,6 +535,7 @@ impl Core {
                     "popups": self.t("dc.popups"),
                     "muted": self.t("dc.muted"),
                     "unmuted": self.t("dc.unmuted"),
+                    "keepAwake": self.t("dc.keepAwake"),
                 },
                 "sections": sections,
                 "ok": self.t("wn.ok"),

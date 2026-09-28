@@ -710,6 +710,8 @@ select option { background: var(--card); color: var(--text); }
 .dc-hero p { margin: 0; font-size: 13px; line-height: 1.5; }
 .dc-server b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dc-empty { margin: 0; padding: 12px 14px; border-top: 1px solid var(--sep); color: var(--muted); font-size: 12.5px; }
+.dc-sleep { background: rgba(245, 165, 36, .1); }
+.dc-sleep b { color: #f5a524; }
 .dc-steps { margin: 0; padding: 12px 16px 12px 34px; font-size: 13px; line-height: 1.55; }
 .dc-steps li { margin: 4px 0; }
 .dc-steps li::marker { color: #5865f2; font-weight: 700; }

@@ -38,7 +38,8 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 
 | | |
 |---|---|
-| 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram and WhatsApp one switch away. Each app keeps its own login. |
+| 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram, WhatsApp and **Spotify** one switch away. Each app keeps its own login. |
+| 🔊 **Volume per app** | The speaker at the top of the chat sets how loud that app plays (the mouse wheel on it works too), without touching the others. |
 | 🎧 **Discord like the app** | Voice, watching streams and **sharing your screen** (a window or the entire screen, with its sound) keep going while ChatDock is hidden. Pop-ups say which server and channel, and each server has its own switch. Voice keys mute or deafen you from anywhere, even in a game. See [Discord](#discord). |
 | ↔️ **Left or right** | Dock on either screen edge. The panel, edge tab and unread glow all follow. |
 | 🖥️ **Several monitors** | *Settings → Monitors & position* shows a map of your monitors (with their own names, e.g. “DELL U2720Q” or “Built-in screen”). *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor, lit up on the map — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or click one monitor to always open the chat there: it is remembered by the monitor itself, so it survives unplugging and Windows renumbering its screens. *Show numbers on the screens* tells them apart, and pop-ups can go on the chat's monitor, where the mouse is, or the main monitor. |
@@ -125,9 +126,10 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 - **On the edge tab**: while you're in a call a green phone shows under the apps, and a red screen
   while you share your screen. Click it to go straight back to that app. Messenger and Instagram calls
   (in their own call window) show it too.
-- **Pop-ups per server** say where a message is from ("Discord · Server · #channel"). A server shows up
-  under *Settings → Discord* after its first pop-up, with its own switch (plus one for direct and group
-  messages). Which messages notify at all is still up to Discord's own notification settings.
+- **Pop-ups per server** say where a message is from ("Discord · Server · #channel"). Your servers are
+  listed under *Settings → Discord* from Discord's sidebar, each with its own switch (plus one for direct
+  and group messages). Which messages notify at all is still up to Discord's own notification settings,
+  and a Discord set to sleep sends none while it sleeps.
 - **Voice keys**: Discord in a browser only hears its own keys while its window is in front. Pick a
   *Mute* and a *Deafen* key under *Settings → Discord*: they work from anywhere, even in a game, and a
   small pop-up says how it is now.
