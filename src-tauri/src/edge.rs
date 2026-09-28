@@ -22,6 +22,8 @@ const GLOW_H: f64 = 128.0;
 const TAB_LINGER_MS: i64 = 900; // tab stays this long after the cursor wanders off
 const TAB_FOLLOW_MARGIN: f64 = 26.0; // sliding along the edge, the cursor stays this far inside the pill
 const TAB_GLIDE_MS: f64 = 30.0; // the tab closes about 63% of its distance to the cursor in this time
+const WHEEL_ZONE_PX: f64 = 24.0; // the wheel turning this close to the edge is scrolling what's there (a scrollbar)
+const WHEEL_LEAVE_PX: f64 = 60.0; // after that, the edge works again once the pointer is this far away
 
 #[derive(Default)]
 pub struct EdgeState {
@@ -34,13 +36,18 @@ pub struct EdgeState {
     tab_target_y: f64,
     tab_drawn_y: Option<i32>,
     last_inside_at: i64,
-    dwell_start: i64,
+    pub dwell_start: i64,
     pub hold_line: bool,
     hold_y: Option<i32>,
     last_edge_frame: f64,
     tab_hide_timer: u64,
     edge_hide_timer: u64,
     glow_hide_timer: u64,
+    /// the last wheel turn looked at (wheel::last)
+    wheel_seen: i64,
+    /// the wheel turned on the edge: the user is scrolling, not asking for the chat. No line or tab
+    /// until the pointer has left the edge.
+    pub scrolling: bool,
     /// self-test: a pretend cursor (x, y, a game holds the mouse)
     pub test_cursor: Option<(i32, i32, bool)>,
 }
@@ -75,6 +82,14 @@ impl Core {
 
     /// One look at the cursor. Returns when to look again (0 = at the next screen refresh).
     pub fn edge_step(&mut self) -> u64 {
+        let next = self.edge_look();
+        // the wheel only matters while the edge is being held or the tab is out
+        let guard = self.settings.bool("edgeWheel");
+        crate::wheel::listen(guard && (self.edge.dwell_start != 0 || self.edge.hold_line || self.edge.tab_shown));
+        next
+    }
+
+    fn edge_look(&mut self) -> u64 {
         let mode = self.settings.str("edgeMode").to_string();
         if self.panel_state != PanelState::Hidden || mode == "off" {
             self.stop_hold(false);
@@ -111,8 +126,27 @@ impl Core {
         let zone_bottom = d.work.bottom() - margin;
         let reach = ((if self.edge.dwell_start != 0 { HOLD_SLACK_PX } else { EDGE_PX }) * s).round().max(1.0) as i32;
         let at_edge = if left { px >= b.x && px < b.x + reach } else { px >= right - reach && px <= right };
+        // The wheel turning with the pointer on the edge (or on the tab) is scrolling the page there,
+        // not asking for the chat: the line and the tab go, and stay away until the pointer has left
+        // the edge.
+        let dist = if left { px - b.x } else { right - px };
+        let on_screen_y = py >= b.y && py <= b.bottom();
+        let wheel = crate::wheel::last();
+        if wheel > self.edge.wheel_seen {
+            self.edge.wheel_seen = wheel;
+            let zone = if self.edge.tab_shown { TAB_W + WHEEL_ZONE_PX } else { WHEEL_ZONE_PX };
+            if self.settings.bool("edgeWheel") && on_screen_y && dist >= 0 && dist < (zone * s).round() as i32 && !self.edge.scrolling {
+                self.edge.scrolling = true;
+                self.stop_hold(false);
+                self.hide_tab(true);
+                log!("edge: the wheel turned on the edge (scrolling): no tab until the pointer leaves it");
+            }
+        }
+        if self.edge.scrolling && !(on_screen_y && dist >= 0 && dist < (WHEEL_LEAVE_PX * s).round() as i32) {
+            self.edge.scrolling = false;
+        }
         // With "Automatic", a seam between two monitors never counts: the mouse only passes it.
-        let on_edge = at_edge && py >= zone_top && py <= zone_bottom && (!auto || self.outer_edge_at(&d, py));
+        let on_edge = at_edge && py >= zone_top && py <= zone_bottom && (!auto || self.outer_edge_at(&d, py)) && !self.edge.scrolling;
         // A game that has taken the mouse (pointer hidden, or held inside the game) pushes the pointer
         // against the screen edge whenever you aim or turn. That must never bring the tab out.
         let captured = (on_edge || self.edge.tab_shown) && test_captured.unwrap_or_else(win32::mouse_captured);
@@ -162,8 +196,7 @@ impl Core {
             return if self.edge.hold_line { 0 } else { 16 };
         }
         self.stop_hold(false);
-        let dist = if left { px - b.x } else { right - px };
-        let near = dist >= 0 && dist < (250.0 * s) as i32 && py >= b.y && py <= b.bottom();
+        let near = dist >= 0 && dist < (250.0 * s) as i32 && on_screen_y;
         if near {
             40
         } else {

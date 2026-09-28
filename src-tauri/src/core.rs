@@ -692,6 +692,7 @@ impl Core {
             "popupDuration" => num_in(&[0.0, 5.0, 8.0, 12.0, 20.0, 30.0]),
             "popupMax" => num_in(&[1.0, 2.0, 3.0, 4.0, 5.0]),
             "glow"
+            | "edgeWheel"
             | "pinned"
             | "muted"
             | "autostart"
@@ -1364,11 +1365,12 @@ impl Core {
     }
 }
 
-pub const PREF_KEYS: [&str; 24] = [
+pub const PREF_KEYS: [&str; 25] = [
     "lang",
     "side",
     "edgeMode",
     "edgeHold",
+    "edgeWheel",
     "displayId",
     "glow",
     "theme",

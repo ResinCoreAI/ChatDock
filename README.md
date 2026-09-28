@@ -89,7 +89,7 @@ installer replaces the old copy, and your logins, settings and "start with Windo
 
 | To… | Do this |
 |---|---|
-| **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Opening the chat* (or *Right away*) |
+| **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Opening the chat* (or *Right away*). Turning the mouse wheel there (say, on a maximized browser's scrollbar) just scrolls the page: no tab until you move away from the edge |
 | Open a specific app | Click that app's icon on the white tab |
 | **Reply to a pop-up** | Click the pop-up → the panel opens on that conversation |
 | Open / hide from anywhere | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> (works in games; changeable) |

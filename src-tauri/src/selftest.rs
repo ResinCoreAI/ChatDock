@@ -1110,6 +1110,7 @@ fn edge_test(with_panel: bool) {
     wait(1300);
     let (line, tab) = on(|c| (c.edge.hold_line, c.edge.tab_shown));
     log!("mouse held by a game: line {line} | tab {tab} (expect false, false)");
+    wheel_test(edge_x, hy);
     on(move |c| {
         c.edge.test_cursor = None;
         c.settings.set("edgeHold", hold_was);
@@ -1136,6 +1137,77 @@ fn edge_test(with_panel: bool) {
     log!(
         "pop-up closing: sliding away {leaving} | window still up meanwhile {up_meanwhile} | window gone after {gone} | gone 1.1 s later {gone_late} (expect 1, true, true, true; with the screen locked pages don't animate, so only the last)"
     );
+}
+
+/// The mouse wheel turning with the pointer on the edge (scrolling a page's scrollbar there): the
+/// line goes, no tab comes, until the pointer has left the edge; holding works again after that, and
+/// the wheel on an open tab puts it away. Then a real wheel event (a zero step: nothing scrolls)
+/// through Windows, to see the raw input copy arrive.
+fn wheel_test(edge_x: i32, hy: i32) {
+    let inward = if on(|c| c.on_left()) { 1 } else { -1 };
+    on(move |c| {
+        c.settings.set("edgeHold", json!(1));
+        c.edge.test_cursor = Some((edge_x + inward * 300, hy, false));
+    });
+    wait(300);
+    on(move |c| c.edge.test_cursor = Some((edge_x, hy, false)));
+    wait(400);
+    let (line_before, listening) = on(|c| (c.edge.hold_line, c.edge.dwell_start != 0));
+    crate::wheel::test_turn();
+    wait(200);
+    let (line, scrolling) = on(|c| (c.edge.hold_line, c.edge.scrolling));
+    wait(1500);
+    let tab = on(|c| c.edge.tab_shown);
+    on(move |c| c.edge.test_cursor = Some((edge_x + inward * 30, hy, false)));
+    wait(250);
+    let still = on(|c| c.edge.scrolling);
+    on(move |c| c.edge.test_cursor = Some((edge_x + inward * 300, hy, false)));
+    wait(300);
+    let freed = on(|c| !c.edge.scrolling);
+    on(move |c| c.edge.test_cursor = Some((edge_x, hy, false)));
+    wait(1400);
+    let tab_again = on(|c| c.edge.tab_shown);
+    crate::wheel::test_turn();
+    wait(250);
+    let tab_after = on(|c| c.edge.tab_shown);
+    log!(
+        "wheel on the edge: holding {line_before} (listening {listening}) | after the wheel: line {line}, scrolling {scrolling} | 1.5 s later tab {tab} | 30 px off still scrolling {still} | 300 px off freed {freed} | back and held: tab {tab_again} | wheel on the tab: tab {tab_after} (expect true (true) | false, true | false | true | true | true | false)"
+    );
+    on(move |c| c.settings.set("edgeWheel", json!(false)));
+    on(move |c| c.edge.test_cursor = Some((edge_x + inward * 300, hy, false)));
+    wait(300);
+    on(move |c| c.edge.test_cursor = Some((edge_x, hy, false)));
+    wait(400);
+    crate::wheel::test_turn();
+    wait(1200);
+    log!("wheel with the setting off: tab {} (expect true: it opens as before)", on(|c| c.edge.tab_shown));
+    on(move |c| {
+        c.settings.set("edgeWheel", json!(true));
+        c.hide_tab(true);
+        c.edge.test_cursor = Some((edge_x + inward * 300, hy, false));
+    });
+    wait(300);
+
+    // the real thing: while the edge is held (5 s, so no tab), a wheel event with a zero step
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_WHEEL, MOUSEINPUT};
+    on(move |c| {
+        c.settings.set("edgeHold", json!(5));
+        c.edge.test_cursor = Some((edge_x, hy, false));
+    });
+    wait(400);
+    let before = crate::wheel::last();
+    let listening = on(|c| c.edge.dwell_start != 0);
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 { mi: MOUSEINPUT { dwFlags: MOUSEEVENTF_WHEEL, mouseData: 0, ..Default::default() } },
+    };
+    let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+    wait(300);
+    let seen = crate::wheel::last() > before;
+    let (scrolling, line) = on(|c| (c.edge.scrolling, c.edge.hold_line));
+    log!("wheel through Windows: listening {listening} | sent {sent} | raw input saw it {seen} | edge now scrolling {scrolling}, line {line} (expect true, 1, true, true, false)");
+    on(move |c| c.edge.test_cursor = Some((edge_x + inward * 300, hy, false)));
+    wait(300);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1599,7 +1671,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.6, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.6.1, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

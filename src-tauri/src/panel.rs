@@ -322,6 +322,7 @@ impl Core {
         self.init_chats();
         self.schedule_dnd_end();
         rt::after(60_000, sleep_tick);
+        crate::wheel::start();
         self.edge_tick_soon(500);
         self.init_updater();
         // after an update: What's new, once ChatDock is up and the chats have started loading (the
@@ -476,6 +477,7 @@ impl Core {
         }
         log!("dock moves to {}", d.id);
         self.dock_display = d.id.clone();
+        self.edge.scrolling = false; // that was on another monitor's edge
         frames::set_display(&d.id, d.hz);
         if self.panel_state == PanelState::Hidden {
             let g = self.panel_geometry(d);

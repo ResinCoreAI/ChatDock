@@ -22,6 +22,7 @@ mod settings;
 mod toasts;
 mod tray;
 mod updater;
+mod wheel;
 mod win32;
 
 use tauri::{Manager, RunEvent};
