@@ -33,6 +33,29 @@ window.ICONS = {
     <path d="m8.8 12.1 2.3 2.3 4.2-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   warning: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.8 19.5h18.4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
     <path d="M12 9.5v4.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.1" fill="currentColor"/></svg>`,
+  // settings categories (drawn white on a coloured tile)
+  sliders: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h8.5M17.5 7.5H20M4 16.5h2.5M11.5 16.5H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="15" cy="7.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="16.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+  monitor: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="4" width="18.4" height="12.6" rx="2.2" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M8.5 20.3h7M12 16.6v3.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  pointerEdge: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.5v17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M5.2 4.6l9.9 6.6-4.4.9 2.4 4.9-2.1 1-2.3-4.9-3.3 3z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
+  theme: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor"/></svg>`,
+  grid: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.6" y="3.6" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+    <rect x="13.4" y="3.6" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3.6" y="13.4" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+    <rect x="13.4" y="13.4" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+  bell: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.2 16.4v-5.1a5.8 5.8 0 0 1 11.6 0v5.1l1.7 2.1H4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M9.9 20.6a2.3 2.3 0 0 0 4.2 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8v10.4M7.6 9.9l4.4 4.4 4.4-4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M4.4 15.8v2.4a1.9 1.9 0 0 0 1.9 1.9h11.4a1.9 1.9 0 0 0 1.9-1.9v-2.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M12 10.8v5.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.6" cy="10.6" r="6.4" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M15.4 15.4l4.6 4.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
+  memory: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.9"/>
+    <rect x="9.4" y="9.4" width="5.2" height="5.2" rx="1" fill="currentColor"/>
+    <path d="M9.5 3.5V6M14.5 3.5V6M9.5 18v2.5M14.5 18v2.5M3.5 9.5H6M3.5 14.5H6M18 9.5h2.5M18 14.5h2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
   logo: `<svg viewBox="0 0 64 64" aria-hidden="true"><defs>
     <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2c2e3e"/><stop offset="1" stop-color="#0d0e13"/></linearGradient>
     <linearGradient id="logo-b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#feda75"/><stop offset=".3" stop-color="#fa7e1e"/>

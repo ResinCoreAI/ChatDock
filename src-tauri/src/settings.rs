@@ -34,7 +34,9 @@ fn defaults() -> Map<String, Value> {
         "side": "right",            // which screen edge the dock lives on: 'right' | 'left'
         "edgeMode": "always",       // 'always' | 'no-fullscreen' | 'off'
         "edgeHold": 3,              // seconds the cursor is held on the edge before the tab comes out (0 = right away)
-        "displayId": null,          // null = primary display, else the monitor's device name
+        "displayId": null,          // null = automatic, else the monitor the chat opens on (its device path)
+        "displayLabel": "",         // that monitor's name, for Settings while it isn't connected
+        "popupDisplay": "chat",     // pop-ups show on 'chat' (the chat's monitor) | 'mouse' | 'main'
         "glow": true,               // light strip on the screen edge when there are unread chats
         "popups": true,             // ChatDock's own always-on-top pop-up when someone messages you
         "popupText": true,          // show the message text in the pop-up (off = only who wrote)

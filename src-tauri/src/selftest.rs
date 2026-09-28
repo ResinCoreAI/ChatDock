@@ -38,6 +38,9 @@ pub fn start() {
         } else if only.as_deref() == Some("whatsnew") {
             wait(3000);
             whats_new_test();
+        } else if only.as_deref() == Some("settings") {
+            wait(3000);
+            settings_shots();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -644,6 +647,323 @@ fn whats_new_test() {
     log!("Esc: closed {} (expect true)", on(|c| c.whatsnew.win.is_none()));
 }
 
+/// The settings screen, page by page in both themes, a search, and the monitor page with monitor
+/// layouts that aren't plugged in (page captures for looking at the design). The panel is shown off
+/// screen and never activated: nothing takes the keyboard.
+fn settings_shots() {
+    on(|c| {
+        c.settings_mode = true;
+        c.help_mode = false;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+    });
+    wait(2000);
+    let names = page_js("panel", "JSON.stringify([...document.querySelectorAll('.set-page')].map(p => p.dataset.page))");
+    let pages: Vec<String> =
+        serde_json::from_str::<String>(&names).ok().and_then(|list| serde_json::from_str(&list).ok()).unwrap_or_default();
+    let theme_was = on(|c| c.settings.get("theme").clone());
+    for theme in ["dark", "light"] {
+        on(move |c| {
+            c.settings.set("theme", json!(theme));
+            c.apply_theme();
+        });
+        wait(800);
+        for p in &pages {
+            let p2 = p.clone();
+            on(move |c| c.emit("panel", "settings:goto", json!([p2])));
+            wait(700);
+            shot(&format!("60-{theme}-{p}"));
+        }
+    }
+    on(move |c| {
+        c.settings.set("theme", json!("dark"));
+        c.apply_theme();
+    });
+    log!(
+        "settings pages: {} | page heights {}",
+        pages.join(" "),
+        page_js("panel", "JSON.stringify([...document.querySelectorAll('.set-page')].map(p => p.dataset.page + ':' + p.scrollHeight))")
+    );
+
+    // search, from the home page
+    on(|c| c.emit("panel", "settings:goto", json!(["home"])));
+    wait(600);
+    for (i, word) in ["จอ", "pop", "zzqx"].iter().enumerate() {
+        let found = page_js(
+            "panel",
+            &format!(
+                "(() => {{ const s = document.querySelector('[data-search]'); s.value = {}; s.dispatchEvent(new Event('input')); \
+                 return JSON.stringify([...document.querySelectorAll('.result b')].map(b => b.textContent).slice(0, 6).concat(document.querySelector('.no-results')?.textContent || [])); }})()",
+                json!(word)
+            ),
+        );
+        log!("search {word:?}: {found}");
+        shot(&format!("61-search-{i}"));
+    }
+    // Esc steps back: first it clears the search, then it leaves a page for the home page (one more
+    // would close Settings; not done here, that hands the keyboard to the panel)
+    on(|c| c.on_key(0x1B, false, false, false, true));
+    wait(600);
+    let cleared =
+        page_js("panel", "document.querySelector('[data-search]').value === '' && document.querySelector('[data-results]').hidden");
+    on(|c| c.emit("panel", "settings:goto", json!(["apps"])));
+    wait(600);
+    on(|c| c.on_key(0x1B, false, false, false, true));
+    wait(600);
+    log!(
+        "Esc: search cleared {cleared} | from a page back to the home page {} | Settings still open {} (expect true, true, true)",
+        page_js("panel", "!document.querySelector('.set-page[data-page=home]').hidden"),
+        on(|c| c.settings_mode)
+    );
+
+    // the monitor page with layouts that aren't plugged in
+    use win32::Display as D;
+    let two = vec![D::test(1, "DELL U2720Q", false, (0, 0, 2560, 1440), true), D::test(2, "", true, (2560, 360, 1920, 1080), false)];
+    let three = vec![
+        D::test(1, "LG ULTRAGEAR", false, (-1920, 0, 1920, 1080), false),
+        D::test(2, "ASUS VG27AQ", false, (0, -180, 2560, 1440), true),
+        D::test(3, "DELL P2419H", false, (2560, -420, 1080, 1920), false),
+    ];
+    let stacked = vec![D::test(1, "Odyssey G7", false, (0, -1440, 2560, 1440), false), D::test(2, "", true, (320, 0, 1920, 1080), true)];
+    let middle = three[1].key.clone();
+    let layouts: Vec<(&str, Vec<D>, Option<String>, &str)> = vec![
+        ("two", two.clone(), None, "right"),
+        ("two-pinned", two.clone(), Some(two[0].key.clone()), "right"),
+        ("three", three.clone(), None, "right"),
+        ("three-middle-seam", three.clone(), Some(middle), "right"),
+        ("three-left", three.clone(), None, "left"),
+        ("stacked", stacked, None, "right"),
+        ("missing", two, Some(r"\\?\display#benq#gone".to_string()), "right"),
+    ];
+    let (id_was, label_was, side_was) =
+        on(|c| (c.settings.get("displayId").clone(), c.settings.get("displayLabel").clone(), c.settings.get("side").clone()));
+    for (name, list, pick, side) in layouts {
+        on(move |c| {
+            *win32::TEST_DISPLAYS.lock().unwrap() = Some(list);
+            c.settings.set("displayId", pick.map(|k| json!(k)).unwrap_or(serde_json::Value::Null));
+            c.settings.set("displayLabel", json!("BenQ EX2780Q"));
+            c.settings.set("side", json!(side));
+            c.dock_display.clear();
+            c.on_displays_changed();
+            c.emit("panel", "settings:goto", json!(["monitors"]));
+        });
+        wait(900);
+        let state = on(|c| {
+            let s = c.settings_state();
+            json!({ "mode": s["monitorMode"], "seam": s["seam"],
+                    "monitors": s["monitors"].as_array().map(|l| l.iter().map(|m| json!([m["n"], m["label"], m["chat"], m["edges"]])).collect::<Vec<_>>()) })
+            .to_string()
+        });
+        let page = page_js(
+            "panel",
+            "JSON.stringify({ tiles: document.querySelectorAll('.mon').length, lit: document.querySelectorAll('.edge-mark').length, \
+             chosen: document.querySelector('.mon.chosen .num')?.textContent || '', radios: [...document.querySelectorAll('.radio')].map(r => (r.classList.contains('on') ? '*' : '') + r.querySelector('b').textContent), \
+             seam: !document.querySelector('[data-notice=seam]').hidden, caption: document.querySelector('.map-cap').textContent.slice(0, 60) })",
+        );
+        log!("monitors {name}: {state} | page {page}");
+        shot(&format!("62-monitors-{name}"));
+    }
+    // pop-ups: on the chat's monitor, the main one, or where the mouse was when they started
+    let popup_was = on(|c| c.settings.get("popupDisplay").clone());
+    let popups = on(move |c| {
+        *win32::TEST_DISPLAYS.lock().unwrap() =
+            Some(vec![D::test(1, "DELL U2720Q", false, (0, 0, 2560, 1440), true), D::test(2, "", true, (2560, 360, 1920, 1080), false)]);
+        c.settings.set("displayId", serde_json::Value::Null);
+        c.dock_display.clear();
+        let mut out = Vec::new();
+        for (pick, mouse_on) in [("chat", ""), ("main", ""), ("mouse", r"\\.\TESTDISPLAY1"), ("mouse", "")] {
+            c.settings.set("popupDisplay", json!(pick));
+            c.toasts.display = mouse_on.to_string();
+            out.push(format!("{pick}{}: {}", if mouse_on.is_empty() { "" } else { "(mouse on 1)" }, c.toast_display().id));
+        }
+        c.settings.set("popupDisplay", popup_was);
+        c.toasts.display.clear();
+        out.join(" | ")
+    });
+    log!("pop-ups show on: {popups} (expect TESTDISPLAY2 (the chat's, outermost right) | TESTDISPLAY1 (main) | TESTDISPLAY1 | TESTDISPLAY2 (unknown: the chat's))");
+
+    // choosing from the page itself: a monitor in the map, then Automatic again
+    on(move |c| {
+        *win32::TEST_DISPLAYS.lock().unwrap() =
+            Some(vec![D::test(1, "DELL U2720Q", false, (0, 0, 2560, 1440), true), D::test(2, "", true, (2560, 360, 1920, 1080), false)]);
+        c.settings.set("displayId", serde_json::Value::Null);
+        c.on_displays_changed();
+    });
+    wait(700);
+    js_click("panel", ".mon[data-monitor*='test2']");
+    wait(500);
+    let picked =
+        on(|c| (c.settings.get("displayId").clone(), c.settings.get("displayLabel").clone(), c.auto_display(), c.target_display().id));
+    js_click("panel", ".radio[data-monitor='auto']");
+    wait(500);
+    log!(
+        "picked in the map: {picked:?} | back to Automatic: {} (expect the test2 key + its label + false + TESTDISPLAY2, then null)",
+        on(|c| c.settings.get("displayId").clone())
+    );
+    review_checks();
+    identify_test();
+    on(move |c| {
+        *win32::TEST_DISPLAYS.lock().unwrap() = None;
+        c.settings.set("displayId", id_was);
+        c.settings.set("displayLabel", label_was);
+        c.settings.set("side", side_was);
+        c.settings.set("theme", theme_was);
+        c.apply_theme();
+        win32::forget_displays();
+        c.on_displays_changed();
+        c.settings_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+}
+
+/// Things a code review caught in the new Settings, checked on two made-up monitors.
+fn review_checks() {
+    use win32::Display as D;
+    let two = vec![D::test(1, "DELL U2720Q", false, (0, 0, 2560, 1440), true), D::test(2, "", true, (2560, 360, 1920, 1080), false)];
+    let (k1, k2) = (two[0].key.clone(), two[1].key.clone());
+    let list = two.clone();
+    on(move |c| {
+        *win32::TEST_DISPLAYS.lock().unwrap() = Some(list);
+        c.settings.set("displayId", serde_json::Value::Null);
+        c.dock_display.clear();
+        c.on_displays_changed();
+        c.emit("panel", "settings:goto", json!(["monitors"]));
+    });
+    wait(700);
+
+    // "The chat opens here" only on the card of the chat's monitor (monitor 2: outermost right)
+    on(|c| c.identify_all());
+    wait(1800);
+    let badges: Vec<String> = ["ident-testdisplay1", "ident-testdisplay2"]
+        .iter()
+        .map(|l| page_js(l, "getComputedStyle(document.getElementById('chat')).display"))
+        .collect();
+    log!("review: 'chat opens here' shown on the cards {badges:?} (expect [\"none\", \"flex\"])");
+
+    // picking the monitor the mouse rests on keeps its card up
+    let k1b = k1.clone();
+    on(move |c| c.identify_hover(&k1b));
+    wait(900);
+    let k1c = k1.clone();
+    on(move |c| {
+        c.set_pref("displayId", json!(k1c));
+    });
+    wait(900);
+    let card = |label: &'static str| {
+        on(move |_| {
+            tauri::Manager::get_webview_window(rt::app(), label)
+                .and_then(|w| w.hwnd().ok())
+                .is_some_and(|h| win32::is_visible(h.0 as isize))
+        })
+    };
+    log!("review: after picking the hovered monitor its card is still up {} (expect true)", card("ident-testdisplay1"));
+    on(|c| c.identify_hover(""));
+
+    // a value saved by 1.5.x (Windows' name) ticks the right monitor in the list
+    on(|c| c.settings.set("displayId", json!(r"\\.\TESTDISPLAY2")));
+    let shown = on(|c| c.settings_state()["prefs"]["displayId"].as_str().unwrap_or("").to_string());
+    log!("review: a 1.5.x value shows as monitor 2's key {} (expect true)", shown == k2);
+    on(|c| {
+        c.settings.set("displayId", serde_json::Value::Null);
+        c.broadcast_state();
+    });
+
+    // a search result, Esc: back to the home page with the results, then one more clears them
+    on(|c| c.emit("panel", "settings:goto", json!(["home"])));
+    wait(500);
+    page_js("panel", "(() => { const s = document.querySelector('[data-search]'); s.value = 'hotkey'; s.dispatchEvent(new Event('input')); document.querySelector('.result')?.click(); return 1; })()");
+    wait(600);
+    let jumped = page_js("panel", "document.querySelector('.set-page[data-page=home]').hidden");
+    on(|c| c.on_key(0x1B, false, false, false, true));
+    wait(600);
+    let back =
+        page_js("panel", "!document.querySelector('.set-page[data-page=home]').hidden && !document.querySelector('[data-results]').hidden");
+    wait(300);
+    on(|c| c.on_key(0x1B, false, false, false, true));
+    wait(600);
+    let cleared = page_js("panel", "document.querySelector('[data-search]').value === ''");
+    log!("review: result opened its page {jumped} | Esc back to the results {back} | Esc again clears the search {cleared} (expect true, true, true)");
+
+    // a result the keyboard is on keeps the focus through the updates ChatDock sends every few seconds
+    page_js("panel", "(() => { const s = document.querySelector('[data-search]'); s.value = 'pop'; s.dispatchEvent(new Event('input')); document.querySelector('.result')?.focus(); return 1; })()");
+    on(|c| c.broadcast_state());
+    wait(500);
+    log!(
+        "review: focused result kept through a state update {} (expect true)",
+        page_js("panel", "document.activeElement && document.activeElement.classList.contains('result')")
+    );
+    page_js(
+        "panel",
+        "(() => { const s = document.querySelector('[data-search]'); s.value = ''; s.dispatchEvent(new Event('input')); return 1; })()",
+    );
+    on(|c| c.identify_close());
+}
+
+/// "Show numbers on the screens" on the real monitors: every card for a moment, then the one the
+/// mouse rests on in the map. Real screen grabs; the cards never take the keyboard.
+fn identify_test() {
+    on(|c| {
+        *win32::TEST_DISPLAYS.lock().unwrap() = None;
+        win32::forget_displays();
+        c.on_displays_changed();
+    });
+    wait(500);
+    let fg = win32::foreground_window();
+    on(|c| c.identify_all());
+    wait(1500);
+    let cards = on(|c| {
+        c.numbered_displays()
+            .into_iter()
+            .map(|(n, d)| {
+                let label =
+                    format!("ident-{}", d.id.chars().filter(|ch| ch.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase());
+                let w = tauri::Manager::get_webview_window(rt::app(), &label);
+                let hwnd = w.as_ref().and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
+                (n, d.bounds, label, hwnd, win32::is_visible(hwnd), win32::window_rect(hwnd))
+            })
+            .collect::<Vec<_>>()
+    });
+    for (n, b, label, _, visible, r) in &cards {
+        let centred = ((r.x + r.w / 2) - (b.x + b.w / 2)).abs() <= 2 && ((r.y + r.h / 2) - (b.y + b.h / 2)).abs() <= 2;
+        let page = page_js(label, "JSON.stringify([document.getElementById('num').textContent, document.getElementById('name').textContent, document.getElementById('detail').textContent, !document.getElementById('chat').hidden])");
+        let (dark, _) = screen_grab(&format!("63-identify-{n}"), *r, (22, 23, 31));
+        log!("identify: monitor {n} card visible {visible} | centred {centred} | {page} | on screen: card colour {dark}%");
+    }
+    let now_fg = win32::foreground_window();
+    log!(
+        "identify: keyboard kept {} (expect true) | before {} {} | now {} {}",
+        now_fg == fg,
+        win32::process_name(fg),
+        win32::class_name(fg),
+        win32::process_name(now_fg),
+        win32::class_name(now_fg)
+    );
+    wait(2000);
+    log!(
+        "identify: after 3.5 s all hidden {} (expect true)",
+        on(|c| c.numbered_displays().iter().all(|(_, d)| {
+            let label = format!("ident-{}", d.id.chars().filter(|ch| ch.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase());
+            tauri::Manager::get_webview_window(rt::app(), &label)
+                .and_then(|w| w.hwnd().ok())
+                .is_none_or(|h| !win32::is_visible(h.0 as isize))
+        }))
+    );
+    let key = on(|c| c.numbered_displays().first().map(|(_, d)| d.key.clone()).unwrap_or_default());
+    let key2 = key.clone();
+    on(move |c| c.identify_hover(&key2));
+    wait(600);
+    let shown = cards.first().is_some_and(|(_, _, _, h, _, _)| win32::is_visible(*h));
+    on(|c| c.identify_hover(""));
+    wait(300);
+    let hidden = cards.first().is_some_and(|(_, _, _, h, _, _)| !win32::is_visible(*h));
+    log!("identify: hover over monitor 1 in the map shows its card {shown}, leaving hides it {hidden} (expect true, true)");
+    on(|c| c.identify_close());
+}
+
 /// The newest release before the running one that has a What's new text (updating from it lists
 /// just this release).
 fn previous_release() -> String {
@@ -1080,8 +1400,11 @@ fn full_test() {
     on(|c| c.emit("panel", "settings:goto", json!(["popups"])));
     wait(900);
     log!(
-        "jump to the pop-up section: its top is at {} px (expect about 100-160)",
-        page_js("panel", "Math.round(document.querySelector('[data-section=\"popups\"]').getBoundingClientRect().top)")
+        "jump to the pop-up page: {} (expect [true, false, the page title])",
+        page_js(
+            "panel",
+            "JSON.stringify([!document.querySelector('.set-page[data-page=popups]').hidden, !document.querySelector('.set-page[data-page=home]').hidden, document.querySelector('.set-title').textContent])"
+        )
     );
     shot("11-settings-popups");
     for section in ["look", "security", "updates"] {
@@ -1276,7 +1599,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.5.3, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.6, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

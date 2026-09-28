@@ -420,7 +420,14 @@ pub fn show_in_folder(path: &std::path::Path) {
 
 #[derive(Clone, Debug)]
 pub struct Display {
+    /// Windows' name for it right now ("\\.\DISPLAY1"): can change after a replug or a driver update
     pub id: String,
+    /// stays the same for this monitor on this port (its device path): what Settings remembers
+    pub key: String,
+    /// the monitor's own name ("DELL U2720Q"); empty when Windows doesn't know it
+    pub name: String,
+    /// a laptop's own screen
+    pub internal: bool,
     pub bounds: Rect,
     pub work: Rect,
     /// monitor scale: DIP -> physical px (panel widths, cursor distances)
@@ -448,7 +455,10 @@ unsafe extern "system" fn monitor_cb(mon: HMONITOR, _hdc: HDC, _rect: *mut RECT,
             60
         };
         list.push(Display {
+            key: id.clone(),
             id,
+            name: String::new(),
+            internal: false,
             bounds: Rect::from_win(info.monitorInfo.rcMonitor),
             work: Rect::from_win(info.monitorInfo.rcWork),
             scale: dx as f64 / 96.0,
@@ -462,9 +472,34 @@ unsafe extern "system" fn monitor_cb(mon: HMONITOR, _hdc: HDC, _rect: *mut RECT,
 
 static DISPLAYS: std::sync::Mutex<Option<(std::time::Instant, Vec<Display>)>> = std::sync::Mutex::new(None);
 
+/// Self-test only: monitor layouts that aren't plugged in (to draw Settings' monitor map with).
+/// Never set otherwise.
+pub static TEST_DISPLAYS: std::sync::Mutex<Option<Vec<Display>>> = std::sync::Mutex::new(None);
+
+impl Display {
+    /// A made-up monitor for the self-test.
+    pub fn test(n: u32, name: &str, internal: bool, (x, y, w, h): (i32, i32, i32, i32), primary: bool) -> Display {
+        Display {
+            id: format!(r"\\.\TESTDISPLAY{n}"),
+            key: format!(r"\\?\display#test{n}#{name}"),
+            name: name.to_string(),
+            internal,
+            bounds: Rect { x, y, w, h },
+            work: Rect { x, y, w, h: h - if primary { 48 } else { 0 } },
+            scale: 1.0,
+            ui: 1.0,
+            hz: 60,
+            primary,
+        }
+    }
+}
+
 /// All monitors, primary first. Kept for a moment (the edge is checked on every screen refresh);
 /// forget_displays() drops it as soon as Windows says something changed.
 pub fn displays() -> Vec<Display> {
+    if let Some(list) = TEST_DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return list.clone();
+    }
     let mut cache = DISPLAYS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((at, list)) = cache.as_ref() {
         if at.elapsed().as_millis() < 1000 {
@@ -479,6 +514,7 @@ pub fn displays() -> Vec<Display> {
 pub fn forget_displays() {
     *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *TEXT_SCALE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *MONITOR_NAMES.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 static TEXT_SCALE: std::sync::Mutex<Option<f64>> = std::sync::Mutex::new(None);
@@ -514,6 +550,103 @@ fn enum_displays() -> Vec<Display> {
     unsafe {
         let _ = EnumDisplayMonitors(None, None, Some(monitor_cb), LPARAM(&mut list as *mut Vec<Display> as isize));
     }
+    let mut names = monitor_names();
+    let known = names.as_deref().unwrap_or(&[]);
+    let mut all_named = true;
+    for d in &mut list {
+        if let Some(m) = known.iter().find(|m| m.gdi.eq_ignore_ascii_case(&d.id)) {
+            d.key = m.key.clone();
+            d.name = m.name.clone();
+            d.internal = m.internal;
+        } else {
+            all_named = false;
+        }
+    }
+    if !all_named {
+        *names = None; // Windows didn't answer for every monitor (e.g. mid-change): ask again next time
+    }
     list.sort_by_key(|d| (!d.primary, d.bounds.x, d.bounds.y));
     list
+}
+
+struct MonitorName {
+    gdi: String,
+    key: String,
+    name: String,
+    internal: bool,
+}
+
+static MONITOR_NAMES: std::sync::Mutex<Option<Vec<MonitorName>>> = std::sync::Mutex::new(None);
+
+fn wide(buf: &[u16]) -> String {
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..len]).trim().to_string()
+}
+
+/// What Windows knows about each monitor beyond its GDI name: its own name, the device path that
+/// stays the same, and whether it is built in. Asked once until the displays change.
+fn monitor_names() -> std::sync::MutexGuard<'static, Option<Vec<MonitorName>>> {
+    let mut cache = MONITOR_NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.is_none() {
+        *cache = Some(query_monitor_names());
+    }
+    cache
+}
+
+fn query_monitor_names() -> Vec<MonitorName> {
+    use windows::Win32::{
+        Devices::Display::{
+            DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+            DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED,
+            DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL, DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED, DISPLAYCONFIG_PATH_INFO,
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME, DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
+        },
+        Foundation::ERROR_SUCCESS,
+    };
+    let mut out: Vec<MonitorName> = Vec::new();
+    unsafe {
+        // the layout can change between asking for the sizes and reading it: try again then
+        let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> = Vec::new();
+        for _ in 0..3 {
+            let (mut np, mut nm) = (0u32, 0u32);
+            if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm) != ERROR_SUCCESS {
+                return out;
+            }
+            paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
+            let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
+            if QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), None) == ERROR_SUCCESS {
+                paths.truncate(np as usize);
+                break;
+            }
+            paths.clear();
+        }
+        for p in &paths {
+            let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+            source.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            source.header.size = std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+            source.header.adapterId = p.sourceInfo.adapterId;
+            source.header.id = p.sourceInfo.id;
+            if DisplayConfigGetDeviceInfo(&mut source.header) != 0 {
+                continue;
+            }
+            let gdi = wide(&source.viewGdiDeviceName);
+            if gdi.is_empty() || out.iter().any(|m| m.gdi == gdi) {
+                continue; // duplicated screens share one source: the first one names it
+            }
+            let mut target = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+            target.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            target.header.size = std::mem::size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32;
+            target.header.adapterId = p.targetInfo.adapterId;
+            target.header.id = p.targetInfo.id;
+            let named = DisplayConfigGetDeviceInfo(&mut target.header) == 0;
+            let tech = if named { target.outputTechnology } else { p.targetInfo.outputTechnology };
+            let internal = tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
+                || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED
+                || tech == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED;
+            let path = if named { wide(&target.monitorDevicePath) } else { String::new() };
+            let name = if named { wide(&target.monitorFriendlyDeviceName) } else { String::new() };
+            out.push(MonitorName { key: if path.is_empty() { gdi.clone() } else { path.to_lowercase() }, gdi, name, internal });
+        }
+    }
+    out
 }

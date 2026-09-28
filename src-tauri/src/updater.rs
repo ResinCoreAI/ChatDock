@@ -48,11 +48,11 @@ fn whats_new_watch(c: &mut Core) {
     c.whatsnew.watch = timer(250, whats_new_watch);
 }
 
-/// One of ChatDock's own small windows (the update windows): hidden and off screen until its page
+/// One of ChatDock's own small windows (update, What's new, monitor numbers): hidden and off screen until its page
 /// has said it is ready. Made off the main thread: building a window waits for the main thread.
 /// `focused`: whether it may take the keyboard (else its page doesn't grab it as it loads).
-fn own_window(
-    label: &'static str,
+pub(crate) fn own_window(
+    label: String,
     page: &'static str,
     size: (f64, f64),
     focused: bool,
@@ -60,7 +60,7 @@ fn own_window(
     then: impl FnOnce(&mut Core, Result<Win, String>) + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        let built = WebviewWindowBuilder::new(rt::app(), label, WebviewUrl::App(page.into()))
+        let built = WebviewWindowBuilder::new(rt::app(), label.clone(), WebviewUrl::App(page.into()))
             .title("ChatDock")
             .visible(false)
             .decorations(false)
@@ -429,7 +429,7 @@ impl Core {
     /// "Updating ChatDock" window, shown for a moment before ChatDock quits for the installer.
     pub fn show_update_window(&mut self, version: &str) {
         let to = version.to_string();
-        own_window("update", "update.html", (452.0, 196.0), true, self.args.clone(), move |c, made| match made {
+        own_window("update".into(), "update.html", (452.0, 196.0), true, self.args.clone(), move |c, made| match made {
             Ok(w) => {
                 c.update_win = Some(w);
                 c.pending_update_to = to;
@@ -461,7 +461,7 @@ impl Core {
         }
         self.whatsnew.building = true;
         self.ready.remove("whatsnew");
-        own_window("whatsnew", "whatsnew.html", (NEWS_WIDTH, 420.0), false, self.args.clone(), |c, made| {
+        own_window("whatsnew".into(), "whatsnew.html", (NEWS_WIDTH, 420.0), false, self.args.clone(), |c, made| {
             c.whatsnew.building = false;
             match made {
                 Ok(w) => {

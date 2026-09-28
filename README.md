@@ -40,10 +40,11 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 |---|---|
 | 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram and WhatsApp one switch away. Each app keeps its own login. |
 | ↔️ **Left or right** | Dock on either screen edge. The panel, edge tab and unread glow all follow. |
-| 🖥️ **Several monitors** | *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or pin it to one monitor in Settings. |
+| 🖥️ **Several monitors** | *Settings → Monitors & position* shows a map of your monitors (with their own names, e.g. “DELL U2720Q” or “Built-in screen”). *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor, lit up on the map — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or click one monitor to always open the chat there: it is remembered by the monitor itself, so it survives unplugging and Windows renumbering its screens. *Show numbers on the screens* tells them apart, and pop-ups can go on the chat's monitor, where the mouse is, or the main monitor. |
 | 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 3 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
-| ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
+| ⚙️ **Fully adjustable pop-ups** | Any screen corner · which monitor · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
+| 🔎 **Settings that are easy to find** | A home page with search (in your language or English) and a one-line summary under each category, then a short page per category. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
 | 🧠 **Light on RAM** | Built on Tauri and the WebView2 engine that ships with Windows: a few-MB download, and every app and screen shares one browser process. See how much RAM each app uses; let apps you rarely open **sleep** when unused (they wake up when you open them). |
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
@@ -79,7 +80,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 
 To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins and settings stay in
 `%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller (or clear them first
-under Settings → Security → Clear all data).
+under Settings → Privacy & security → Clear all data).
 
 Coming from Beta Build 1.4 or older (the Electron builds)? Just press **Update** as usual: the new
 installer replaces the old copy, and your logins, settings and "start with Windows" carry over.
@@ -88,7 +89,7 @@ installer replaces the old copy, and your logins, settings and "start with Windo
 
 | To… | Do this |
 |---|---|
-| **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Position & look* (or *Right away*) |
+| **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Opening the chat* (or *Right away*) |
 | Open a specific app | Click that app's icon on the white tab |
 | **Reply to a pop-up** | Click the pop-up → the panel opens on that conversation |
 | Open / hide from anywhere | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> (works in games; changeable) |
@@ -122,7 +123,7 @@ ChatDock still tells you something arrived ("new message · 2 unread"). Discord 
 - **Exclusive fullscreen** games can't be drawn over by anything. Opening the chat minimizes the game
   for a moment (a yellow bar explains this), and hiding the chat brings it back.
 - Games where the mouse lives on the screen edge (MOBA / RTS camera scrolling): set
-  *Settings → Position → Cursor on the screen edge* to “not during fullscreen games” (or raise the hold time) and use
+  *Settings → Opening the chat → Cursor on the screen edge* to “not during fullscreen games” (or raise the hold time) and use
   the hotkey instead. Or move the dock to the other edge.
 - ChatDock never touches the game's files or memory. It is just a window that stays on top.
 
@@ -144,7 +145,7 @@ server, sends nothing anywhere, and never sees your passwords.
 | **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away. It installs only when you press the button. |
 | **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text. |
 
-Settings → Security also lets you hide ChatDock from screen capture and log out of every app
+Settings → Privacy & security also lets you hide ChatDock from screen capture and log out of every app
 (wipes cookies, storage and cache). Found a security problem? Please open an issue.
 
 ## Updates
@@ -154,7 +155,7 @@ shortly after it starts and every 6 hours. It downloads a new version in the bac
 and checks its signature, then shows a pop-up and an **Update** button in the panel header.
 Nothing is installed until you press it. Then an *Updating ChatDock* window shows the progress, the
 installer's progress bar follows, and ChatDock starts again by itself with a *What's new* window:
-“now on Beta Build 1.5.3 ✓” and everything that changed since your version, one list per release if
+“now on Beta Build 1.6 ✓” and everything that changed since your version, one list per release if
 you skipped some. It doesn't take the keyboard from a game (and waits while one runs in exclusive fullscreen);
 *Got it* or Esc closes it, and the same list stays under Settings → Updates. Both automatic checking
 and background downloading can be turned off under Settings → Updates.
@@ -167,7 +168,7 @@ Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number withou
 
 | Problem | Fix |
 |---|---|
-| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off. With several monitors, use an outer edge (where the mouse stops): the seam between two monitors never counts, the mouse just passes through it. If a monitor is picked under *Settings → Position & look → Monitor*, only that monitor's edge works; *Automatic* uses all of them. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
+| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off. With several monitors, use an outer edge (where the mouse stops): the seam between two monitors never counts, the mouse just passes through it. The map under *Settings → Monitors & position* lights up exactly where the edge works. If one monitor is picked there, only that monitor's edge works (if it touches another monitor, the page says so: use the hotkey, or the other edge); *Automatic* uses all of them. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
 | The hotkey does nothing | Another program took it. Pick another one in Settings → General. |
 | No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *Test pop-up*. Check that app’s own switches under Settings → Notifications → Per app. Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:">
+<title>ChatDock</title>
+<link rel="stylesheet" href="identify.css">
+</head>
+<body>
+  <!-- "Show numbers on the screens": one of these in the middle of each monitor (Settings → Monitors). -->
+  <div class="card" id="card">
+    <div class="num" id="num"></div>
+    <div class="name" id="name"></div>
+    <div class="detail"><span id="detail"></span><span class="main" id="main" hidden></span></div>
+    <div class="chat" id="chat" hidden><i></i><span id="chat-text"></span></div>
+  </div>
+  <script src="bridge.js"></script>
+  <script src="identify.js"></script>
+</body>
+</html>

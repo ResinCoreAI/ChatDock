@@ -237,6 +237,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         toastwin,
         update_win: None,
         whatsnew: Default::default(),
+        identify: Default::default(),
         ready: HashSet::new(),
         own_hwnds,
         panel_page_hwnds: Vec::new(),
@@ -355,9 +356,17 @@ impl Core {
     // -----------------------------------------------------------------------------------------
     // Geometry (physical pixels; widths are stored in DIP)
     // -----------------------------------------------------------------------------------------
-    /// Monitor setting "Automatic" (the default): no monitor chosen in Settings.
+    /// The monitor picked in Settings, while it is connected. Settings keeps its device path, which
+    /// stays the same when Windows renumbers its monitors (older versions kept "\\.\DISPLAY1").
+    pub fn chosen_display(&self) -> Option<Display> {
+        let want = self.settings.get("displayId").as_str().filter(|s| !s.is_empty())?;
+        win32::displays().into_iter().find(|d| d.key == want || d.id == want)
+    }
+
+    /// Monitor setting "Automatic" (the default): none picked, or the picked one isn't connected
+    /// right now (it is used again as soon as it is back).
     pub fn auto_display(&self) -> bool {
-        !self.settings.get("displayId").is_string()
+        self.chosen_display().is_none()
     }
 
     /// The monitor the dock is on: the one chosen in Settings; with "Automatic", the one it was used
@@ -365,7 +374,6 @@ impl Core {
     /// stops when you push it all the way right, or left).
     pub fn target_display(&self) -> Display {
         let list = win32::displays();
-        let want = self.settings.str("displayId");
         let left = self.on_left();
         let outermost = || {
             list.iter().max_by_key(|d| {
@@ -373,14 +381,15 @@ impl Core {
                 (edge, d.primary)
             })
         };
-        list.iter()
-            .find(|d| !want.is_empty() && d.id == want)
-            .or_else(|| list.iter().find(|d| !self.dock_display.is_empty() && d.id == self.dock_display))
-            .or_else(outermost)
-            .or_else(|| list.first())
-            .cloned()
+        self.chosen_display()
+            .or_else(|| list.iter().find(|d| !self.dock_display.is_empty() && d.id == self.dock_display).cloned())
+            .or_else(|| outermost().cloned())
+            .or_else(|| list.first().cloned())
             .unwrap_or(Display {
                 id: String::new(),
+                key: String::new(),
+                name: String::new(),
+                internal: false,
                 bounds: Rect { x: 0, y: 0, w: 1920, h: 1080 },
                 work: Rect { x: 0, y: 0, w: 1920, h: 1040 },
                 scale: 1.0,
@@ -393,8 +402,67 @@ impl Core {
     /// Is the dock-side edge of this monitor a real screen edge at height y (the mouse stops there),
     /// or the seam to another monitor (the mouse just passes into it)?
     pub fn outer_edge_at(&self, d: &Display, y: i32) -> bool {
-        let beyond = if self.on_left() { d.bounds.x - 1 } else { d.bounds.right() };
+        self.outer_edge_on(d, y, self.on_left())
+    }
+
+    /// The same for either edge.
+    pub fn outer_edge_on(&self, d: &Display, y: i32, left: bool) -> bool {
+        let beyond = if left { d.bounds.x - 1 } else { d.bounds.right() };
         !win32::displays().iter().any(|o| o.id != d.id && o.bounds.contains(beyond, y))
+    }
+
+    /// Where along a monitor's left or right edge the tab can come out (outer edge, corners left
+    /// alone like edge_step does), as parts of its height from the top: what the monitor map in
+    /// Settings lights up.
+    pub fn outer_ranges(&self, d: &Display, left: bool) -> Vec<(f64, f64)> {
+        let b = d.bounds;
+        let margin = (90.0 * d.scale).max(b.h as f64 * 0.1).round() as i32;
+        let (top, bottom) = (b.y + margin, d.work.bottom() - margin);
+        let mut out: Vec<(f64, f64)> = Vec::new();
+        if bottom <= top || b.h <= 0 {
+            return out;
+        }
+        const STEPS: i32 = 60;
+        let part = |y: i32| (y - b.y) as f64 / b.h as f64;
+        let mut start: Option<i32> = None;
+        let mut last = top;
+        for i in 0..=STEPS {
+            let y = top + (bottom - top) * i / STEPS;
+            if self.outer_edge_on(d, y, left) {
+                start.get_or_insert(y);
+                last = y;
+            } else if let Some(y0) = start.take() {
+                out.push((part(y0), part(last)));
+            }
+        }
+        if let Some(y0) = start {
+            out.push((part(y0), part(last)));
+        }
+        out
+    }
+
+    /// How much of that edge (a part of the monitor's height) the tab can come out on.
+    pub fn outer_share(&self, d: &Display, left: bool) -> f64 {
+        self.outer_ranges(d, left).iter().map(|(a, b)| b - a).sum()
+    }
+
+    /// Monitors numbered the way they sit, left to right (then top to bottom): 1, 2, 3 ... The map,
+    /// the list and "Show numbers on the screens" all use these numbers.
+    pub fn numbered_displays(&self) -> Vec<(u32, Display)> {
+        let mut list = win32::displays();
+        list.sort_by_key(|d| (d.bounds.x, d.bounds.y));
+        list.into_iter().enumerate().map(|(i, d)| (i as u32 + 1, d)).collect()
+    }
+
+    /// "DELL U2720Q", "Built-in screen", or "External monitor" when Windows doesn't know its name.
+    pub fn monitor_label(&self, d: &Display) -> String {
+        if d.internal {
+            self.t("mon.builtin")
+        } else if !d.name.is_empty() {
+            d.name.clone()
+        } else {
+            self.t("mon.generic")
+        }
     }
 
     pub fn display_at(&self, x: i32, y: i32) -> Option<Display> {
@@ -716,6 +784,7 @@ impl Core {
             // next time it opens on the chats
             self.help_mode = self.help_mode && !onboarded;
             self.settings_mode = false;
+            self.identify_close();
         }
         self.layout_views(); // the chat counts as hidden for the site now
         self.broadcast_state();
@@ -876,6 +945,7 @@ impl Core {
             return;
         }
         self.settings_mode = false;
+        self.identify_close();
         self.stop_settings_timer();
         self.layout_views();
         self.focus_panel();
@@ -896,6 +966,7 @@ impl Core {
     pub fn show_help(&mut self) {
         self.help_mode = true;
         self.settings_mode = false;
+        self.identify_close();
         self.autostart_cache = crate::autostart::get();
         self.layout_views();
         self.open_panel(None, "menu");
@@ -1029,6 +1100,17 @@ impl Core {
     /// The Electron builds named a non-main monitor by a number that means nothing now. With
     /// exactly one other monitor it can only have been that one; with none plugged in, wait.
     pub fn resolve_legacy_display(&mut self) {
+        // 1.5.x kept Windows' name for the monitor ("\\.\DISPLAY1"), which can change: keep its
+        // device path instead, as soon as that monitor is connected.
+        let saved = self.settings.get("displayId").as_str().filter(|s| s.starts_with(r"\\.\")).map(str::to_string);
+        if let Some(gdi) = saved {
+            if let Some(d) = win32::displays().into_iter().find(|d| d.id.eq_ignore_ascii_case(&gdi) && d.key != d.id) {
+                log!("monitor setting: {} is now kept as {}", d.id, d.key);
+                self.set_setting("displayId", json!(d.key));
+                self.set_setting("displayLabel", json!(self.monitor_label(&d)));
+            }
+            return;
+        }
         if !self.settings.get("displayId").is_number() {
             return;
         }
@@ -1037,7 +1119,8 @@ impl Core {
             0 => {}
             1 => {
                 log!("dock monitor from the Electron build: {}", others[0].id);
-                self.set_setting("displayId", json!(others[0].id));
+                self.set_setting("displayId", json!(others[0].key));
+                self.set_setting("displayLabel", json!(self.monitor_label(&others[0])));
             }
             _ => {
                 log!("dock monitor from the Electron build: several to choose from, main one used");
@@ -1062,6 +1145,10 @@ impl Core {
         } // (still sliding in: opened() fits it)
         self.update_glow(false);
         self.toasts_reposition();
+        self.identify_refresh();
+        if self.settings_mode {
+            self.broadcast_state(); // the monitor map and list in Settings
+        }
     }
 
     pub fn apply_theme(&mut self) {
@@ -1105,7 +1192,9 @@ impl Core {
             } else {
                 self.last_esc_at = now;
                 if self.settings_mode && host {
-                    self.close_settings(); // one Esc leaves the settings screen
+                    // one Esc goes back: clears the search, then back to Settings' home page, then out
+                    // of Settings (the page knows which it is)
+                    self.emit("panel", "settings:esc", json!([]));
                 }
             }
             return;

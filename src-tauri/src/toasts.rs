@@ -8,7 +8,7 @@ use crate::{
     apps,
     core::{timer, Core},
     log, rt,
-    win32::{self, Rect},
+    win32::{self, Display, Rect},
 };
 
 const CARD_W: f64 = 360.0;
@@ -94,6 +94,9 @@ pub struct Toasts {
     pending_show: bool,
     show_fallback: u64,
     hide_fallback: u64,
+    /// "Where the mouse is" (Settings: pop-ups show on): the monitor the mouse was on when the first
+    /// of the pop-ups on screen came, so the stack doesn't jump around after it
+    pub display: String,
 }
 
 pub fn base64(bytes: &[u8]) -> String {
@@ -158,6 +161,10 @@ impl Core {
     }
 
     pub fn toasts_push(&mut self, mut item: Item) {
+        if !self.toasts_visible() {
+            let (x, y) = win32::cursor_pos();
+            self.toasts.display = self.display_at(x, y).map(|d| d.id).unwrap_or_default();
+        }
         if !item.tag.is_empty() {
             if let Some(same) = self.toasts.items.iter().find(|x| x.tag == item.tag).map(|x| x.key.clone()) {
                 self.toast_remove(&same, false); // an update of the same conversation replaces the old card
@@ -259,11 +266,23 @@ impl Core {
         self.toasts_watch();
     }
 
+    /// The monitor pop-ups show on (Settings): the chat's (the default), the main one, or the one the
+    /// mouse was on when they started.
+    pub fn toast_display(&self) -> Display {
+        let list = win32::displays();
+        match self.settings.str("popupDisplay") {
+            "main" => list.iter().find(|d| d.primary).cloned(),
+            "mouse" => list.iter().find(|d| d.id == self.toasts.display).cloned(),
+            _ => None,
+        }
+        .unwrap_or_else(|| self.target_display())
+    }
+
     fn toasts_place(&mut self) {
         if self.toasts.items.is_empty() {
             return;
         }
-        let d = self.target_display();
+        let d = self.toast_display();
         let s = d.ui;
         let wa = d.work;
         let w = ((CARD_W + PAD * 2.0) * s).round() as i32;
@@ -273,7 +292,7 @@ impl Core {
         let on_left = pos.ends_with("left");
         let (edge, pad) = ((EDGE * s).round() as i32, (PAD * s).round() as i32);
         // the open chat: pop-ups go beside it, never on top of it
-        let panel = if self.panel_state.showing() { Some(self.panel_geometry(&d)) } else { None };
+        let panel = if self.panel_state.showing() && d.id == self.target_display().id { Some(self.panel_geometry(&d)) } else { None };
         let x = if on_left {
             let mut x = wa.x + edge - pad;
             if let Some(p) = panel.filter(|p| p.x <= wa.x + 1) {
@@ -503,6 +522,7 @@ impl Core {
         }
         if self.settings_mode {
             self.settings_mode = false;
+            self.identify_close();
             self.layout_views();
         }
         log!("pop-up clicked {}", it.app_id);

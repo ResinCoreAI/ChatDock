@@ -1,10 +1,12 @@
 'use strict';
 
-// Settings screen inside the panel. The controls are plain HTML with data-* hooks:
+// Settings screen inside the panel: a home page (search + categories, each with a one-line summary
+// of how it is set) and one page per category. The controls are plain HTML with data-* hooks:
 //   data-pref="key"          checkbox / select / range, or a button with data-value  -> 'settings:set'
 //   data-action="name"       button -> 'settings:action' (data-arg = its argument)
+//   data-action-local="name" button handled here (back, ...)
 //   data-confirm="i18n key"  risky action: the first click only arms the button for a few seconds
-//   data-goto="section"      nav chip -> scroll to that section
+//   data-goto="page"         category -> that page
 //   data-app-pref="key"      per-app switch (inside a [data-app] row) -> 'settings:app-pref'
 // Values are checked again in the main process before anything uses them. Text comes from i18n.js.
 
@@ -16,50 +18,63 @@
   const t = (key, vars) => window.i18n.t(key, vars);
   let st = null;
   let appsKey = '';
-  let displaysKey = '';
   let hotkeysKey = '';
+  let monitorsKey = '';
+  let mapKey = '';
   let shown = false;
+  let page = 'home';
+  let homeScroll = 0;
+  let hovered = '';
+  let searchedLang = '';
 
   const CORNERS = { 'top-left': 'corner.tl', 'top-right': 'corner.tr', 'bottom-left': 'corner.bl', 'bottom-right': 'corner.br' };
   // per-app notification switches shown as chips (pop-ups themselves have the row's switch)
   const APP_CHIPS = [['preview', 'perApp.text'], ['chime', 'perApp.chime'], ['badge', 'perApp.badge'], ['sound', 'perApp.sound']];
   const clock = (ms) => new Date(ms).toLocaleTimeString(window.i18n.locale, { hour: '2-digit', minute: '2-digit' });
   const mb = (n) => Number(n || 0).toLocaleString(window.i18n.locale);
+  const num = (n) => Number(n).toLocaleString(window.i18n.locale);
   const valueOf = (el, raw) => (el.dataset.type === 'number' ? Number(raw) : raw);
   const setText = (name, text, cls) => {
-    for (const el of qa(`[data-text="${name}"]`)) {
-      el.textContent = text;
-      if (cls !== undefined) el.className = cls;
+    for (const node of qa(`[data-text="${name}"]`)) {
+      node.textContent = text;
+      if (cls !== undefined) node.className = cls;
     }
   };
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
 
   // ---------------------------------------------------------------- input -> main process
   let rangeTimer = null;
   root.addEventListener('input', (e) => { // live preview while dragging a slider
-    const el = e.target;
-    if (el.type !== 'range' || !el.dataset.pref) return;
-    const out = q(`[data-out="${el.dataset.pref}"]`);
-    if (out) out.textContent = `${el.value}%`;
+    const node = e.target;
+    if (node.type !== 'range' || !node.dataset.pref) return;
+    const out = q(`[data-out="${node.dataset.pref}"]`);
+    if (out) out.textContent = `${node.value}%`;
     clearTimeout(rangeTimer);
-    rangeTimer = setTimeout(() => chatdock.send('settings:set', el.dataset.pref, Number(el.value) / Number(el.dataset.scale || 1)), 40);
+    rangeTimer = setTimeout(() => chatdock.send('settings:set', node.dataset.pref, Number(node.value) / Number(node.dataset.scale || 1)), 40);
   });
 
   root.addEventListener('change', (e) => {
-    const el = e.target;
-    const row = el.closest('[data-app]');
-    if (el.dataset.appToggle) {
-      chatdock.send('settings:app', el.dataset.appToggle, el.checked);
+    const node = e.target;
+    const row = node.closest('[data-app]');
+    if (node.dataset.appToggle) {
+      chatdock.send('settings:app', node.dataset.appToggle, node.checked);
       return;
     }
-    if (el.dataset.appPref && row) {
-      chatdock.send('settings:app-pref', row.dataset.app, el.dataset.appPref, el.checked);
+    if (node.dataset.appPref && row) {
+      chatdock.send('settings:app-pref', row.dataset.app, node.dataset.appPref, node.checked);
       return;
     }
-    const key = el.dataset.pref;
+    const key = node.dataset.pref;
     if (!key) return;
-    if (el.type === 'checkbox') chatdock.send('settings:set', key, el.checked);
-    else if (el.tagName === 'SELECT') chatdock.send('settings:set', key, valueOf(el, el.value));
-    else if (el.type === 'range') chatdock.send('settings:set', key, Number(el.value) / Number(el.dataset.scale || 1));
+    if (node.type === 'checkbox') chatdock.send('settings:set', key, node.checked);
+    else if (node.tagName === 'SELECT') chatdock.send('settings:set', key, valueOf(node, node.value));
+    else if (node.type === 'range') chatdock.send('settings:set', key, Number(node.value) / Number(node.dataset.scale || 1));
   });
 
   root.addEventListener('click', (e) => {
@@ -68,10 +83,16 @@
     const row = btn.closest('[data-app]');
     if (btn.dataset.goto) {
       goto(btn.dataset.goto);
+    } else if (btn.dataset.monitor !== undefined) {
+      chatdock.send('settings:set', 'displayId', btn.dataset.monitor);
     } else if (btn.dataset.pref && btn.dataset.value !== undefined) {
       chatdock.send('settings:set', btn.dataset.pref, valueOf(btn, btn.dataset.value));
     } else if (btn.dataset.appPref && row) {
       chatdock.send('settings:app-pref', row.dataset.app, btn.dataset.appPref, !btn.classList.contains('on'));
+    } else if (btn.dataset.actionLocal === 'back') {
+      goto('home');
+    } else if (btn.dataset.actionLocal === 'other-side') {
+      chatdock.send('settings:set', 'side', st.prefs.side === 'left' ? 'right' : 'left');
     } else if (btn.dataset.action) {
       if (btn.dataset.confirm && !arm(btn)) return;
       const arg = btn.dataset.arg;
@@ -98,41 +119,133 @@
     btn.classList.remove('armed');
   }
 
-  // ---------------------------------------------------------------- sections
-  function goto(name) {
-    const sec = q(`[data-section="${name}"]`);
-    if (sec) sec.scrollIntoView({ block: 'start', behavior: shown ? 'smooth' : 'instant' });
-    markNav(name);
+  // ---------------------------------------------------------------- pages
+  function pageTitle(name) {
+    const p = q(`.set-page[data-page="${name}"]`);
+    return p && p.dataset.title ? t(p.dataset.title) : t('set.title');
   }
 
-  const nav = q('.set-nav');
-  let navCurrent = '';
-  function markNav(name) {
-    if (name === navCurrent) return;
-    navCurrent = name;
-    for (const b of qa('.set-nav button')) {
-      const on = b.dataset.goto === name;
-      b.classList.toggle('on', on);
-      if (!on) continue;
-      // Keep the chip visible in a narrow panel. Scrolls the chip row only: scrollIntoView would
-      // also stop the page's own smooth scroll to the section.
-      const left = b.offsetLeft - 12;
-      const right = b.offsetLeft + b.offsetWidth + 12;
-      if (left < nav.scrollLeft) nav.scrollLeft = left;
-      else if (right > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = right - nav.clientWidth;
-    }
+  function goto(name) {
+    const target = q(`.set-page[data-page="${name}"]`) ? name : 'home';
+    const back = target === 'home' && page && page !== 'home';
+    if (page === 'home' && target !== 'home') homeScroll = stage.scrollTop;
+    for (const p of qa('.set-page')) p.hidden = p.dataset.page !== target;
+    const shownPage = q(`.set-page[data-page="${target}"]`);
+    shownPage.classList.toggle('from-left', back);
+    shownPage.style.animation = 'none';
+    void shownPage.offsetWidth; // play the slide-in again
+    shownPage.style.animation = '';
+    if (target !== page && page === 'monitors') identifyHover('');
+    page = target;
+    root.dataset.at = target;
+    q('.set-back').hidden = target === 'home';
+    setText('pageTitle', pageTitle(target));
+    stage.scrollTop = target === 'home' ? homeScroll : 0;
+    if (target === 'monitors') mapKey = ''; // drawn now that it has a size
+    if (st) render();
   }
 
   stage.addEventListener('scroll', () => {
     if (root.hidden) return;
-    const top = stage.getBoundingClientRect().top + 110;
-    let current = 'general';
-    for (const sec of qa('[data-section]')) if (sec.getBoundingClientRect().top <= top) current = sec.dataset.section;
-    if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 4) current = 'about';
-    markNav(current);
+    q('.set-top').classList.toggle('scrolled', stage.scrollTop > 4);
   }, { passive: true });
 
   chatdock.on('settings:goto', (name) => goto(String(name)));
+
+  // ---------------------------------------------------------------- search: every setting on every page
+  const search = q('[data-search]');
+
+  // The English text of an element that is translated (so English words find settings in any language).
+  const english = (node) => {
+    const key = node && (node.dataset.i18n || (node.querySelector('[data-i18n]') || {}).dataset?.i18n);
+    const en = window.CHATDOCK_I18N.STRINGS.en;
+    return key && window.i18n.lang !== 'en' && en[key] ? en[key] : '';
+  };
+
+  function searchIndex() {
+    const out = [];
+    for (const p of qa('.set-page')) {
+      if (p.dataset.page === 'home') continue;
+      const where = pageTitle(p.dataset.page);
+      const pageEn = window.i18n.lang !== 'en' ? window.CHATDOCK_I18N.STRINGS.en[p.dataset.title] || '' : '';
+      out.push({ page: p.dataset.page, where: t('set.title'), title: where, desc: '', alt: pageEn, node: null });
+      for (const node of p.querySelectorAll('.row, .sec-title, .link-row, .radio')) {
+        const hidden = node.closest('[hidden]');
+        if (hidden && hidden !== p) continue; // e.g. monitor choices with a single monitor
+        const head = node.matches('.sec-title') ? node : node.querySelector('.label b, .txt b, :scope > span:first-child');
+        const small = node.querySelector('.label small, .txt small');
+        const title = ((head || {}).textContent || '').trim();
+        const desc = ((small || {}).textContent || '').trim();
+        if (title) out.push({ page: p.dataset.page, where, title, desc, alt: `${english(head)} ${english(small)}`, node });
+      }
+    }
+    return out;
+  }
+
+  function marked(text, needle) {
+    const b = el('b');
+    const i = text.toLowerCase().indexOf(needle);
+    if (i < 0) {
+      b.textContent = text;
+      return b;
+    }
+    b.append(text.slice(0, i), el('mark', '', text.slice(i, i + needle.length)), text.slice(i + needle.length));
+    return b;
+  }
+
+  function runSearch() {
+    searchedLang = window.i18n.lang;
+    const text = search.value.trim();
+    const needle = text.toLowerCase();
+    const results = q('[data-results]');
+    q('[data-cats]').hidden = !!needle;
+    results.hidden = !needle;
+    results.textContent = '';
+    if (!needle) return;
+    const hits = searchIndex().filter((h) => `${h.title} ${h.desc} ${h.alt}`.toLowerCase().includes(needle)).slice(0, 30);
+    if (!hits.length) {
+      results.append(el('p', 'no-results', t('s.searchEmpty', { q: text })));
+      return;
+    }
+    const card = el('div', 'card');
+    for (const h of hits) {
+      const b = el('button', 'result');
+      b.append(marked(h.title, needle), el('small', '', h.desc ? `${h.where} · ${h.desc}` : h.where));
+      b.addEventListener('click', () => jump(h));
+      card.append(b);
+    }
+    results.append(card);
+  }
+
+  function jump(h) {
+    goto(h.page);
+    if (!h.node) return;
+    requestAnimationFrame(() => {
+      h.node.scrollIntoView({ block: 'center' });
+      h.node.classList.remove('flash');
+      void h.node.offsetWidth;
+      h.node.classList.add('flash');
+    });
+  }
+
+  search.addEventListener('input', runSearch);
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') q('.result')?.click();
+    if (e.key === 'Escape') e.preventDefault(); // not cleared here: 'settings:esc' decides
+  });
+
+  // Esc (ChatDock hears it first; two quick ones hide the chat): one step back each time
+  chatdock.on('settings:esc', () => {
+    if (root.hidden) return;
+    if (page !== 'home') {
+      goto('home'); // back to the results too, if a search brought you here
+    } else if (search.value) {
+      search.value = '';
+      runSearch();
+    } else {
+      chatdock.send('settings:action', 'close');
+    }
+  });
 
   // ---------------------------------------------------------------- state -> controls
   function renderHotkeys() {
@@ -145,22 +258,142 @@
     sel.append(new Option(t('set.hotkeyNone'), ''));
   }
 
-  function renderDisplays() {
-    const key = st.displays.map((d) => `${d.id}:${d.label}`).join('|');
-    if (key === displaysKey) return;
-    displaysKey = key;
-    const sel = q('[data-displays]');
-    sel.textContent = '';
-    for (const d of st.displays) sel.append(new Option(d.label, String(d.id)));
+  // ---------------------------------------------------------------- monitors
+  const sideWord = (side) => t(side === 'left' ? 's.sideLeft' : 's.sideRight');
+  const chosen = () => st.monitors.find((m) => m.key === st.prefs.displayId);
+
+  function identifyHover(key) {
+    if (key === hovered) return;
+    hovered = key;
+    chatdock.send('settings:action', 'identify-hover', key);
   }
 
-  function el(tag, cls, text) {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = text;
-    return node;
+  // Every monitor to scale, where it really is; the chat drawn where it opens, and the edges the
+  // mouse opens it from glowing.
+  function renderMap() {
+    const box = q('[data-map]');
+    const width = box.clientWidth;
+    const key = JSON.stringify([st.monitors, st.monitorMode, st.prefs.displayId, st.prefs.side, width, window.i18n.lang]);
+    if (key === mapKey || !width) return;
+    mapKey = key;
+    box.textContent = '';
+    const mons = st.monitors;
+    if (!mons.length) return;
+    const pad = 18;
+    const minX = Math.min(...mons.map((m) => m.x));
+    const minY = Math.min(...mons.map((m) => m.y));
+    const spanX = Math.max(...mons.map((m) => m.x + m.w)) - minX;
+    const spanY = Math.max(...mons.map((m) => m.y + m.h)) - minY;
+    const s = Math.min((width - pad * 2) / spanX, (box.clientHeight - pad * 2) / spanY);
+    const ox = (width - spanX * s) / 2;
+    const oy = (box.clientHeight - spanY * s) / 2;
+    const side = st.prefs.side;
+    const one = st.monitorMode === 'one';
+    for (const m of mons) {
+      const x = ox + (m.x - minX) * s;
+      const y = oy + (m.y - minY) * s;
+      const w = m.w * s;
+      const h = m.h * s;
+      const b = el('button', 'mon');
+      b.style.cssText = `left:${x + 2}px;top:${y + 2}px;width:${w - 4}px;height:${h - 4}px`;
+      b.dataset.monitor = m.key;
+      b.title = `${t('mon.name', { n: m.n })} · ${m.label}`;
+      b.setAttribute('aria-label', b.title);
+      b.classList.toggle('chosen', one && m.key === st.prefs.displayId);
+      b.classList.toggle('small', w < 84 || h < 56);
+      if (m.chat) b.append(el('i', `art ${side}`));
+      b.append(el('span', 'num', String(m.n)), el('span', 'nm', m.label));
+      if (m.primary) b.append(el('span', 'tag', t('mon.main')));
+      b.addEventListener('pointerenter', () => identifyHover(m.key));
+      b.addEventListener('pointerleave', () => identifyHover(''));
+      box.append(b);
+      if (one && m.key !== st.prefs.displayId) continue;
+      for (const [a, z] of m.edges[side] || []) {
+        const mark = el('i', 'edge-mark');
+        mark.style.cssText = `left:${side === 'left' ? x - 1 : x + w - 3}px;top:${y + a * h + 3}px;height:${Math.max(4, (z - a) * h - 6)}px`;
+        box.append(mark);
+      }
+    }
   }
 
+  // the panel was made wider or narrower: draw the map for its new size
+  new ResizeObserver(() => {
+    if (st && page === 'monitors') renderMap();
+  }).observe(q('[data-map]'));
+
+  function monitorChoices() {
+    const list = [{ key: 'auto', badge: 'auto', title: t('mon.auto'), sub: t('mon.autoNote') }];
+    for (const m of st.monitors) {
+      list.push({
+        key: m.key,
+        badge: String(m.n),
+        title: `${t('mon.name', { n: m.n })} · ${m.label}`,
+        sub: t('mon.res', { w: m.w, h: m.h, hz: m.hz }),
+        pill: m.primary ? t('mon.main') : '',
+      });
+    }
+    if (st.monitorMode === 'missing') {
+      list.push({ key: st.prefs.displayId, badge: '?', title: st.chosenLabel || t('mon.picked'), sub: t('mon.missing'), missing: true });
+    }
+    return list;
+  }
+
+  function renderMonitors() {
+    const multi = st.monitors.length > 1;
+    for (const node of qa('[data-show="multiDisplay"]')) node.hidden = !multi;
+    for (const node of qa('[data-show="singleDisplay"]')) node.hidden = multi;
+
+    const choices = monitorChoices();
+    const key = JSON.stringify([choices, window.i18n.lang]);
+    const box = q('[data-monitors]');
+    if (key !== monitorsKey) {
+      monitorsKey = key;
+      box.textContent = '';
+      for (const c of choices) {
+        const b = el('button', 'radio');
+        b.dataset.monitor = c.key;
+        b.setAttribute('role', 'radio');
+        b.classList.toggle('missing', !!c.missing);
+        const badge = el('span', c.badge === 'auto' ? 'badge auto' : 'badge');
+        if (c.badge === 'auto') badge.innerHTML = window.iconHTML('pointerEdge');
+        else badge.textContent = c.badge;
+        const txt = el('span', 'txt');
+        txt.append(el('b', '', c.title), el('small', '', c.sub));
+        b.append(el('span', 'ring'), badge, txt);
+        if (c.pill) b.append(el('span', 'pill', c.pill));
+        if (c.key !== 'auto' && !c.missing) {
+          b.addEventListener('pointerenter', () => identifyHover(c.key));
+          b.addEventListener('pointerleave', () => identifyHover(''));
+        }
+        box.append(b);
+      }
+    }
+    for (const b of box.querySelectorAll('.radio')) {
+      const on = b.dataset.monitor === st.prefs.displayId;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
+
+    const side = st.prefs.side;
+    const c = chosen();
+    const seam = st.seam;
+    let cap = t('mon.capAuto');
+    if (!multi) cap = t('mon.capSingle', { side: sideWord(side) });
+    else if (st.monitorMode === 'one' && c) cap = seam ? t('mon.capOneOnly', { n: c.n }) : t('mon.capOne', { n: c.n, side: sideWord(side) });
+    setText('mapCaption', cap);
+
+    q('[data-notice="seam"]').hidden = !seam;
+    if (seam) {
+      const other = side === 'left' ? 'right' : 'left';
+      const vars = { n: seam.n, m: seam.m, side: sideWord(side), other: sideWord(other) };
+      setText('seamText', `${t(seam.m ? 'mon.seam' : 'mon.seamAny', vars)} ${t(seam.canSwitch ? 'mon.seamHowOther' : 'mon.seamHow', vars)}`);
+      setText('seamFix', t('mon.useOther', vars));
+      q('[data-action-local="other-side"]').hidden = !seam.canSwitch;
+    }
+    if (page === 'monitors') renderMap();
+  }
+
+  // ---------------------------------------------------------------- apps
   function appIcon(a) {
     const ico = el('span', 'ico');
     ico.innerHTML = window.iconHTML(a.icon); // our own static SVG
@@ -255,6 +488,7 @@
     }
   }
 
+  // ---------------------------------------------------------------- the rest
   function renderPrefs(p) {
     for (const node of qa('[data-pref]')) {
       const key = node.dataset.pref;
@@ -277,6 +511,8 @@
     }
   }
 
+  const dndOn = () => st.dndUntil === -1 || st.dndUntil > Date.now();
+
   function renderNotes() {
     const autostart = q('[data-pref="autostart"]');
     autostart.disabled = !st.autostartAvailable;
@@ -286,13 +522,12 @@
     if (p.hotkey && !st.hotkeyOk) setText('hotkeyNote', t('set.hotkeyTaken'), 'warn');
     else setText('hotkeyNote', t(p.hotkey ? 'set.hotkeyNote' : 'set.hotkeyOff'), '');
 
-    for (const node of qa('[data-show="multiDisplay"]')) node.hidden = st.displays.length < 2;
     for (const node of qa('[data-show="packaged"]')) node.hidden = !st.packaged;
     // "· Language" after the translated word helps someone who picked a language they can't read
     for (const node of qa('.en-hint')) node.hidden = window.i18n.lang === 'en';
 
     const until = st.dndUntil;
-    const dnd = until === -1 || until > Date.now();
+    const dnd = dndOn();
     setText('dnd', !dnd ? t('dnd.statusOff') : until === -1 ? t('dnd.statusForever') : t('dnd.statusUntil', { time: clock(until) }), dnd ? 'warn' : '');
     for (const b of qa('[data-dnd] button')) {
       const arg = Number(b.dataset.arg);
@@ -318,7 +553,7 @@
 
   function renderUpdates() {
     const u = st.update;
-    const next = st.updateName; // e.g. "Beta Build 4"
+    const next = st.updateName; // e.g. "Beta Build 1.7"
     const news = st.whatsNew; // what's new in the build running now
     setText('version', st.build);
     setText('semver', t('about.version', { version: st.version }));
@@ -361,27 +596,76 @@
     notes.hidden = !coming && !news;
     setText('notesTitle', coming ? t('upd.notes') : news ? news.title : '');
     setText('notes', coming ? u.notes : news ? news.text : '');
-    q('.set-nav .dot').hidden = !(u.status === 'ready' || u.status === 'available');
+    q('.cat .dot').hidden = !(u.status === 'ready' || u.status === 'available');
+  }
+
+  // One line under each category: how it is set right now.
+  function renderSummaries() {
+    const p = st.prefs;
+    const sub = (name, text) => setText(`sub-${name}`, text);
+    const lang = p.lang === 'auto' ? t('lang.auto') : (st.langs.find((l) => l.id === p.lang) || {}).name || p.lang;
+    sub('general', [lang, p.autostart ? t('set.autostart') : ''].filter(Boolean).join(' · '));
+
+    const c = chosen();
+    const where = st.monitors.length < 2 ? '' : st.monitorMode === 'one' && c ? `${t('mon.name', { n: c.n })} · ${c.label}` : t('mon.auto');
+    sub('monitors', [where, t(p.side === 'left' ? 's.edgeLeft' : 's.edgeRight')].filter(Boolean).join(' · '));
+
+    const edge = p.edgeMode === 'off' ? t('s.openNoEdge') : p.edgeHold > 0 ? t('s.openEdgeHold', { n: num(p.edgeHold) }) : t('s.openEdge');
+    const hotkey = (st.hotkeys.find((h) => h.acc === p.hotkey) || {}).label;
+    sub('open', `${edge} · ${hotkey || t('s.noHotkey')}`);
+
+    const theme = p.theme === 'dark' ? t('theme.dark') : p.theme === 'light' ? t('theme.light') : t('s.themeSystem');
+    sub('look', `${theme} · ${t('s.opacityShort', { n: Math.round(Number(p.opacity) * 100) })}`);
+
+    const onCount = st.catalog.filter((a) => a.on).length;
+    sub('apps', st.memory ? t('s.appsSub', { n: onCount, mb: mb(st.memory) }) : t('s.appsOn', { n: onCount }));
+
+    sub('popups', !p.popups ? t('s.popupsOff') : dndOn() ? t('set.dnd') : t('s.popupsOn', { corner: t(CORNERS[p.popupPosition] || 'corner.tr') }));
+    sub('security', t(st.cookieEncryption ? 's.secOk' : 's.secDev'));
+
+    const u = st.update;
+    let upd = st.build;
+    if (['available', 'downloading', 'ready'].includes(u.status)) upd = t('s.updNew', { version: st.updateName });
+    else if (u.status === 'installing') upd = t('s.updInstalling');
+    else if (u.status === 'checking') upd = t('upd.checking');
+    else if (u.status === 'error') upd = t('s.updError');
+    else if (u.status === 'latest') upd = t('s.updLatest');
+    sub('updates', upd);
+    sub('about', st.build);
+  }
+
+  function render() {
+    renderHotkeys();
+    renderApps();
+    renderPrefs(st.prefs);
+    renderNotes();
+    renderMonitors();
+    renderSecurity();
+    renderUpdates();
+    renderSummaries();
+    setText('pageTitle', pageTitle(page));
   }
 
   window.renderSettings = (next) => {
     if (!next) return;
     st = next;
-    const opening = !shown;
-    renderHotkeys();
-    renderDisplays();
-    renderApps();
-    renderPrefs(st.prefs);
-    renderNotes();
-    renderSecurity();
-    renderUpdates();
-    if (opening) {
+    if (!shown) { // just opened: start at the top of the home page
       shown = true;
-      stage.scrollTop = 0;
-      markNav('general');
+      search.value = '';
+      runSearch();
+      homeScroll = 0;
+      page = '';
+      goto('home');
+      return;
     }
+    render();
+    if (search.value && searchedLang !== window.i18n.lang) runSearch(); // only new words: keeps the focus
   };
 
-  // Screen closed: start at the top next time.
-  new MutationObserver(() => { if (root.hidden) shown = false; }).observe(root, { attributes: true, attributeFilter: ['hidden'] });
+  // Screen closed: start at the home page next time, and no monitor stays lit.
+  new MutationObserver(() => {
+    if (!root.hidden) return;
+    shown = false;
+    identifyHover('');
+  }).observe(root, { attributes: true, attributeFilter: ['hidden'] });
 })();

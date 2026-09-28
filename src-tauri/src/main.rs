@@ -12,6 +12,7 @@ mod core;
 mod edge;
 mod frames;
 mod i18n;
+mod identify;
 mod log;
 mod migrate;
 mod panel;

@@ -62,6 +62,7 @@
   // ---- ChatDock's pages: translate every element that asks for it
   //   data-i18n="key"        text          data-i18n-html="key"   our own markup (<b>, <kbd>, <small>)
   //   data-i18n-title="key"  tooltip       data-i18n-aria="key"   aria-label
+  //   data-i18n-placeholder="key"  an input's placeholder
   //   data-n="5"             fills {n}
   const page = {
     lang: 'en',
@@ -84,6 +85,7 @@
       for (const el of (scope || document).querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml, vars(el));
       for (const el of (scope || document).querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle, vars(el));
       for (const el of (scope || document).querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria, vars(el)));
+      for (const el of (scope || document).querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder, vars(el));
     },
   };
   root.CHATDOCK_I18N = api;

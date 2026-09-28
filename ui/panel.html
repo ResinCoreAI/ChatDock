@@ -79,276 +79,338 @@
     </section>
 
     <section id="settings" hidden>
+      <!-- A home page (search + categories) and one page per category. data-page names are also what
+           ChatDock asks for with 'settings:goto' (e.g. "updates" from the update pop-up). -->
       <div class="set-top">
-        <div class="set-head">
-          <h1 data-i18n="set.title"></h1>
-          <button class="icon-btn" data-action="close" data-i18n-title="set.close"><span data-icon="close"></span></button>
-        </div>
-        <nav class="set-nav" data-i18n-aria="set.nav">
-          <button data-goto="general" data-i18n="nav.general"></button>
-          <button data-goto="look" data-i18n="nav.look"></button>
-          <button data-goto="apps" data-i18n="nav.apps"></button>
-          <button data-goto="popups" data-i18n="nav.notify"></button>
-          <button data-goto="security" data-i18n="nav.security"></button>
-          <button data-goto="updates"><span data-i18n="nav.updates"></span><i class="dot" hidden></i></button>
-          <button data-goto="about" data-i18n="nav.about"></button>
-        </nav>
+        <button class="icon-btn set-back" data-action-local="back" data-i18n-title="s.back" hidden><span data-icon="chevronLeft"></span></button>
+        <h1 class="set-title" data-text="pageTitle"></h1>
+        <button class="icon-btn" data-action="close" data-i18n-title="set.close"><span data-icon="close"></span></button>
       </div>
 
-      <div class="set-body">
-        <!-- ─────────────── General ─────────────── -->
-        <section class="group" data-section="general">
-          <h2 data-i18n="set.general"></h2>
+      <!-- ─────────────── Home ─────────────── -->
+      <div class="set-page" data-page="home">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input type="search" data-search spellcheck="false" autocomplete="off" data-i18n-placeholder="s.search">
+        </label>
+        <div class="results" data-results hidden></div>
+
+        <div class="cats" data-cats>
           <div class="card">
-            <div class="row">
-              <div class="label"><b>🌐 <span data-i18n="set.language"></span><span class="en-hint"> · Language</span></b><small data-i18n="set.languageNote"></small></div>
-              <select data-pref="lang" data-lang-select></select>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.autostart"></b><small data-text="autostartNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="autostart"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.hotkey"></b><small data-text="hotkeyNote"></small></div>
-              <select data-pref="hotkey" data-hotkeys></select>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.pinned"></b><small data-i18n="set.pinnedNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="pinned"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.muted"></b><small data-i18n="set.mutedNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="muted"><span></span></label>
-            </div>
-          </div>
-        </section>
-
-        <!-- ─────────────── Position & look ─────────────── -->
-        <section class="group" data-section="look">
-          <h2 data-i18n="set.look"></h2>
-          <div class="card">
-            <div class="row col">
-              <div class="label"><b data-i18n="set.side"></b><small data-i18n="set.sideNote"></small></div>
-              <div class="side-pick" role="radiogroup">
-                <button class="mini-screen left" data-pref="side" data-value="left" role="radio"><i class="dock"></i><span data-i18n="set.left"></span></button>
-                <button class="mini-screen right" data-pref="side" data-value="right" role="radio"><i class="dock"></i><span data-i18n="set.right"></span></button>
-              </div>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.edge"></b><small data-i18n="set.edgeNote"></small></div>
-              <select data-pref="edgeMode">
-                <option value="always" data-i18n="edge.always"></option>
-                <option value="no-fullscreen" data-i18n="edge.noFullscreen"></option>
-                <option value="off" data-i18n="edge.off"></option>
-              </select>
-            </div>
-            <div class="row" data-dim-when="edge-off">
-              <div class="label"><b data-i18n="set.edgeHold"></b><small data-i18n="set.edgeHoldNote"></small></div>
-              <select data-pref="edgeHold" data-type="number">
-                <option value="0" data-i18n="hold.instant"></option>
-                <option value="0.5" data-i18n="hold.s" data-n="0.5"></option>
-                <option value="1" data-i18n="hold.s" data-n="1"></option>
-                <option value="1.5" data-i18n="hold.s" data-n="1.5"></option>
-                <option value="2" data-i18n="hold.s" data-n="2"></option>
-                <option value="3" data-i18n="hold.s" data-n="3"></option>
-                <option value="4" data-i18n="hold.s" data-n="4"></option>
-                <option value="5" data-i18n="hold.s" data-n="5"></option>
-              </select>
-            </div>
-            <div class="row" data-show="multiDisplay">
-              <div class="label"><b data-i18n="set.display"></b><small data-i18n="set.displayNote"></small></div>
-              <select data-pref="displayId" data-displays></select>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.glow"></b><small data-i18n="set.glowNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="glow"><span></span></label>
-            </div>
-            <div class="row col">
-              <div class="label"><b data-i18n="set.theme"></b></div>
-              <div class="seg" role="radiogroup">
-                <button data-pref="theme" data-value="system" role="radio" data-i18n="theme.system"></button>
-                <button data-pref="theme" data-value="dark" role="radio" data-i18n="theme.dark"></button>
-                <button data-pref="theme" data-value="light" role="radio" data-i18n="theme.light"></button>
-              </div>
-            </div>
-            <div class="row col">
-              <div class="label"><b data-i18n="set.opacity"></b><small data-i18n="set.opacityNote"></small></div>
-              <div class="range"><input type="range" min="60" max="100" step="5" data-pref="opacity" data-scale="100"><output data-out="opacity">100%</output></div>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.width"></b><small data-i18n="set.widthNote"></small></div>
-              <button class="secondary small" data-action="reset-widths" data-i18n="set.widthReset"></button>
-            </div>
-          </div>
-        </section>
-
-        <!-- ─────────────── Apps ─────────────── -->
-        <section class="group" data-section="apps">
-          <h2 data-i18n="set.apps"></h2>
-          <div class="mem-line"><span class="mem-ico">🧠</span><span data-text="memory"></span></div>
-          <div class="card" data-apps></div>
-          <p class="hint" data-i18n="apps.hint"></p>
-        </section>
-
-        <!-- ─────────────── Notifications ─────────────── -->
-        <section class="group" data-section="popups">
-          <h2 data-i18n="set.notify"></h2>
-          <div class="card">
-            <div class="row">
-              <div class="label"><b data-i18n="set.popups"></b><small data-i18n="set.popupsNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="popups"><span></span></label>
-            </div>
-            <div class="row col">
-              <div class="label"><b data-i18n="set.dnd"></b><small data-text="dnd"></small></div>
-              <div class="chips" data-dnd>
-                <button data-action="dnd" data-arg="0" data-i18n="dnd.off"></button>
-                <button data-action="dnd" data-arg="30" data-i18n="dnd.30"></button>
-                <button data-action="dnd" data-arg="60" data-i18n="dnd.60"></button>
-                <button data-action="dnd" data-arg="120" data-i18n="dnd.120"></button>
-                <button data-action="dnd" data-arg="480" data-i18n="dnd.480"></button>
-                <button data-action="dnd" data-arg="-1" data-i18n="dnd.forever"></button>
-              </div>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.quietFs"></b><small data-i18n="set.quietFsNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="popupQuietFullscreen"><span></span></label>
-            </div>
-          </div>
-
-          <div class="card" data-dim-when="popups-off">
-            <div class="row col">
-              <div class="label"><b data-i18n="set.corner"></b><small data-i18n="set.cornerNote"></small></div>
-              <div class="corner-pick" role="radiogroup">
-                <button class="c tl" data-pref="popupPosition" data-value="top-left" role="radio" data-i18n-title="corner.tl"><i></i></button>
-                <button class="c tr" data-pref="popupPosition" data-value="top-right" role="radio" data-i18n-title="corner.tr"><i></i></button>
-                <button class="c bl" data-pref="popupPosition" data-value="bottom-left" role="radio" data-i18n-title="corner.bl"><i></i></button>
-                <button class="c br" data-pref="popupPosition" data-value="bottom-right" role="radio" data-i18n-title="corner.br"><i></i></button>
-                <span class="corner-label" data-text="cornerLabel"></span>
-              </div>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.duration"></b><small data-i18n="set.durationNote"></small></div>
-              <select data-pref="popupDuration" data-type="number">
-                <option value="5" data-i18n="duration.s" data-n="5"></option>
-                <option value="8" data-i18n="duration.s" data-n="8"></option>
-                <option value="12" data-i18n="duration.s" data-n="12"></option>
-                <option value="20" data-i18n="duration.s" data-n="20"></option>
-                <option value="30" data-i18n="duration.s" data-n="30"></option>
-                <option value="0" data-i18n="duration.stay"></option>
-              </select>
-            </div>
-            <div class="row col">
-              <div class="label"><b data-i18n="set.max"></b><small data-i18n="set.maxNote"></small></div>
-              <div class="seg" role="radiogroup">
-                <button data-pref="popupMax" data-value="1" data-type="number" role="radio">1</button>
-                <button data-pref="popupMax" data-value="2" data-type="number" role="radio">2</button>
-                <button data-pref="popupMax" data-value="3" data-type="number" role="radio">3</button>
-                <button data-pref="popupMax" data-value="4" data-type="number" role="radio">4</button>
-                <button data-pref="popupMax" data-value="5" data-type="number" role="radio">5</button>
-              </div>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.text"></b><small data-i18n="set.textNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="popupText"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.avatar"></b></div>
-              <label class="switch"><input type="checkbox" data-pref="popupAvatar"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.chime"></b><small data-i18n="set.chimeNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="popupSound"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="set.test"></b></div>
-              <button class="secondary small" data-action="test-popup" data-i18n="set.testBtn"></button>
-            </div>
-          </div>
-
-          <h3 class="sub" data-i18n="set.perApp"></h3>
-          <p class="hint" data-i18n="set.perAppNote"></p>
-          <div class="card" data-perapp></div>
-        </section>
-
-        <!-- ─────────────── Security ─────────────── -->
-        <section class="group" data-section="security">
-          <h2 data-i18n="set.security"></h2>
-          <div class="card">
-            <div class="sec-status" data-sec>
-              <span class="sec-ico" data-icon="shield"></span>
-              <div><b data-text="secTitle"></b><small data-text="secDesc"></small></div>
-            </div>
-            <ul class="facts">
-              <li data-i18n="sec.fact1"></li>
-              <li data-i18n="sec.fact2"></li>
-              <li data-i18n="sec.fact3"></li>
-              <li data-i18n="sec.fact4"></li>
-              <li data-i18n="sec.fact6"></li>
-            </ul>
+            <button class="cat" data-goto="general"><i class="tile c-general" data-icon="sliders"></i><span class="cat-text"><b data-i18n="nav.general"></b><small data-text="sub-general"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="monitors"><i class="tile c-monitors" data-icon="monitor"></i><span class="cat-text"><b data-i18n="cat.monitors"></b><small data-text="sub-monitors"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="open"><i class="tile c-open" data-icon="pointerEdge"></i><span class="cat-text"><b data-i18n="cat.open"></b><small data-text="sub-open"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="look"><i class="tile c-look" data-icon="theme"></i><span class="cat-text"><b data-i18n="cat.look"></b><small data-text="sub-look"></small></span><span class="chev" data-icon="chevronRight"></span></button>
           </div>
           <div class="card">
-            <div class="row">
-              <div class="label"><b data-i18n="sec.capture"></b><small data-i18n="sec.captureNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="hideFromCapture"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="sec.clearAll"></b><small data-i18n="sec.clearAllNote"></small></div>
-              <button class="danger small" data-action="clear-all" data-confirm="confirm.again" data-i18n="sec.clearAllBtn"></button>
-            </div>
-          </div>
-        </section>
-
-        <!-- ─────────────── Updates ─────────────── -->
-        <section class="group" data-section="updates">
-          <h2 data-i18n="set.updates"></h2>
-          <div class="card update-card">
-            <div class="uc-top">
-              <span class="uc-logo" data-icon="logo"></span>
-              <div class="uc-text"><b>ChatDock <span data-text="version"></span></b><small data-text="updateStatus"></small></div>
-            </div>
-            <div class="uc-bar" hidden><i></i></div>
-            <div class="uc-actions">
-              <button class="primary" data-action="install-update" data-i18n="upd.install" hidden></button>
-              <button class="primary" data-action="download-update" data-i18n="upd.download" hidden></button>
-              <button class="secondary" data-action="check-update" data-i18n="upd.check"></button>
-            </div>
-            <div class="uc-notes" hidden><b data-text="notesTitle"></b><p data-text="notes"></p></div>
+            <button class="cat" data-goto="apps"><i class="tile c-apps" data-icon="grid"></i><span class="cat-text"><b data-i18n="set.apps"></b><small data-text="sub-apps"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="popups"><i class="tile c-popups" data-icon="bell"></i><span class="cat-text"><b data-i18n="set.notify"></b><small data-text="sub-popups"></small></span><span class="chev" data-icon="chevronRight"></span></button>
           </div>
           <div class="card">
-            <div class="row">
-              <div class="label"><b data-i18n="upd.autoCheck"></b><small data-i18n="upd.autoCheckNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="updateAutoCheck"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="upd.autoDownload"></b><small data-i18n="upd.autoDownloadNote"></small></div>
-              <label class="switch"><input type="checkbox" data-pref="updateAutoDownload"><span></span></label>
-            </div>
-            <div class="row">
-              <div class="label"><b data-i18n="upd.history"></b><small data-i18n="upd.historyNote"></small></div>
-              <button class="secondary small" data-action="open-releases" data-i18n="upd.historyBtn"></button>
-            </div>
+            <button class="cat" data-goto="security"><i class="tile c-security" data-icon="shield"></i><span class="cat-text"><b data-i18n="set.security"></b><small data-text="sub-security"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="updates"><i class="tile c-updates" data-icon="download"></i><span class="cat-text"><b data-i18n="set.updates"></b><small data-text="sub-updates"></small></span><i class="dot" hidden></i><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="about"><i class="tile c-about" data-icon="info"></i><span class="cat-text"><b data-i18n="set.about"></b><small data-text="sub-about"></small></span><span class="chev" data-icon="chevronRight"></span></button>
           </div>
-        </section>
+        </div>
+        <p class="home-foot"><span data-icon="logo"></span><span data-text="version"></span></p>
+      </div>
 
-        <!-- ─────────────── About ─────────────── -->
-        <section class="group" data-section="about">
-          <h2 data-i18n="set.about"></h2>
-          <div class="card about">
-            <span class="about-logo" data-icon="logo"></span>
-            <div>
-              <b>ChatDock <span data-text="version"></span></b>
-              <small data-text="semver"></small>
-              <small data-i18n="about.line"></small>
+      <!-- ─────────────── General ─────────────── -->
+      <div class="set-page" data-page="general" data-title="nav.general" hidden>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b><span data-i18n="set.language"></span><span class="en-hint"> · Language</span></b></div>
+            <select data-pref="lang" data-lang-select></select>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.autostart"></b><small data-text="autostartNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="autostart"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.muted"></b><small data-i18n="set.mutedNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="muted"><span></span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─────────────── Monitors & position ─────────────── -->
+      <div class="set-page" data-page="monitors" data-title="cat.monitors" hidden>
+        <div class="card map-card">
+          <div class="map" data-map></div>
+          <p class="map-cap" data-text="mapCaption"></p>
+          <button class="secondary small" data-action="identify" data-show="multiDisplay" data-i18n="mon.identify"></button>
+        </div>
+
+        <h2 class="sec-title" data-show="multiDisplay" data-i18n="mon.where"></h2>
+        <div class="card" data-show="multiDisplay">
+          <div class="radios" role="radiogroup" data-monitors></div>
+        </div>
+        <div class="notice warn" data-notice="seam" hidden>
+          <span data-icon="warning"></span>
+          <div><p data-text="seamText"></p><button class="secondary small" data-action-local="other-side" data-text="seamFix"></button></div>
+        </div>
+        <p class="hint" data-show="singleDisplay" data-i18n="mon.one"></p>
+
+        <h2 class="sec-title" data-i18n="set.side"></h2>
+        <div class="card">
+          <div class="row col">
+            <div class="side-pick" role="radiogroup">
+              <button class="mini-screen left" data-pref="side" data-value="left" role="radio"><i class="dock"></i><span data-i18n="set.left"></span></button>
+              <button class="mini-screen right" data-pref="side" data-value="right" role="radio"><i class="dock"></i><span data-i18n="set.right"></span></button>
+            </div>
+            <small class="row-note" data-i18n="set.sideNote"></small>
+          </div>
+        </div>
+
+        <h2 class="sec-title" data-show="multiDisplay" data-i18n="mon.popups"></h2>
+        <div class="card" data-show="multiDisplay">
+          <div class="row col">
+            <div class="label"><b data-i18n="mon.popupWhere"></b></div>
+            <div class="seg" role="radiogroup">
+              <button data-pref="popupDisplay" data-value="chat" role="radio" data-i18n="mon.popChat"></button>
+              <button data-pref="popupDisplay" data-value="mouse" role="radio" data-i18n="mon.popMouse"></button>
+              <button data-pref="popupDisplay" data-value="main" role="radio" data-i18n="mon.popMain"></button>
             </div>
           </div>
-          <div class="link-row">
-            <button class="secondary small" data-action="open-repo">GitHub</button>
-            <button class="secondary small" data-action="open-license" data-i18n="about.license"></button>
-            <button class="secondary small" data-action="help" data-i18n="about.help"></button>
-            <button class="secondary small" data-action="open-logs" data-i18n="about.logs"></button>
+        </div>
+      </div>
+
+      <!-- ─────────────── Opening the chat ─────────────── -->
+      <div class="set-page" data-page="open" data-title="cat.open" hidden>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="set.edge"></b></div>
+            <select data-pref="edgeMode">
+              <option value="always" data-i18n="edge.always"></option>
+              <option value="no-fullscreen" data-i18n="edge.noFullscreen"></option>
+              <option value="off" data-i18n="edge.off"></option>
+            </select>
           </div>
-          <button class="danger ghost quit" data-action="quit" data-i18n="about.quit"></button>
-        </section>
+          <div class="row" data-dim-when="edge-off">
+            <div class="label"><b data-i18n="set.edgeHold"></b><small data-i18n="set.edgeHoldNote"></small></div>
+            <select data-pref="edgeHold" data-type="number">
+              <option value="0" data-i18n="hold.instant"></option>
+              <option value="0.5" data-i18n="hold.s" data-n="0.5"></option>
+              <option value="1" data-i18n="hold.s" data-n="1"></option>
+              <option value="1.5" data-i18n="hold.s" data-n="1.5"></option>
+              <option value="2" data-i18n="hold.s" data-n="2"></option>
+              <option value="3" data-i18n="hold.s" data-n="3"></option>
+              <option value="4" data-i18n="hold.s" data-n="4"></option>
+              <option value="5" data-i18n="hold.s" data-n="5"></option>
+            </select>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="set.hotkey"></b><small data-text="hotkeyNote"></small></div>
+            <select data-pref="hotkey" data-hotkeys></select>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.pinned"></b><small data-i18n="set.pinnedNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="pinned"><span></span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─────────────── Appearance ─────────────── -->
+      <div class="set-page" data-page="look" data-title="cat.look" hidden>
+        <div class="card">
+          <div class="row col">
+            <div class="label"><b data-i18n="set.theme"></b></div>
+            <div class="seg" role="radiogroup">
+              <button data-pref="theme" data-value="system" role="radio" data-i18n="theme.system"></button>
+              <button data-pref="theme" data-value="dark" role="radio" data-i18n="theme.dark"></button>
+              <button data-pref="theme" data-value="light" role="radio" data-i18n="theme.light"></button>
+            </div>
+          </div>
+          <div class="row col">
+            <div class="label"><b data-i18n="set.opacity"></b><small data-i18n="set.opacityNote"></small></div>
+            <div class="range"><input type="range" min="60" max="100" step="5" data-pref="opacity" data-scale="100"><output data-out="opacity">100%</output></div>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.width"></b><small data-i18n="set.widthNote"></small></div>
+            <button class="secondary small" data-action="reset-widths" data-i18n="set.widthReset"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─────────────── Apps ─────────────── -->
+      <div class="set-page" data-page="apps" data-title="set.apps" hidden>
+        <div class="mem-line"><span data-icon="memory"></span><span data-text="memory"></span></div>
+        <div class="card" data-apps></div>
+        <p class="hint" data-i18n="apps.hint"></p>
+      </div>
+
+      <!-- ─────────────── Notifications ─────────────── -->
+      <div class="set-page" data-page="popups" data-title="set.notify" hidden>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="set.popups"></b><small data-i18n="set.popupsNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="popups"><span></span></label>
+          </div>
+          <div class="row col">
+            <div class="label"><b data-i18n="set.dnd"></b><small data-text="dnd"></small></div>
+            <div class="chips" data-dnd>
+              <button data-action="dnd" data-arg="0" data-i18n="dnd.off"></button>
+              <button data-action="dnd" data-arg="30" data-i18n="dnd.30"></button>
+              <button data-action="dnd" data-arg="60" data-i18n="dnd.60"></button>
+              <button data-action="dnd" data-arg="120" data-i18n="dnd.120"></button>
+              <button data-action="dnd" data-arg="480" data-i18n="dnd.480"></button>
+              <button data-action="dnd" data-arg="-1" data-i18n="dnd.forever"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.quietFs"></b><small data-i18n="set.quietFsNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="popupQuietFullscreen"><span></span></label>
+          </div>
+        </div>
+
+        <h2 class="sec-title" data-i18n="s.popupLook"></h2>
+        <div class="card" data-dim-when="popups-off">
+          <div class="row col">
+            <div class="label"><b data-i18n="set.corner"></b><small data-i18n="set.cornerNote"></small></div>
+            <div class="corner-pick" role="radiogroup">
+              <button class="c tl" data-pref="popupPosition" data-value="top-left" role="radio" data-i18n-title="corner.tl"><i></i></button>
+              <button class="c tr" data-pref="popupPosition" data-value="top-right" role="radio" data-i18n-title="corner.tr"><i></i></button>
+              <button class="c bl" data-pref="popupPosition" data-value="bottom-left" role="radio" data-i18n-title="corner.bl"><i></i></button>
+              <button class="c br" data-pref="popupPosition" data-value="bottom-right" role="radio" data-i18n-title="corner.br"><i></i></button>
+              <span class="corner-label" data-text="cornerLabel"></span>
+            </div>
+          </div>
+          <div class="row col" data-show="multiDisplay">
+            <div class="label"><b data-i18n="mon.popupWhere"></b></div>
+            <div class="seg" role="radiogroup">
+              <button data-pref="popupDisplay" data-value="chat" role="radio" data-i18n="mon.popChat"></button>
+              <button data-pref="popupDisplay" data-value="mouse" role="radio" data-i18n="mon.popMouse"></button>
+              <button data-pref="popupDisplay" data-value="main" role="radio" data-i18n="mon.popMain"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.duration"></b><small data-i18n="set.durationNote"></small></div>
+            <select data-pref="popupDuration" data-type="number">
+              <option value="5" data-i18n="duration.s" data-n="5"></option>
+              <option value="8" data-i18n="duration.s" data-n="8"></option>
+              <option value="12" data-i18n="duration.s" data-n="12"></option>
+              <option value="20" data-i18n="duration.s" data-n="20"></option>
+              <option value="30" data-i18n="duration.s" data-n="30"></option>
+              <option value="0" data-i18n="duration.stay"></option>
+            </select>
+          </div>
+          <div class="row col">
+            <div class="label"><b data-i18n="set.max"></b><small data-i18n="set.maxNote"></small></div>
+            <div class="seg" role="radiogroup">
+              <button data-pref="popupMax" data-value="1" data-type="number" role="radio">1</button>
+              <button data-pref="popupMax" data-value="2" data-type="number" role="radio">2</button>
+              <button data-pref="popupMax" data-value="3" data-type="number" role="radio">3</button>
+              <button data-pref="popupMax" data-value="4" data-type="number" role="radio">4</button>
+              <button data-pref="popupMax" data-value="5" data-type="number" role="radio">5</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.text"></b><small data-i18n="set.textNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="popupText"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.avatar"></b></div>
+            <label class="switch"><input type="checkbox" data-pref="popupAvatar"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.chime"></b><small data-i18n="set.chimeNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="popupSound"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.test"></b></div>
+            <button class="secondary small" data-action="test-popup" data-i18n="set.testBtn"></button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="set.glow"></b><small data-i18n="set.glowNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="glow"><span></span></label>
+          </div>
+        </div>
+
+        <h2 class="sec-title" data-i18n="set.perApp"></h2>
+        <div class="card" data-perapp></div>
+        <p class="hint" data-i18n="set.perAppNote"></p>
+      </div>
+
+      <!-- ─────────────── Privacy & security ─────────────── -->
+      <div class="set-page" data-page="security" data-title="set.security" hidden>
+        <div class="card">
+          <div class="sec-status" data-sec>
+            <span class="sec-ico" data-icon="shield"></span>
+            <div><b data-text="secTitle"></b><small data-text="secDesc"></small></div>
+          </div>
+          <ul class="facts">
+            <li data-i18n="sec.fact1"></li>
+            <li data-i18n="sec.fact2"></li>
+            <li data-i18n="sec.fact3"></li>
+            <li data-i18n="sec.fact4"></li>
+            <li data-i18n="sec.fact6"></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="sec.capture"></b><small data-i18n="sec.captureNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="hideFromCapture"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="sec.clearAll"></b><small data-i18n="sec.clearAllNote"></small></div>
+            <button class="danger small" data-action="clear-all" data-confirm="confirm.again" data-i18n="sec.clearAllBtn"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─────────────── Updates ─────────────── -->
+      <div class="set-page" data-page="updates" data-title="set.updates" hidden>
+        <div class="card update-card">
+          <div class="uc-top">
+            <span class="uc-logo" data-icon="logo"></span>
+            <div class="uc-text"><b>ChatDock <span data-text="version"></span></b><small data-text="updateStatus"></small></div>
+          </div>
+          <div class="uc-bar" hidden><i></i></div>
+          <div class="uc-actions">
+            <button class="primary" data-action="install-update" data-i18n="upd.install" hidden></button>
+            <button class="primary" data-action="download-update" data-i18n="upd.download" hidden></button>
+            <button class="secondary" data-action="check-update" data-i18n="upd.check"></button>
+          </div>
+          <div class="uc-notes" hidden><b data-text="notesTitle"></b><p data-text="notes"></p></div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="upd.autoCheck"></b><small data-i18n="upd.autoCheckNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="updateAutoCheck"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="upd.autoDownload"></b><small data-i18n="upd.autoDownloadNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="updateAutoDownload"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="upd.history"></b><small data-i18n="upd.historyNote"></small></div>
+            <button class="secondary small" data-action="open-releases" data-i18n="upd.historyBtn"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─────────────── About ─────────────── -->
+      <div class="set-page" data-page="about" data-title="set.about" hidden>
+        <div class="card about">
+          <span class="about-logo" data-icon="logo"></span>
+          <div>
+            <b>ChatDock <span data-text="version"></span></b>
+            <small data-text="semver"></small>
+            <small data-i18n="about.line"></small>
+          </div>
+        </div>
+        <div class="card links">
+          <button class="link-row" data-action="help"><span data-i18n="about.help"></span><span class="chev" data-icon="chevronRight"></span></button>
+          <button class="link-row" data-action="open-repo"><span>GitHub</span><span class="chev" data-icon="chevronRight"></span></button>
+          <button class="link-row" data-action="open-license"><span data-i18n="about.license"></span><span class="chev" data-icon="chevronRight"></span></button>
+          <button class="link-row" data-action="open-logs"><span data-i18n="about.logs"></span><span class="chev" data-icon="chevronRight"></span></button>
+        </div>
+        <button class="danger ghost quit" data-action="quit" data-i18n="about.quit"></button>
       </div>
     </section>
   </main>

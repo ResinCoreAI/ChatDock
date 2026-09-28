@@ -14,7 +14,7 @@ use std::{
 use serde_json::{json, Map, Value};
 use tauri::{Emitter, WebviewWindow};
 
-use crate::{apps, autostart, chats, edge, i18n, log, rt, settings::Settings, toasts, tray, updater, win32};
+use crate::{apps, autostart, chats, edge, i18n, identify, log, rt, settings::Settings, toasts, tray, updater, win32};
 
 pub const REPO_URL: &str = "https://github.com/ResinCoreAI/ChatDock";
 /// A throw-away copy of ChatDock for testing installs and updates ("ChatDockUpdTest.exe"): its own
@@ -154,6 +154,8 @@ pub struct Core {
     pub update_win: Option<Win>,
     /// "What's new" after an update
     pub whatsnew: updater::WhatsNew,
+    /// "Show numbers on the screens" (Settings → Monitors)
+    pub identify: identify::Identify,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
     /// the panel page's own child windows (Tauri's WebView): kept under the chat views
@@ -358,6 +360,7 @@ impl Core {
                     "update" => self.update_window_ready(),
                     "whatsnew" => self.whats_new_window_ready(),
                     "toasts" => self.toasts_ready(),
+                    label if label.starts_with("ident-") => self.identify_ready(label),
                     _ => {}
                 }
                 if from == "panel" {
@@ -551,7 +554,56 @@ impl Core {
         })
     }
 
+    /// The monitors for the map and the list in Settings, how the chat picks one ("auto", "one", or
+    /// "missing": the picked one isn't connected), and a warning when the picked one's dock-side edge
+    /// touches another monitor all the way (the mouse can't stop there).
+    fn monitors_state(&self) -> (Vec<Value>, &'static str, Value) {
+        let numbered = self.numbered_displays();
+        let chat = self.target_display().id;
+        let monitors = numbered
+            .iter()
+            .map(|(n, d)| {
+                let ranges = |left: bool| self.outer_ranges(d, left).iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>();
+                json!({
+                    "key": d.key, "n": n, "label": self.monitor_label(d),
+                    "x": d.bounds.x, "y": d.bounds.y, "w": d.bounds.w, "h": d.bounds.h, "hz": d.hz,
+                    "primary": d.primary, "chat": d.id == chat,
+                    "edges": { "left": ranges(true), "right": ranges(false) },
+                })
+            })
+            .collect();
+        let chosen = self.chosen_display();
+        let picked = self.settings.get("displayId").as_str().is_some_and(|s| !s.is_empty());
+        let mode = if chosen.is_some() {
+            "one"
+        } else if picked {
+            "missing"
+        } else {
+            "auto"
+        };
+        let left = self.on_left();
+        let seam = chosen
+            .filter(|d| self.outer_share(d, left) < 0.1) // a sliver doesn't count
+            .map(|d| {
+                let number = |id: &str| numbered.iter().find(|(_, o)| o.id == id).map(|(n, _)| *n).unwrap_or(0);
+                let beside = numbered.iter().find(|(_, o)| {
+                    o.id != d.id
+                        && (if left { o.bounds.right() == d.bounds.x } else { o.bounds.x == d.bounds.right() })
+                        && o.bounds.y < d.bounds.bottom()
+                        && o.bounds.bottom() > d.bounds.y
+                });
+                json!({
+                    "n": number(&d.id),
+                    "m": beside.map(|(n, _)| *n).unwrap_or(0),
+                    "canSwitch": self.outer_share(&d, !left) >= 0.25,
+                })
+            })
+            .unwrap_or(Value::Null);
+        (monitors, mode, seam)
+    }
+
     pub fn settings_state(&self) -> Value {
+        let (monitors, mode, seam) = self.monitors_state();
         let mut prefs = Map::new();
         for key in PREF_KEYS {
             if key != "autostart" && key != "displayId" {
@@ -559,7 +611,14 @@ impl Core {
             }
         }
         prefs.insert("autostart".into(), json!(self.autostart_cache));
-        prefs.insert("displayId".into(), json!(if self.auto_display() { "auto".to_string() } else { self.target_display().id }));
+        // the picked monitor's key as the page knows it (a 1.5.x name that is still being matched
+        // shows as that monitor), else what is saved, else "auto"
+        let picked = self
+            .chosen_display()
+            .map(|d| d.key)
+            .or_else(|| self.settings.get("displayId").as_str().filter(|s| !s.is_empty()).map(str::to_string))
+            .unwrap_or_else(|| "auto".to_string());
+        prefs.insert("displayId".into(), json!(picked));
         let memory = self.memory_stats();
         let catalog: Vec<Value> = apps::CATALOG
             .iter()
@@ -572,24 +631,16 @@ impl Core {
                 })
             })
             .collect();
-        let mut displays: Vec<Value> = win32::displays()
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                let primary = if d.primary { self.t("display.primary") } else { String::new() };
-                json!({ "id": d.id, "label": format!("{}{} — {}×{}", self.tv("display.label", &[("n", (i + 1).to_string())]), primary, d.bounds.w, d.bounds.h) })
-            })
-            .collect();
-        if displays.len() > 1 {
-            displays.insert(0, json!({ "id": "auto", "label": self.t("display.auto") }));
-        }
         let version = rt::version();
         json!({
             "prefs": prefs,
             "catalog": catalog,
             "memory": memory.total,
             "langs": i18n::LANGS.iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
-            "displays": displays,
+            "monitors": monitors,
+            "monitorMode": mode,
+            "chosenLabel": self.settings.str("displayLabel"),
+            "seam": seam,
             "hotkeys": HOTKEYS.iter().map(|(acc, label)| json!({ "acc": acc, "label": label.replace("Ctrl", &self.t("key.ctrl")) })).collect::<Vec<_>>(),
             "hotkeyOk": self.hotkey_ok,
             "dndUntil": self.settings.get("dndUntil"),
@@ -632,7 +683,8 @@ impl Core {
             "side" => one_of(&["right", "left"]),
             "edgeMode" => one_of(&["always", "no-fullscreen", "off"]),
             "edgeHold" => num_in(&[0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]),
-            "displayId" => v.as_str().is_some_and(|s| s == "auto" || win32::displays().iter().any(|d| d.id == s)),
+            "displayId" => v.as_str().is_some_and(|s| s == "auto" || win32::displays().iter().any(|d| d.key == s || d.id == s)),
+            "popupDisplay" => one_of(&["chat", "mouse", "main"]),
             "theme" => one_of(&["system", "dark", "light"]),
             "opacity" => v.as_f64().is_some_and(|n| (0.6..=1.0).contains(&n)),
             "hotkey" => v.as_str().is_some_and(|s| s.is_empty() || HOTKEYS.iter().any(|(a, _)| *a == s)),
@@ -679,10 +731,25 @@ impl Core {
                 self.stop_hold(false);
             }
             "displayId" => {
-                let id = value.as_str().unwrap_or("").to_string();
-                self.set_setting("displayId", if id == "auto" { Value::Null } else { json!(id) });
+                let id = value.as_str().unwrap_or("");
+                match win32::displays().into_iter().find(|d| id != "auto" && (d.key == id || d.id == id)) {
+                    Some(d) => {
+                        log!("chat monitor: {} ({})", d.id, self.monitor_label(&d));
+                        self.set_setting("displayId", json!(d.key));
+                        self.set_setting("displayLabel", json!(self.monitor_label(&d)));
+                    }
+                    None => {
+                        log!("chat monitor: automatic");
+                        self.set_setting("displayId", Value::Null);
+                    }
+                }
                 self.dock_display.clear();
                 self.on_displays_changed();
+            }
+            "popupDisplay" => {
+                self.set_setting(key, value);
+                self.toasts.display.clear();
+                self.toasts_refresh();
             }
             "glow" => {
                 self.set_setting("glow", value);
@@ -756,6 +823,11 @@ impl Core {
             "reset-widths" => {
                 self.set_setting("widths", json!({}));
                 self.fit_panel_to_app();
+            }
+            "identify" => self.identify_all(),
+            "identify-hover" => {
+                let key = arg.as_str().unwrap_or("").chars().take(300).collect::<String>();
+                self.identify_hover(&key);
             }
             "check-update" => self.check_update(),
             "download-update" => self.download_update(),
@@ -1292,7 +1364,7 @@ impl Core {
     }
 }
 
-pub const PREF_KEYS: [&str; 23] = [
+pub const PREF_KEYS: [&str; 24] = [
     "lang",
     "side",
     "edgeMode",
@@ -1314,6 +1386,7 @@ pub const PREF_KEYS: [&str; 23] = [
     "popupDuration",
     "popupMax",
     "popupQuietFullscreen",
+    "popupDisplay",
     "updateAutoCheck",
     "updateAutoDownload",
 ];
