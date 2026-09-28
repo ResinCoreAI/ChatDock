@@ -52,6 +52,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("newsgif") {
+            wait(3000);
+            news_gif_frames();
         } else if only.as_deref() == Some("newsdemo") {
             wait(3000);
             news_demo_test();
@@ -1451,6 +1454,52 @@ fn news_demo_test() {
         }
     }
     log!("what's new demo lit line: {}", page_js("whatsnew", "document.querySelector('.notes li.now')?.dataset.demo || ''"));
+    on(|c| {
+        c.close_whats_new(false);
+        c.whatsnew.offscreen = false;
+    });
+}
+
+/// Pictures of the What's new demos for the release notes: every scene, one picture per 80 ms of
+/// its 6 s. The animations are stopped at each moment (not timed), so the frames come out even.
+/// The window as it opens after an update, off screen. <shots>/gif/f<scene>-<ms>.png
+fn news_gif_frames() {
+    let Some(dir) = on(|c| c.args.shots.clone()) else { return };
+    let dir = dir.join("gif");
+    let _ = std::fs::create_dir_all(&dir);
+    on(|c| {
+        c.whatsnew.offscreen = true;
+        c.show_whats_new_window();
+    });
+    wait(3000);
+    let n: usize = page_js("whatsnew", "document.querySelectorAll('#dots .dot').length").trim_matches('"').parse().unwrap_or(0);
+    let mut saved = 0;
+    for i in 0..n {
+        page_js("whatsnew", &format!("showDemo({i}, true), clearTimeout(demoTimer), 1"));
+        wait(500); // the dot and the line light up
+        for t in (0..6000).step_by(80) {
+            page_js(
+                "whatsnew",
+                &format!(
+                    "(() => {{ clearTimeout(demoTimer); const a = document.getAnimations().filter((x) => x.effect && x.effect.target && scene.contains(x.effect.target)); \
+                     a.forEach((x) => {{ x.pause(); x.currentTime = {t}; }}); return a.length; }})()"
+                ),
+            );
+            wait(35);
+            let Some(w) = rt::app().get_webview_window("whatsnew") else { return };
+            let (tx, rx) = mpsc::channel::<String>();
+            let path = dir.join(format!("f{i}-{t:04}.png"));
+            let _ = w.with_webview(move |pw| unsafe {
+                if let Ok(wv) = pw.controller().CoreWebView2() {
+                    capture(&wv, path, tx);
+                }
+            });
+            if rx.recv_timeout(Duration::from_secs(5)).is_ok_and(|r| r == "ok") {
+                saved += 1;
+            }
+        }
+    }
+    log!("gif frames: {n} scenes, {saved} pictures");
     on(|c| {
         c.close_whats_new(false);
         c.whatsnew.offscreen = false;
