@@ -2,7 +2,7 @@
 //! ChatDock's key and checked before it runs). Checks quietly 20 s after start and every 6 hours,
 //! can fetch the installer in the background, and installs only when the user presses the button:
 //! the "Updating ChatDock" window, then the installer's own progress window (passive mode), and
-//! ChatDock starts again by itself with a "now on Beta Build 1.x ✓" pop-up.
+//! ChatDock starts again by itself with a "What's new" window ("now on Beta Build 1.x ✓").
 //! CHATDOCK_UPDATE_FEED=http://127.0.0.1:8765/latest.json (localhost only) points it at a test feed.
 
 use std::sync::Mutex;
@@ -12,15 +12,83 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::{
-    core::{later, timer, Core, PanelState, Win},
-    log, rt,
+    core::{later, timer, Args, Core, PanelState, Win},
+    i18n, log, rt,
     win32::{self, Rect},
 };
 
 const RECHECK_MS: u64 = 6 * 60 * 60 * 1000;
 const SHOW_MS: u64 = 1800;
+/// the What's new window's width, CSS px (its card is 448 px wide, the rest is room for the shadow)
+const NEWS_WIDTH: f64 = 480.0;
 
 static PENDING: Mutex<Option<(Update, Option<Vec<u8>>)>> = Mutex::new(None);
+
+/// The "What's new" window after an update.
+#[derive(Default)]
+pub struct WhatsNew {
+    pub win: Option<Win>,
+    /// being made (off the main thread)
+    building: bool,
+    /// the last other window in front: it gets the keyboard back when What's new closes
+    fg_before: isize,
+    watch: u64,
+}
+
+/// While What's new is up: remember the last other window in front (the game, a browser), which
+/// gets the keyboard back when the user has clicked What's new and closes it.
+fn whats_new_watch(c: &mut Core) {
+    rt::cancel(c.whatsnew.watch);
+    c.whatsnew.watch = 0;
+    let Some(w) = c.whatsnew.win.as_ref() else { return };
+    let fg = win32::foreground_window();
+    if fg != 0 && fg != w.hwnd && !c.is_ours(fg) {
+        c.whatsnew.fg_before = fg;
+    }
+    c.whatsnew.watch = timer(250, whats_new_watch);
+}
+
+/// One of ChatDock's own small windows (the update windows): hidden and off screen until its page
+/// has said it is ready. Made off the main thread: building a window waits for the main thread.
+/// `focused`: whether it may take the keyboard (else its page doesn't grab it as it loads).
+fn own_window(
+    label: &'static str,
+    page: &'static str,
+    size: (f64, f64),
+    focused: bool,
+    args: Args,
+    then: impl FnOnce(&mut Core, Result<Win, String>) + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        let built = WebviewWindowBuilder::new(rt::app(), label, WebviewUrl::App(page.into()))
+            .title("ChatDock")
+            .visible(false)
+            .decorations(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .shadow(false)
+            .transparent(true)
+            .focused(focused)
+            .data_directory(args.webview_dir())
+            .additional_browser_args(&args.browser_args())
+            .inner_size(size.0, size.1)
+            .position(-30000.0, -30000.0)
+            .build();
+        match built {
+            Ok(w) => {
+                let hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+                win32::set_tool_window(hwnd);
+                crate::panel::lock_down_page(&w, args.debug);
+                later(move |c| then(c, Ok(Win { w, hwnd })));
+            }
+            Err(err) => {
+                let err = format!("{label} window: {err}");
+                later(move |c| then(c, Err(err)));
+            }
+        }
+    });
+}
 
 #[derive(Default)]
 pub struct UpdState {
@@ -360,36 +428,13 @@ impl Core {
 
     /// "Updating ChatDock" window, shown for a moment before ChatDock quits for the installer.
     pub fn show_update_window(&mut self, version: &str) {
-        let args = self.args.clone();
         let to = version.to_string();
-        // made off the main thread: building a window waits for the main thread to create it
-        std::thread::spawn(move || {
-            let built = WebviewWindowBuilder::new(rt::app(), "update", WebviewUrl::App("update.html".into()))
-                .title("ChatDock")
-                .visible(false)
-                .decorations(false)
-                .resizable(false)
-                .skip_taskbar(true)
-                .always_on_top(true)
-                .shadow(false)
-                .transparent(true)
-                .data_directory(args.webview_dir())
-                .additional_browser_args(&args.browser_args())
-                .inner_size(452.0, 196.0)
-                .position(-30000.0, -30000.0)
-                .build();
-            match built {
-                Ok(w) => {
-                    let hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
-                    win32::set_tool_window(hwnd);
-                    crate::panel::lock_down_page(&w, args.debug);
-                    later(move |c| {
-                        c.update_win = Some(Win { w, hwnd });
-                        c.pending_update_to = to;
-                    });
-                }
-                Err(err) => log!("update window: {err}"),
+        own_window("update", "update.html", (452.0, 196.0), true, self.args.clone(), move |c, made| match made {
+            Ok(w) => {
+                c.update_win = Some(w);
+                c.pending_update_to = to;
             }
+            Err(err) => log!("{err}"),
         });
     }
 
@@ -407,5 +452,98 @@ impl Core {
         self.emit("update", "update:show", json!([{ "lang": self.lang, "from": from, "to": to, "ms": SHOW_MS }]));
         win32::show(w.hwnd);
         win32::raise(w.hwnd);
+    }
+
+    /// "What's new" after an update (see announce_updated).
+    pub fn show_whats_new_window(&mut self) {
+        if self.whatsnew.win.is_some() || self.whatsnew.building {
+            return;
+        }
+        self.whatsnew.building = true;
+        self.ready.remove("whatsnew");
+        own_window("whatsnew", "whatsnew.html", (NEWS_WIDTH, 420.0), false, self.args.clone(), |c, made| {
+            c.whatsnew.building = false;
+            match made {
+                Ok(w) => {
+                    c.own_hwnds.push(w.hwnd);
+                    c.whatsnew.win = Some(w);
+                    if c.ready.contains("whatsnew") {
+                        c.whats_new_window_ready(); // its page was quicker
+                    }
+                }
+                Err(err) => log!("{err}"),
+            }
+        });
+    }
+
+    /// Its page is ready: send it the texts. It measures the card and asks for its size (below).
+    pub fn whats_new_window_ready(&mut self) {
+        if self.whatsnew.win.is_none() {
+            return;
+        }
+        let now = rt::version();
+        let sections = self.whats_new_sections();
+        // one list, for this very release: "What's new" (the title above names the version)
+        let only_now = sections.len() == 1 && sections[0].0 == now;
+        let sections: Vec<Value> = sections
+            .iter()
+            .map(|(v, lines)| json!({ "title": if only_now { self.t("wn.heading") } else { self.build_name(v) }, "lines": lines }))
+            .collect();
+        let route = match self.updated_from() {
+            Some(from) if i18n::build(&from).is_some() => format!("{} → {}", self.build_name(&from), self.build_name(&now)),
+            _ => String::new(),
+        };
+        self.emit(
+            "whatsnew",
+            "whatsnew:show",
+            json!([{
+                "locale": i18n::locale(&self.lang),
+                "title": self.tv("toast.updatedTitle", &[("version", self.build_name(&now))]),
+                "route": route,
+                "sections": sections,
+                "ok": self.t("wn.ok"),
+                "github": self.t("wn.github"),
+                "close": self.t("toast.close"),
+            }]),
+        );
+    }
+
+    /// The page measured its card (CSS px): the window takes that height (at most 85% of the
+    /// screen, the list scrolls then), in the middle of the monitor the mouse is on, and shows
+    /// without taking the keyboard from whatever is in front.
+    pub fn whats_new_size(&mut self, css_height: f64) {
+        let Some(w) = self.whatsnew.win.clone() else { return };
+        let shown = win32::is_visible(w.hwnd);
+        let (x, y) = if shown {
+            let r = win32::window_rect(w.hwnd);
+            (r.x + r.w / 2, r.y + r.h / 2)
+        } else {
+            win32::cursor_pos()
+        };
+        let d = self.display_at(x, y).unwrap_or_else(|| self.target_display());
+        let (w_px, h_px) = ((NEWS_WIDTH * d.ui).round() as i32, ((css_height.max(160.0) * d.ui).round() as i32).min(d.work.h * 85 / 100));
+        let r = Rect { x: d.work.x + (d.work.w - w_px) / 2, y: d.work.y + (d.work.h - h_px) / 2, w: w_px, h: h_px };
+        win32::set_bounds(w.hwnd, r);
+        if !shown {
+            win32::show_inactive(w.hwnd);
+            win32::raise(w.hwnd);
+            log!("what's new shown on {} at {},{} ({} x {})", d.id, r.x, r.y, r.w, r.h);
+            whats_new_watch(self);
+        }
+    }
+
+    /// "Got it", ✕ or Esc; or the GitHub link, which opens the releases page in the browser.
+    pub fn close_whats_new(&mut self, releases: bool) {
+        let Some(w) = self.whatsnew.win.take() else { return };
+        let in_front = win32::foreground_window() == w.hwnd;
+        self.own_hwnds.retain(|h| *h != w.hwnd);
+        self.ready.remove("whatsnew");
+        let _ = w.w.destroy();
+        if releases {
+            win32::open_url(&format!("{}/releases", crate::core::REPO_URL));
+        } else if in_front {
+            win32::restore_foreground(self.whatsnew.fg_before);
+        }
+        log!("what's new closed{}", if releases { " (releases page)" } else { "" });
     }
 }

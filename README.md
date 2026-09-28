@@ -153,9 +153,11 @@ ChatDock checks this repository's [releases](https://github.com/ResinCoreAI/Chat
 shortly after it starts and every 6 hours. It downloads a new version in the background (a few MB)
 and checks its signature, then shows a pop-up and an **Update** button in the panel header.
 Nothing is installed until you press it. Then an *Updating ChatDock* window shows the progress, the
-installer's progress bar follows, and ChatDock starts again by itself with a “now on Beta Build 1.5 ✓”
-pop-up and a *What's new* list. Both automatic checking and background downloading can be turned off
-under Settings → Updates.
+installer's progress bar follows, and ChatDock starts again by itself with a *What's new* window:
+“now on Beta Build 1.5.3 ✓” and everything that changed since your version, one list per release if
+you skipped some. It doesn't take the keyboard from a game (and waits while one runs in exclusive fullscreen);
+*Got it* or Esc closes it, and the same list stays under Settings → Updates. Both automatic checking
+and background downloading can be turned off under Settings → Updates.
 
 Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number without its trailing `.0`
 (Beta Build 1.5 is version `1.5.0`). Beta Build 1.5 moved ChatDock from Electron to
@@ -191,7 +193,8 @@ Publishing a release (the installed apps pick it up automatically):
 
 ```bash
 # Beta Build 1.N = version 1.N.0: set "version" in src-tauri/tauri.conf.json, src-tauri/Cargo.toml and
-# package.json (and add "whatsnew.1.N" to ui/i18n-data.js for the in-app What's new). The installer's
+# package.json (and add "whatsnew.1.N" in every language to ui/i18n-data.js: the in-app What's new
+# lists each release's text between the user's old version and the new one). The installer's
 # update signature needs the signing key, which is kept outside the repository:
 #   TAURI_SIGNING_PRIVATE_KEY=<key file or its text>  TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<its password>
 npm run dist
@@ -215,7 +218,7 @@ src-tauri/src/chats.rs      the chat sites: one WebView2 per app, each with its 
 src-tauri/src/edge.rs       edge detection, the white tab, the hold line, the unread glow
 src-tauri/src/toasts.rs     message pop-ups (topmost, never take focus)
 src-tauri/src/tray.rs       tray icon and menu, global hotkey
-src-tauri/src/updater.rs    signed GitHub release updates (tauri-plugin-updater)
+src-tauri/src/updater.rs    signed GitHub release updates (tauri-plugin-updater), the What's new window after one
 src-tauri/src/frames.rs     frame clock: moves windows once per screen refresh (vertical blank) while animating
 src-tauri/src/apps.rs       the chat services (URLs, domains, colours, widths): add new ones here
 src-tauri/src/settings.rs   settings store (%APPDATA%\ChatDock\settings.json)
@@ -223,7 +226,7 @@ src-tauri/src/win32.rs      Windows calls Tauri lacks (focus hand-back, fullscre
 src-tauri/src/migrate.rs    carries logins over from the Electron builds (1.4 and older), once
 src-tauri/src/selftest.rs   --selftest
 src-tauri/windows/          installer template + hooks (replace the Electron copy when updating from it)
-ui/                         panel + settings, edge tab, glow, hold line, pop-ups, update window
+ui/                         panel + settings, edge tab, glow, hold line, pop-ups, update + What's new windows
 ui/i18n-data.js             every UI text in English, Thai, Chinese, Japanese and German
 scripts/                    icon and README-media generators
 ```

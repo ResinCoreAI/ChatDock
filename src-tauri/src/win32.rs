@@ -142,6 +142,12 @@ pub fn is_exclusive_fullscreen() -> bool {
     notification_state() == QUNS_RUNNING_D3D_FULL_SCREEN
 }
 
+/// A game in exclusive fullscreen, or a presentation: nothing may appear over it.
+pub fn nothing_may_show() -> bool {
+    let s = notification_state();
+    s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE
+}
+
 /// True when the foreground window covers its whole monitor (borderless / fullscreen game, F11 video, ...).
 pub fn is_fullscreen_app_active() -> bool {
     let s = notification_state();

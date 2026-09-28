@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:">
+<title>ChatDock</title>
+<link rel="stylesheet" href="whatsnew.css">
+</head>
+<body>
+  <!-- After an update: shown once when ChatDock starts again, with what changed since the version
+       the user had. ChatDock sizes the window to the card, then shows it (without taking focus). -->
+  <div class="card" role="dialog" aria-labelledby="title">
+    <div class="top">
+      <span class="logo" data-icon="logo"></span>
+      <div class="head">
+        <b id="title"></b>
+        <small id="route"></small>
+      </div>
+      <button id="x" class="x" type="button" data-icon="close"></button>
+    </div>
+    <div id="notes" class="notes"></div>
+    <div class="foot">
+      <button id="github" class="link" type="button"></button>
+      <button id="ok" class="ok" type="button"></button>
+    </div>
+  </div>
+  <script src="bridge.js"></script>
+  <script src="icons.js"></script>
+  <script src="whatsnew.js"></script>
+</body>
+</html>

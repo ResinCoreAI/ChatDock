@@ -152,6 +152,8 @@ pub struct Core {
     pub edgewin: Win,
     pub toastwin: Win,
     pub update_win: Option<Win>,
+    /// "What's new" after an update
+    pub whatsnew: updater::WhatsNew,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
     /// the panel page's own child windows (Tauri's WebView): kept under the chat views
@@ -354,6 +356,7 @@ impl Core {
                 match from {
                     "panel" | "tab" | "glow" => self.emit(from, "state", json!([self.ui_state()])),
                     "update" => self.update_window_ready(),
+                    "whatsnew" => self.whats_new_window_ready(),
                     "toasts" => self.toasts_ready(),
                     _ => {}
                 }
@@ -447,6 +450,13 @@ impl Core {
                 self.on_tab_open(&id);
             }
             (c, "toasts") if c.starts_with("toast:") => self.on_toast_message(c, &args),
+            ("whatsnew:size", "whatsnew") => {
+                if let Some(h) = args.first().and_then(Value::as_f64) {
+                    self.whats_new_size(h);
+                }
+            }
+            ("whatsnew:close", "whatsnew") => self.close_whats_new(false),
+            ("whatsnew:releases", "whatsnew") => self.close_whats_new(true),
             _ => {
                 if !panel {
                     log!("ignored message {channel} from {from}");
@@ -1078,52 +1088,77 @@ impl Core {
         Some(from)
     }
 
-    /// What's new in the version running now, for whoever updated to it: this release's list, and
-    /// what changed on the way from the version they came from (the hold-to-open edge from 1.4, the
-    /// move to Tauri in 1.5). Our own translated texts; else the release notes.
-    pub fn whats_new_state(&self) -> Value {
-        let now = rt::version();
+    /// The version the user updated from ("older" = before 1.3, which didn't record it), if this
+    /// start came right after an update to the version running now.
+    pub fn updated_from(&self) -> Option<String> {
         let w = self.settings.get("whatsNew");
-        let mine = w.get("version").and_then(Value::as_str) == Some(now.as_str());
-        let from = if mine { w.get("from").and_then(Value::as_str).unwrap_or("") } else { "" };
-        let before = |v: &str| from == "older" || (!from.is_empty() && version_less(from, v));
-        let mut parts: Vec<String> = Vec::new();
-        let mut add = |key: &str| {
-            let text = self.t(key);
-            if text != key && !text.is_empty() {
-                parts.push(text);
-            }
+        if w.get("version").and_then(Value::as_str) != Some(rt::version().as_str()) {
+            return None;
+        }
+        w.get("from").and_then(Value::as_str).filter(|f| !f.is_empty()).map(str::to_string)
+    }
+
+    /// What changed for whoever updated to the version running now: one list per release since the
+    /// version they came from, newest first (after a fresh install, this release's). Our own
+    /// translated texts ("whatsnew.<build>" in ui/i18n-data.js), else the release notes that came
+    /// with the update. The hold-to-open edge (1.4) goes on top: it changes how ChatDock opens.
+    pub fn whats_new_sections(&self) -> Vec<(String, Vec<String>)> {
+        let now = rt::version();
+        let from = self.updated_from();
+        let wanted = |v: &str| match from.as_deref() {
+            None => version_parts(v) == version_parts(&now),
+            // 1.5.1 only fixed what 1.5.0 broke
+            Some(f) => (f == "older" || version_less(f, v)) && !version_less(&now, v) && (v != "1.5.1" || f == "1.5.0"),
         };
-        if before("1.4.0") {
-            add("whatsnew.hold"); // first: it changes how ChatDock opens
+        let mut found: Vec<(String, String)> = i18n::news_keys().into_iter().filter(|(v, _)| wanted(v)).collect();
+        found.sort_by_key(|(v, _)| (v != "1.4.0", std::cmp::Reverse(version_parts(v))));
+        let mut sections: Vec<(String, Vec<String>)> = found
+            .into_iter()
+            .map(|(v, key)| {
+                let text = self.t(&key);
+                (v, text.lines().map(|l| l.trim().trim_start_matches('•').trim().to_string()).filter(|l| !l.is_empty()).collect())
+            })
+            .filter(|(_, lines): &(String, Vec<String>)| !lines.is_empty())
+            .collect();
+        if sections.is_empty() && from.is_some() {
+            let notes = note_lines(self.settings.get("whatsNew").get("notes").and_then(Value::as_str).unwrap_or(""));
+            if !notes.is_empty() {
+                sections.push((now, notes));
+            }
         }
-        if from == "1.5.0" {
-            add("whatsnew.fix151");
-        }
-        if let Some(n) = i18n::build(&now) {
-            add(&format!("whatsnew.{n}"));
-        }
-        if before("1.5.0") {
-            add("whatsnew.1.5");
-        }
-        let text =
-            if parts.is_empty() && mine { w.get("notes").and_then(Value::as_str).unwrap_or("").to_string() } else { parts.join("\n") };
-        if text.is_empty() {
+        sections
+    }
+
+    /// What's new for the settings screen (Updates): the same lists as one.
+    pub fn whats_new_state(&self) -> Value {
+        let sections = self.whats_new_sections();
+        if sections.is_empty() {
             return Value::Null;
         }
-        let at = w.get("at").and_then(Value::as_i64).unwrap_or(0);
+        let now = rt::version();
+        let text = sections.iter().flat_map(|(_, lines)| lines).map(|l| format!("• {l}")).collect::<Vec<_>>().join("\n");
+        let at = self.settings.get("whatsNew").get("at").and_then(Value::as_i64).unwrap_or(0);
         json!({
             "title": self.tv("upd.notesFor", &[("version", self.build_name(&now))]),
             "text": text,
-            "justUpdated": mine && rt::epoch_ms() - at < 24 * 60 * 60 * 1000,
+            "justUpdated": self.updated_from().is_some() && rt::epoch_ms() - at < 24 * 60 * 60 * 1000,
         })
     }
 
+    /// Right after an update (which the user started a moment ago): "ChatDock is now on Beta Build
+    /// 1.x ✓" and what's new since the version they had, in a window in the middle of the screen. It
+    /// never takes the keyboard, and waits while a game runs in exclusive fullscreen or a
+    /// presentation is on. Only a pop-up when there is nothing to list.
     pub fn announce_updated(&mut self) {
+        if !self.whats_new_sections().is_empty() {
+            if win32::nothing_may_show() {
+                timer(5000, |c| c.announce_updated());
+            } else {
+                self.show_whats_new_window();
+            }
+            return;
+        }
         let version = self.build_name(&rt::version());
-        let news = self.whats_new_state();
-        let first_line =
-            news.get("text").and_then(Value::as_str).map(|t| t.lines().next().unwrap_or("").trim_start_matches('•').trim().to_string());
         let item = toasts::Item::new_own(
             "chatdock",
             "ChatDock",
@@ -1131,8 +1166,8 @@ impl Core {
             "#22c55e",
             self.t("toast.updated"),
             self.tv("toast.updatedTitle", &[("version", version)]),
-            first_line.clone().unwrap_or_else(|| self.t("toast.updatedBody")),
-            if first_line.is_some() { self.t("toast.updatedBody") } else { String::new() },
+            self.t("toast.updatedBody"),
+            String::new(),
             "chatdock:updated",
             "whatsnew",
         );
@@ -1241,6 +1276,7 @@ impl Core {
             }
             let mut pages = vec![c.panel.clone(), c.tab.clone(), c.glow.clone(), c.edgewin.clone(), c.toastwin.clone()];
             pages.extend(c.update_win.clone());
+            pages.extend(c.whatsnew.win.clone());
             for w in pages {
                 c.ready.remove(w.w.label());
                 let _ = w.w.reload();
@@ -1282,10 +1318,25 @@ pub const PREF_KEYS: [&str; 23] = [
     "updateAutoDownload",
 ];
 
-/// "1.3.0" < "1.4.0" (numbers compared part by part; anything unreadable counts as 0)
+/// "1.5.2" -> [1, 5, 2] (anything unreadable counts as 0)
+pub fn version_parts(v: &str) -> Vec<u64> {
+    v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect()
+}
+
+/// "1.3.0" < "1.4.0" (numbers compared part by part)
 pub fn version_less(a: &str, b: &str) -> bool {
-    let parts = |v: &str| -> Vec<u64> { v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect() };
-    parts(a) < parts(b)
+    version_parts(a) < version_parts(b)
+}
+
+/// The points of a release's notes (Markdown from GitHub): its "- " lines, without the formatting.
+fn note_lines(notes: &str) -> Vec<String> {
+    notes
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("- ").or_else(|| l.trim_start().strip_prefix("* ")))
+        .map(|l| clean_text(&l.replace(['*', '`'], ""), 300))
+        .filter(|l| !l.is_empty())
+        .take(12)
+        .collect()
 }
 
 /// "(3) Instagram" -> Some(3); no count in front -> None

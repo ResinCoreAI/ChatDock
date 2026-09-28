@@ -1,0 +1,132 @@
+/* "What's new" after an update. Dark like the pop-ups and the "Updating" window; the card fills the
+   window except for the room its shadow needs, and the list scrolls when it is taller than that. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Leelawadee UI", "Noto Sans Thai", Tahoma, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif; }
+
+/* A fixed width (the window is 480 px), so the height the page measures for ChatDock doesn't
+   depend on how big the window happens to be at that moment. */
+.card {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 16px;
+  width: 448px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px 16px;
+  border-radius: 18px;
+  background: #181922;
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .35);
+  color: #f3f3f7;
+}
+.card.in { animation: pop .32s cubic-bezier(.2, .9, .25, 1.1); }
+.card.out { animation: away .16s ease-in forwards; }
+@keyframes pop { from { transform: scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes away { to { transform: scale(.96); opacity: 0; } }
+
+.top { display: flex; align-items: center; gap: 14px; flex: none; }
+.logo svg { display: block; width: 46px; height: 46px; }
+.head { flex: 1; min-width: 0; }
+.head b { display: block; font-size: 17px; line-height: 1.3; }
+.head small { display: block; margin-top: 2px; color: #b8b8c8; font-size: 13px; }
+.head small:empty { display: none; }
+
+.x {
+  flex: none;
+  align-self: flex-start;
+  width: 30px;
+  height: 30px;
+  margin: -6px -8px 0 0;
+  padding: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #9d9db0;
+  cursor: pointer;
+}
+.x:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.x svg { display: block; width: 16px; height: 16px; }
+
+/* The scrollbar's room is always kept (it sits in the card's right padding), so the lines wrap the
+   same with and without one: the height the page measures is the height it gets. */
+.notes {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 16px -12px 0 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .22) transparent;
+}
+/* while the page measures the card: as tall as everything in it */
+.card.measure { bottom: auto; }
+.card.measure .notes { flex: none; }
+
+.notes h3 {
+  margin: 0 0 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  color: #b9a4ff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.notes h3:first-child { padding-top: 0; border-top: 0; }
+.notes ul { margin: 0 0 12px; padding: 0; list-style: none; }
+.notes ul:last-child { margin-bottom: 4px; }
+.notes li {
+  position: relative;
+  margin: 0 0 7px;
+  padding-left: 16px;
+  color: #dcdce6;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.notes li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: .62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #0866ff);
+}
+
+.foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; margin-top: 12px; }
+.link {
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: #9d9db0;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.link:hover { color: #fff; text-decoration: underline; }
+.ok {
+  min-width: 96px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #8b5cf6, #0866ff);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ok:hover { filter: brightness(1.12); }
+.ok:focus-visible, .link:focus-visible, .x:focus-visible { outline: 2px solid #b9a4ff; outline-offset: 2px; }

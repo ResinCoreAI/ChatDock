@@ -236,6 +236,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         edgewin,
         toastwin,
         update_win: None,
+        whatsnew: Default::default(),
         ready: HashSet::new(),
         own_hwnds,
         panel_page_hwnds: Vec::new(),
@@ -322,9 +323,10 @@ impl Core {
         rt::after(60_000, sleep_tick);
         self.edge_tick_soon(500);
         self.init_updater();
-        if let Some(from) = self.detect_update() {
-            let _ = from;
-            timer(3500, |c| c.announce_updated()); // once the chats have started loading
+        // after an update: What's new, once ChatDock is up and the chats have started loading (the
+        // self-test shows it itself, where it can't get in the way)
+        if self.detect_update().is_some() && !self.args.selftest {
+            timer(2000, |c| c.announce_updated());
         }
         if !self.settings.bool("onboarded") {
             self.help_mode = true;

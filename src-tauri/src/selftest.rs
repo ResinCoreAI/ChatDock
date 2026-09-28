@@ -35,6 +35,9 @@ pub fn start() {
         } else if only.as_deref() == Some("fixes") {
             wait(9000); // the chats load
             fixes_test();
+        } else if only.as_deref() == Some("whatsnew") {
+            wait(3000);
+            whats_new_test();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -174,6 +177,9 @@ fn shot(name: &str) {
         }
         if c.update_win.as_ref().is_some_and(|w| win32::is_visible(w.hwnd)) {
             pages.push("update");
+        }
+        if c.whatsnew.win.as_ref().is_some_and(|w| win32::is_visible(w.hwnd)) {
+            pages.push("whatsnew");
         }
         let active = c.active();
         let view = (win32::is_visible(c.panel.hwnd) && c.chats.is_visible(&active)).then_some(active);
@@ -530,21 +536,124 @@ fn fixes_test() {
     log!("RAM after the fix checks: {} MB in {} processes", m.total, m.processes);
 
     // What's new is written for where the user comes from.
-    let firsts = on(|c| {
+    let lists = on(|c| {
         let now = rt::version();
         let mut out = Vec::new();
         for from in ["1.3.0", "1.5.0", "1.5.1"] {
             c.settings.set("whatsNew", json!({ "version": now, "from": from, "notes": "", "at": rt::epoch_ms() }));
-            let text = c.whats_new_state()["text"].as_str().unwrap_or("").to_string();
-            out.push(format!(
-                "from {from}: {} lines, first {:?}",
-                text.lines().count(),
-                text.lines().next().unwrap_or("").chars().take(40).collect::<String>()
-            ));
+            let versions: Vec<String> = c.whats_new_sections().into_iter().map(|(v, _)| v).collect();
+            out.push(format!("from {from}: {}", versions.join(" ")));
         }
         out
     });
-    log!("what's new {} (expect hold first / 1.5 fix first / this release first)", firsts.join(" | "));
+    log!("what's new {} (expect the hold (1.4.0) first, then newest first; 1.5.1 only from 1.5.0)", lists.join(" | "));
+}
+
+/// The What's new window after an update: what it lists for where the user came from, its size
+/// and place, what it looks like on the real screen, and its buttons. Never takes the keyboard.
+fn whats_new_test() {
+    let now = rt::version();
+    let cases = [
+        ("the last version", previous_release()),
+        ("1.5.0", "1.5.0".to_string()),
+        ("1.3.0 (Electron)", "1.3.0".to_string()),
+        ("older", "older".to_string()),
+        ("notes only", now.clone()),
+    ];
+    for (i, (name, from)) in cases.into_iter().enumerate() {
+        let (from2, now2) = (from.clone(), now.clone());
+        let fg = win32::foreground_window();
+        on(move |c| {
+            let notes = "### New\n- **First** point of the notes\n- Second point with `code`\n\n### Install\nRun it.";
+            c.settings.set("whatsNew", json!({ "version": now2, "from": from2, "notes": notes, "at": rt::epoch_ms() }));
+            c.announce_updated();
+        });
+        wait(2500);
+        let shot_name = format!("50-whats-new-{i}");
+        shot(&shot_name);
+        let (made, visible, rect, d) = on(|c| match c.whatsnew.win.as_ref() {
+            Some(w) => {
+                let r = win32::window_rect(w.hwnd);
+                (true, win32::is_visible(w.hwnd), r, c.display_at(r.x + r.w / 2, r.y + r.h / 2).map(|d| (d.id, d.work, d.ui)))
+            }
+            None => (false, false, win32::Rect::default(), None),
+        });
+        let page = page_js(
+            "whatsnew",
+            "JSON.stringify({ title: document.getElementById('title').textContent, route: document.getElementById('route').textContent, \
+             sections: [...document.querySelectorAll('.notes h3')].map(h => h.textContent), lines: document.querySelectorAll('.notes li').length, \
+             first: document.querySelector('.notes li')?.textContent.slice(0, 50), scrolls: document.getElementById('notes').scrollHeight > document.getElementById('notes').clientHeight + 1, \
+             lang: document.documentElement.lang, ok: document.getElementById('ok').textContent,              sizes: (() => { const c = document.querySelector('.card'), n = document.getElementById('notes');                const now = [innerWidth, innerHeight, devicePixelRatio, c.offsetHeight, n.clientHeight, n.scrollHeight, n.offsetWidth - n.clientWidth];                c.classList.add('measure'); const m = [c.offsetHeight, n.offsetHeight, n.scrollHeight]; c.classList.remove('measure'); return now.concat(m); })() })",
+        );
+        let centred = d.as_ref().is_some_and(|(_, work, _)| {
+            ((rect.x + rect.w / 2) - (work.x + work.w / 2)).abs() <= 2 && ((rect.y + rect.h / 2) - (work.y + work.h / 2)).abs() <= 2
+        });
+        let now_fg = win32::foreground_window();
+        let keyboard = if now_fg == fg {
+            "kept".to_string()
+        } else if on(move |c| c.whatsnew.win.as_ref().is_some_and(|w| w.hwnd == now_fg)) {
+            "TAKEN by What's new".to_string()
+        } else {
+            format!("moved to {} (not us)", win32::process_name(now_fg))
+        };
+        log!(
+            "what's new from {name} ({from}): made {made} | visible {visible} | {} x {} on {:?} | centred {centred} | keyboard {keyboard} | {page}",
+            rect.w,
+            rect.h,
+            d.as_ref().map(|(id, _, ui)| format!("{id} ui {ui:.2}")),
+        );
+        let (blank, _) = screen_grab(&shot_name, rect, (24, 25, 34));
+        log!("what's new on screen: card colour {blank}% of the window (expect most of it; 0 = covered or not drawn)");
+        let button = if i == 1 { "#x" } else { "#ok" };
+        let clicked = js_click("whatsnew", button);
+        wait(700);
+        log!("closed with {button} (clicked {clicked}): gone {} (expect true)", on(|c| c.whatsnew.win.is_none()));
+    }
+    // too much to fit: the list scrolls inside a window that stays on the screen
+    let tall = on(|c| {
+        let lines: Vec<String> = (1..=60).map(|n| format!("- Point number {n} of a very long list of changes")).collect();
+        c.settings
+            .set("whatsNew", json!({ "version": rt::version(), "from": rt::version(), "notes": lines.join("\n"), "at": rt::epoch_ms() }));
+        c.announce_updated();
+        c.whats_new_sections().first().map(|s| s.1.len()).unwrap_or(0)
+    });
+    wait(2500);
+    let fits = page_js("whatsnew", "document.getElementById('notes').scrollHeight <= document.getElementById('notes').clientHeight + 1");
+    // a list taller than the screen: the page asks for more than there is
+    on(|c| c.whats_new_size(5000.0));
+    wait(500);
+    let (rect, work) = on(|c| {
+        let r = c.whatsnew.win.as_ref().map(|w| win32::window_rect(w.hwnd)).unwrap_or_default();
+        (r, c.display_at(r.x + r.w / 2, r.y + r.h / 2).map(|d| d.work).unwrap_or_default())
+    });
+    let clamped = rect.y >= work.y && rect.y + rect.h <= work.y + work.h && rect.h <= work.h * 85 / 100 + 1;
+    // and a window too short for its list: it scrolls
+    on(|c| c.whats_new_size(200.0));
+    wait(500);
+    log!(
+        "long list ({tall} points, the notes keep 12): fits without scrolling {fits} | asked for 5000 px: {} x {} in a work area {} high, inside it and at most 85% {clamped} | asked for 200 px: scrolls {} (expect 12, true, true, true)",
+        rect.w,
+        rect.h,
+        work.h,
+        page_js("whatsnew", "document.getElementById('notes').scrollHeight > document.getElementById('notes').clientHeight")
+    );
+    shot("51-whats-new-long");
+    // Esc (the page's own key handler; a real key press would need the keyboard)
+    page_js("whatsnew", "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); true");
+    wait(700);
+    log!("Esc: closed {} (expect true)", on(|c| c.whatsnew.win.is_none()));
+}
+
+/// The newest release before the running one that has a What's new text (updating from it lists
+/// just this release).
+fn previous_release() -> String {
+    let now = rt::version();
+    i18n::news_keys()
+        .into_iter()
+        .map(|(v, _)| v)
+        .filter(|v| crate::core::version_less(v, &now))
+        .max_by_key(|v| crate::core::version_parts(v))
+        .unwrap_or(now)
 }
 
 fn toasts_snapshot() -> String {
@@ -1167,7 +1276,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.5.2, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.5.3, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")
@@ -1190,20 +1299,23 @@ fn full_test() {
         c.settings.set("whatsNew", json!({ "version": rt::version(), "from": "1.4.0", "notes": "", "at": rt::epoch_ms() }));
         c.announce_updated();
     });
-    wait(900);
-    shot("31-updated-popup");
+    wait(2500);
+    shot("31-whats-new-window");
     log!(
-        "updated pop-up: {}",
+        "what's new window: visible {} | {}",
+        on(|c| c.whatsnew.win.as_ref().is_some_and(|w| win32::is_visible(w.hwnd))),
         page_js(
-            "toasts",
-            "JSON.stringify([document.querySelector('.card .title')?.textContent, document.querySelector('.card .body')?.textContent])"
+            "whatsnew",
+            "JSON.stringify([document.getElementById('title').textContent, document.getElementById('route').textContent, [...document.querySelectorAll('.notes h3')].map(h => h.textContent)])"
         )
     );
-    let clicked = js_click("toasts", ".card");
+    let clicked = js_click("whatsnew", "#ok");
+    wait(700);
+    log!("what's new closed with Got it (clicked {clicked}): {} (expect true)", on(|c| c.whatsnew.win.is_none()));
+    on(|c| c.open_settings("updates", "selftest"));
     wait(1500);
     log!(
-        "after clicking it (clicked {clicked}): settings {} | notes box {} (expect true, [true, what's new…])",
-        on(|c| c.settings_mode),
+        "settings, Updates: notes box {} (expect [true, what's new…])",
         page_js(
             "panel",
             "JSON.stringify([!document.querySelector('.uc-notes').hidden, document.querySelector('[data-text=notesTitle]').textContent])"

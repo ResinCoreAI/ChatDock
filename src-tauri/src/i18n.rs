@@ -72,6 +72,23 @@ pub fn build_name(lang: &str, version: &str) -> String {
     }
 }
 
+/// The releases with a What's new text of their own ("whatsnew.1.5.2", "whatsnew.1.4" = 1.4.0):
+/// (version, key) pairs, in no particular order.
+pub fn news_keys() -> Vec<(String, String)> {
+    let Some(en) = strings().get("en").and_then(Value::as_object) else { return Vec::new() };
+    en.keys()
+        .filter_map(|key| {
+            let n = key.strip_prefix("whatsnew.")?;
+            let parts: Vec<&str> = n.split('.').collect();
+            let numeric = parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+            if !numeric || !(2..=3).contains(&parts.len()) {
+                return None;
+            }
+            Some((if parts.len() == 2 { format!("{n}.0") } else { n.to_string() }, key.clone()))
+        })
+        .collect()
+}
+
 /// The page-side locale for a language (dates, numbers).
 pub fn locale(lang: &str) -> &'static str {
     match lang {
