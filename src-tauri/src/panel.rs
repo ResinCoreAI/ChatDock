@@ -281,6 +281,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         update_announced: String::new(),
         pending_update_to: String::new(),
         hotkey_ok: false,
+        hotkeys: Vec::new(),
         autostart_cache: false,
         dnd_timer: 0,
         save_timer: 0,

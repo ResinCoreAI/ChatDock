@@ -213,6 +213,8 @@ pub struct Core {
     pub update_announced: String,
     pub pending_update_to: String,
     pub hotkey_ok: bool,
+    /// the global hotkeys registered right now: (shortcut id, what it does)
+    pub hotkeys: Vec<(u32, &'static str)>,
     pub autostart_cache: bool,
     pub dnd_timer: u64,
     pub save_timer: u64,
@@ -347,7 +349,12 @@ impl Core {
     }
 
     pub fn is_ours(&self, hwnd: isize) -> bool {
-        hwnd != 0 && (self.own_hwnds.contains(&hwnd) || self.own_hwnds.contains(&win32::root_owner(hwnd)))
+        hwnd != 0
+            && (self.own_hwnds.contains(&hwnd)
+                || self.own_hwnds.contains(&win32::root_owner(hwnd))
+                // the chats' own WebView2 windows, e.g. the "… is sharing your screen" bar that takes
+                // the focus when a screen share starts: the chat must not hide for it
+                || (chats::browser_pid() != 0 && win32::window_pid(hwnd) == chats::browser_pid()))
     }
 
     // -----------------------------------------------------------------------------------------
@@ -646,6 +653,8 @@ impl Core {
             "seam": seam,
             "hotkeys": HOTKEYS.iter().map(|(acc, label)| json!({ "acc": acc, "label": label.replace("Ctrl", &self.t("key.ctrl")) })).collect::<Vec<_>>(),
             "hotkeyOk": self.hotkey_ok,
+            "voiceKeys": VOICE_KEYS.iter().map(|(acc, label)| json!({ "acc": acc, "label": label.replace("Ctrl", &self.t("key.ctrl")) })).collect::<Vec<_>>(),
+            "discord": self.discord_state(),
             "dndUntil": self.settings.get("dndUntil"),
             "update": self.update_state_json(),
             "version": version,
@@ -688,6 +697,12 @@ impl Core {
             "edgeHold" => num_in(&[0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]),
             "displayId" => v.as_str().is_some_and(|s| s == "auto" || win32::displays().iter().any(|d| d.key == s || d.id == s)),
             "popupDisplay" => one_of(&["chat", "mouse", "main"]),
+            // a voice key from the list, not one of the other hotkeys
+            "discordMuteKey" | "discordDeafenKey" => v.as_str().is_some_and(|s| {
+                let other = if key == "discordMuteKey" { "discordDeafenKey" } else { "discordMuteKey" };
+                s.is_empty()
+                    || (VOICE_KEYS.iter().any(|(a, _)| *a == s) && s != self.settings.str("hotkey") && s != self.settings.str(other))
+            }),
             "theme" => one_of(&["system", "dark", "light"]),
             "opacity" => v.as_f64().is_some_and(|n| (0.6..=1.0).contains(&n)),
             "hotkey" => v.as_str().is_some_and(|s| s.is_empty() || HOTKEYS.iter().any(|(a, _)| *a == s)),
@@ -696,6 +711,7 @@ impl Core {
             "popupMax" => num_in(&[1.0, 2.0, 3.0, 4.0, 5.0]),
             "glow"
             | "edgeWheel"
+            | "discordDms"
             | "pinned"
             | "muted"
             | "autostart"
@@ -776,8 +792,8 @@ impl Core {
                     self.apply_audio(id);
                 }
             }
-            "hotkey" => {
-                self.set_setting("hotkey", value);
+            "hotkey" | "discordMuteKey" | "discordDeafenKey" => {
+                self.set_setting(key, value);
                 self.register_hotkey();
             }
             "autostart" => self.set_open_at_login(value.as_bool().unwrap_or(false)),
@@ -805,6 +821,11 @@ impl Core {
         true
     }
 
+    /// The self-test's way to a settings action.
+    pub fn settings_action_test(&mut self, name: &str, arg: Value) {
+        self.settings_action(name, arg);
+    }
+
     fn settings_action(&mut self, name: &str, arg: Value) {
         match name {
             "close" => self.close_settings(),
@@ -827,6 +848,16 @@ impl Core {
             "reset-widths" => {
                 self.set_setting("widths", json!({}));
                 self.fit_panel_to_app();
+            }
+            "discord-server" => {
+                // {name, on}: that server's pop-ups on this PC
+                let name = arg.get("name").and_then(Value::as_str).unwrap_or("");
+                if let Some(on) = arg.get("on").and_then(Value::as_bool).filter(|_| self.settings.get("discordServers").get(name).is_some())
+                {
+                    self.settings.set_in("discordServers", name, json!(on));
+                    self.save_soon();
+                    self.broadcast_state();
+                }
             }
             "identify" => self.identify_all(),
             "identify-hover" => {
@@ -874,6 +905,9 @@ impl Core {
             }
         }
         log!("app {id} {} {:?}", if on { "on" } else { "off" }, self.enabled_apps());
+        if id == "discord" {
+            self.register_hotkey(); // its voice keys come and go with it
+        }
         if self.edge.tab_shown {
             let cy = self.edge.tab_center_y;
             self.place_tab(cy); // the tab grows / shrinks with the number of apps
@@ -942,7 +976,7 @@ impl Core {
             if *self.asleep.get(id).unwrap_or(&false) || !self.chats.has(id) || !self.sleep_eligible(id) {
                 continue;
             }
-            if (showing && active == id) || self.chats.playing_audio(id) || self.chats.popups_open(id) > 0 {
+            if (showing && active == id) || self.chats.playing_audio(id) || self.chats.in_call(id) || self.chats.popups_open(id) > 0 {
                 self.last_used.insert(id.to_string(), now); // on screen, playing sound, or in a call
                 continue;
             }
@@ -950,6 +984,17 @@ impl Core {
                 self.sleep_app(id);
             }
         }
+    }
+
+    /// A call (a voice channel, a screen share) started or ended in an app's page. During one the
+    /// app stays awake and keeps its memory, even when nobody talks.
+    pub fn on_call(&mut self, id: &str, on: bool) {
+        if self.chats.in_call(id) == on {
+            return;
+        }
+        self.chats.set_in_call(id, on);
+        self.last_used.insert(id.to_string(), rt::epoch_ms());
+        log!("call {id} {}", if on { "started" } else { "ended" });
     }
 
     pub fn apply_audio(&mut self, id: &str) {
@@ -1112,21 +1157,92 @@ impl Core {
     /// A site raised a web notification (WebView2 NotificationReceived): who wrote, what, and their picture.
     pub fn on_site_notification(&mut self, id: &str, key: u64, title: &str, body: &str, icon: &str, tag: &str) {
         self.last_content_at.insert(id.to_string(), rt::epoch_ms());
-        log!("site notification {id} {{\"title\":{},\"body\":{}}}", title.chars().count(), body.chars().count());
+        let mut title = clean_text(title, 90);
+        let mut meta = String::new();
+        // Discord says where a message is: "Name (#channel, Server)", or just "Name" for a direct
+        // message. The pop-up shows the server and channel; a server's pop-ups can be switched off
+        // here without touching Discord's own settings (those are the same on the phone).
+        let place = if id == "discord" { discord_place(&title) } else { None };
+        log!(
+            "site notification {id} {{\"title\":{},\"body\":{}{}}}",
+            title.chars().count(),
+            body.chars().count(),
+            if id != "discord" {
+                ""
+            } else if place.is_some() {
+                ",\"from\":\"server\""
+            } else {
+                ",\"from\":\"direct\""
+            }
+        );
+        if id == "discord" {
+            match &place {
+                Some((_, _, server)) => {
+                    self.note_discord_server(server);
+                    if !self.discord_server_on(server) {
+                        return;
+                    }
+                }
+                None if !self.settings.bool("discordDms") => return,
+                None => {}
+            }
+        }
+        if let Some((who, channel, server)) = place {
+            title = who;
+            meta = format!("{server} · {channel}");
+        }
         if !self.popup_allowed(Some(id)) || self.app_on_screen(id) {
             return;
         }
         let a = apps::get(id).unwrap();
         let show_text = self.settings.bool("popupText") && self.settings.app_pref(id, "preview");
-        let title = clean_text(title, 90);
         let fields = toasts::Fields {
             title: if title.is_empty() { a.name.to_string() } else { title },
             body: if show_text { clean_text(body, 300) } else { self.t("toast.sentYou") },
             icon: if self.settings.bool("popupAvatar") { safe_icon(icon) } else { String::new() },
             tag: if tag.is_empty() { String::new() } else { format!("{id}:{}", clean_text(tag, 80)) },
             source: key,
+            meta,
         };
         self.popup(id, fields);
+    }
+
+    /// Settings' Discord page: is it on, the servers seen in its notifications (A-Z), and whether
+    /// the voice keys work (another program can hold a key).
+    fn discord_state(&self) -> Value {
+        let mut servers: Vec<(String, bool)> = self
+            .settings
+            .get("discordServers")
+            .as_object()
+            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(true))).collect())
+            .unwrap_or_default();
+        servers.sort_by_key(|(name, _)| name.to_lowercase());
+        let registered = |action: &str, key: &str| self.settings.str(key).is_empty() || self.hotkeys.iter().any(|(_, a)| *a == action);
+        json!({
+            "on": self.is_enabled("discord"),
+            "servers": servers.iter().map(|(name, on)| json!({ "name": name, "on": on })).collect::<Vec<_>>(),
+            "muteOk": registered("discord-mute", "discordMuteKey"),
+            "deafenOk": registered("discord-deafen", "discordDeafenKey"),
+        })
+    }
+
+    /// A Discord server seen in a notification: listed in Settings (pop-ups on at first).
+    fn note_discord_server(&mut self, server: &str) {
+        if server.is_empty() || self.settings.get("discordServers").get(server).is_some() {
+            return;
+        }
+        if self.settings.get("discordServers").as_object().is_some_and(|m| m.len() >= 200) {
+            return; // enough to choose from
+        }
+        self.settings.set_in("discordServers", server, json!(true));
+        self.save_soon();
+        if self.settings_mode {
+            self.broadcast_state();
+        }
+    }
+
+    fn discord_server_on(&self, server: &str) -> bool {
+        self.settings.get("discordServers").get(server).and_then(Value::as_bool).unwrap_or(true)
     }
 
     /// The unread count went up. If the site didn't say who wrote, still pop something up.
@@ -1155,6 +1271,7 @@ impl Core {
                 icon: String::new(),
                 tag: format!("{app}:count"), // one "new messages" card per app, updated in place
                 source: 0,
+                meta: String::new(),
             };
             c.popup(&app, fields);
         });
@@ -1170,6 +1287,7 @@ impl Core {
             icon: if self.settings.bool("popupAvatar") { avatar } else { String::new() },
             tag: "test".into(),
             source: 0,
+            meta: String::new(),
         };
         self.popup(&id, fields);
     }
@@ -1311,7 +1429,15 @@ impl Core {
 
     pub fn register_hotkey(&mut self) {
         let acc = self.settings.str("hotkey").to_string();
-        self.hotkey_ok = tray::register_hotkey(&acc);
+        let discord = self.is_enabled("discord");
+        let keys = [
+            ("panel", acc.clone()),
+            ("discord-mute", if discord { self.settings.str("discordMuteKey").to_string() } else { String::new() }),
+            ("discord-deafen", if discord { self.settings.str("discordDeafenKey").to_string() } else { String::new() }),
+        ];
+        self.hotkeys = tray::register_hotkeys(&keys);
+        self.hotkey_ok = self.hotkeys.iter().any(|(_, a)| *a == "panel");
+        log!("hotkeys {:?}", self.hotkeys.iter().map(|(_, a)| *a).collect::<Vec<_>>());
         log!(
             "hotkey {acc} {}",
             if self.hotkey_ok {
@@ -1327,6 +1453,72 @@ impl Core {
             let title = self.t("balloon.hotkeyTitle");
             self.notice(&title, &body);
         }
+    }
+
+    /// A global hotkey was pressed (its shortcut id).
+    pub fn on_shortcut(&mut self, id: u32) {
+        match self.hotkeys.iter().find(|(k, _)| *k == id).map(|(_, a)| *a) {
+            Some("panel") => self.on_hotkey(),
+            Some("discord-mute") => self.discord_voice(0),
+            Some("discord-deafen") => self.discord_voice(1),
+            _ => {}
+        }
+    }
+
+    /// Mute / deafen in Discord from anywhere, a game included, like the Discord app's own keys:
+    /// presses Discord's own switch in its page (0 = the mic, 1 = the sound), then says how it is
+    /// now in a short pop-up.
+    pub fn discord_voice(&mut self, which: usize) {
+        if !self.chats.has("discord") {
+            let title = self.t("dc.notOpen");
+            self.notice_brief(&title, "", 2500);
+            return;
+        }
+        // Discord's user panel (bottom left): its first two switches are the mic and the sound.
+        let js = format!(
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[{which}]; \
+             if (!b) return 'none'; b.click(); return 'clicked'; }})()"
+        );
+        self.chats.execute("discord", &js, move |r| {
+            if r.contains("none") {
+                later(move |c| c.discord_voice_keys(which)); // no switch found: Discord's own keys
+                return;
+            }
+            timer(250, move |c| c.discord_voice_said(which));
+        });
+    }
+
+    /// Discord's own shortcuts (Ctrl+Shift+M, Ctrl+Shift+D), typed into its page.
+    fn discord_voice_keys(&mut self, which: usize) {
+        let (key, code, vk) = if which == 0 { ("M", "KeyM", 77) } else { ("D", "KeyD", 68) };
+        for kind in ["rawKeyDown", "keyUp"] {
+            let params = json!({ "type": kind, "modifiers": 2 | 8, "key": key, "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk });
+            self.chats.cdp("discord", "Input.dispatchKeyEvent", &params.to_string(), |_| {});
+        }
+        log!("discord voice key {which}: no switch found, sent Discord's shortcut");
+        let title = self.t(if which == 0 { "dc.muteToggled" } else { "dc.deafenToggled" });
+        self.notice_brief(&title, "", 1800);
+    }
+
+    fn discord_voice_said(&mut self, which: usize) {
+        let js = format!(
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[{which}]; \
+             return b ? b.getAttribute('aria-checked') : 'none'; }})()"
+        );
+        self.chats.execute("discord", &js, move |r| {
+            let on = r.contains("true");
+            later(move |c| {
+                let key = match (which, on) {
+                    (0, true) => "dc.muted",
+                    (0, false) => "dc.unmuted",
+                    (_, true) => "dc.deafened",
+                    (_, false) => "dc.undeafened",
+                };
+                log!("discord voice {key}");
+                let title = c.t(key);
+                c.notice_brief(&title, "", 1800);
+            });
+        });
     }
 
     pub fn on_hotkey(&mut self) {
@@ -1407,7 +1599,17 @@ impl Core {
     }
 }
 
-pub const PREF_KEYS: [&str; 25] = [
+/// Keys for Discord's mute / deafen (the panel's hotkeys are in HOTKEYS).
+pub const VOICE_KEYS: [(&str, &str); 6] = [
+    ("Control+Alt+M", "Ctrl + Alt + M"),
+    ("Control+Alt+D", "Ctrl + Alt + D"),
+    ("Control+Alt+Shift+M", "Ctrl + Alt + Shift + M"),
+    ("Control+Alt+Shift+D", "Ctrl + Alt + Shift + D"),
+    ("Alt+F9", "Alt + F9"),
+    ("Alt+F10", "Alt + F10"),
+];
+
+pub const PREF_KEYS: [&str; 28] = [
     "lang",
     "side",
     "edgeMode",
@@ -1431,6 +1633,9 @@ pub const PREF_KEYS: [&str; 25] = [
     "popupMax",
     "popupQuietFullscreen",
     "popupDisplay",
+    "discordDms",
+    "discordMuteKey",
+    "discordDeafenKey",
     "updateAutoCheck",
     "updateAutoDownload",
 ];
@@ -1454,6 +1659,21 @@ fn note_lines(notes: &str) -> Vec<String> {
         .filter(|l| !l.is_empty())
         .take(12)
         .collect()
+}
+
+/// Where a Discord notification's message is: "Name (#channel, Server)" -> (name, "#channel",
+/// server). None for a direct message ("Name") or a group ("Name (Group)").
+pub fn discord_place(title: &str) -> Option<(String, String, String)> {
+    let t = title.trim();
+    let inner = t.strip_suffix(')')?;
+    let open = inner.find(" (#")?;
+    let (who, rest) = (inner[..open].trim(), &inner[open + 2..]);
+    let (channel, server) = rest.split_once(", ")?;
+    let (channel, server) = (channel.trim(), server.trim());
+    if who.is_empty() || channel.len() < 2 || server.is_empty() {
+        return None;
+    }
+    Some((who.to_string(), channel.to_string(), server.to_string()))
 }
 
 /// "(3) Instagram" -> Some(3); no count in front -> None

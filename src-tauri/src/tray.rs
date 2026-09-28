@@ -286,18 +286,25 @@ impl Core {
     }
 }
 
-/// The global hotkey that opens / hides the panel ("" = none). False if another app holds it.
-pub fn register_hotkey(acc: &str) -> bool {
+/// The global hotkeys: (what it does, accelerator); "" = none. Gives back, for each one registered,
+/// its shortcut id and what it does; one another app holds is left out (and logged).
+pub fn register_hotkeys(keys: &[(&'static str, String)]) -> Vec<(u32, &'static str)> {
+    use tauri_plugin_global_shortcut::Shortcut;
     let gs = rt::app().global_shortcut();
     let _ = gs.unregister_all();
-    if acc.is_empty() {
-        return false;
-    }
-    match gs.register(acc) {
-        Ok(()) => true,
-        Err(err) => {
-            log!("hotkey {acc}: {err}");
-            false
+    let mut out = Vec::new();
+    for (action, acc) in keys {
+        if acc.is_empty() {
+            continue;
+        }
+        let Ok(shortcut) = acc.parse::<Shortcut>() else {
+            log!("hotkey {acc}: not a shortcut");
+            continue;
+        };
+        match gs.register(shortcut) {
+            Ok(()) => out.push((shortcut.id(), *action)),
+            Err(err) => log!("hotkey {acc}: {err}"),
         }
     }
+    out
 }

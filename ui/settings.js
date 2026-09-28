@@ -66,6 +66,10 @@
       chatdock.send('settings:app', node.dataset.appToggle, node.checked);
       return;
     }
+    if (node.dataset.dcServer !== undefined) {
+      chatdock.send('settings:action', 'discord-server', { name: node.dataset.dcServer, on: node.checked });
+      return;
+    }
     if (node.dataset.appPref && row) {
       chatdock.send('settings:app-pref', row.dataset.app, node.dataset.appPref, node.checked);
       return;
@@ -166,6 +170,7 @@
     const out = [];
     for (const p of qa('.set-page')) {
       if (p.dataset.page === 'home') continue;
+      if (p.dataset.page === 'discord' && !(st && st.discord.on)) continue; // its page is only there while it is on
       const where = pageTitle(p.dataset.page);
       const pageEn = window.i18n.lang !== 'en' ? window.CHATDOCK_I18N.STRINGS.en[p.dataset.title] || '' : '';
       out.push({ page: p.dataset.page, where: t('set.title'), title: where, desc: '', alt: pageEn, node: null });
@@ -256,6 +261,52 @@
     sel.textContent = '';
     for (const h of st.hotkeys) sel.append(new Option(h.label, h.acc));
     sel.append(new Option(t('set.hotkeyNone'), ''));
+  }
+
+  // ---------------------------------------------------------------- Discord
+  let voiceKey = '';
+  let serversKey = '';
+
+  function renderDiscord() {
+    const dc = st.discord;
+    for (const node of qa('[data-show="discord"]')) node.hidden = !dc.on;
+    const vk = `${window.i18n.lang}|${st.voiceKeys.map((k) => k.label).join('|')}`;
+    if (vk !== voiceKey) {
+      voiceKey = vk;
+      for (const sel of qa('[data-voice-keys]')) {
+        sel.textContent = '';
+        sel.append(new Option(t('set.hotkeyNone'), ''));
+        for (const k of st.voiceKeys) sel.append(new Option(k.label, k.acc));
+      }
+    }
+    const note = (key, ok) => (!st.prefs[key] ? [t('dc.keyOff'), ''] : ok ? [t('dc.keyNote'), ''] : [t('dc.keyTaken'), 'warn']);
+    const [mute, muteCls] = note('discordMuteKey', dc.muteOk);
+    const [deafen, deafenCls] = note('discordDeafenKey', dc.deafenOk);
+    setText('dcMuteNote', mute, muteCls);
+    setText('dcDeafenNote', deafen, deafenCls);
+
+    const box = q('[data-dc-servers]');
+    const sk = JSON.stringify([dc.servers.map((s) => s.name), window.i18n.lang]);
+    if (sk !== serversKey) {
+      serversKey = sk;
+      box.textContent = '';
+      if (!dc.servers.length) box.append(el('p', 'dc-empty', t('dc.noServers')));
+      for (const s of dc.servers) {
+        const row = el('div', 'row dc-server');
+        const label = el('div', 'label');
+        label.append(el('b', '', s.name));
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.dataset.dcServer = s.name;
+        input.setAttribute('aria-label', s.name);
+        row.append(label, switchFor(input));
+        box.append(row);
+      }
+    }
+    for (const input of box.querySelectorAll('input[data-dc-server]')) {
+      const s = dc.servers.find((x) => x.name === input.dataset.dcServer);
+      if (s) input.checked = s.on;
+    }
   }
 
   // ---------------------------------------------------------------- monitors
@@ -622,6 +673,9 @@
 
     sub('popups', !p.popups ? t('s.popupsOff') : dndOn() ? t('set.dnd') : t('s.popupsOn', { corner: t(CORNERS[p.popupPosition] || 'corner.tr') }));
     sub('security', t(st.cookieEncryption ? 's.secOk' : 's.secDev'));
+    const vkLabel = (acc) => (st.voiceKeys.find((k) => k.acc === acc) || {}).label;
+    const keys = [vkLabel(p.discordMuteKey), vkLabel(p.discordDeafenKey)].filter(Boolean).join(', ');
+    sub('discord', [keys || t('s.dcNoKeys'), st.discord.servers.length ? t('s.dcServers', { n: st.discord.servers.length }) : ''].filter(Boolean).join(' · '));
 
     const u = st.update;
     let upd = st.build;
@@ -636,6 +690,7 @@
 
   function render() {
     renderHotkeys();
+    renderDiscord(); // fills its key lists before renderPrefs picks the chosen ones
     renderApps();
     renderPrefs(st.prefs);
     renderNotes();

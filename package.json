@@ -1,7 +1,7 @@
 {
   "name": "chatdock",
   "productName": "ChatDock",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Instagram, Facebook, X and Discord chats docked on the edge of your screen, always on top of your games.",
   "private": true,
   "license": "MIT",

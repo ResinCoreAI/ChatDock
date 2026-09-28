@@ -44,6 +44,10 @@ pub fn start() {
         } else if only.as_deref() == Some("counts") {
             wait(3000);
             counts_test();
+        } else if only.as_deref() == Some("share") {
+            share_test();
+        } else if only.as_deref() == Some("discord") {
+            discord_test();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -1032,6 +1036,318 @@ fn counts_test() {
     wait(3300);
 }
 
+/// Discord extras: where a notification is from, per-server pop-ups, and the voice keys (a real
+/// global hotkey through Windows, pressing a stand-in for Discord's mute switch in the page).
+/// Never takes the keyboard.
+fn discord_test() {
+    wait(7000); // the pages load
+    let samples = ["Alice (#general, My Server)", "Bob (#off-topic, Gamers, Inc.)", "Carol", "Dave (Weekend squad)", "Eve (#, X)"];
+    let parsed: Vec<String> = samples.iter().map(|t| format!("{t:?} -> {:?}", crate::core::discord_place(t))).collect();
+    log!("discord titles: {}", parsed.join(" | "));
+
+    // a server message: a pop-up saying where, the server listed (on)
+    let popups_were = on(|c| c.settings.get("popups").clone());
+    on(|c| {
+        c.settings.set("popups", json!(true));
+        c.settings.set("discordServers", json!({}));
+        c.toasts_dismiss_all();
+        c.on_site_notification("discord", 0, "Alice (#general, My Server)", "gg", "", "t1");
+    });
+    wait(900);
+    let card = page_js(
+        "toasts",
+        "JSON.stringify([document.querySelector('.card .meta')?.textContent, document.querySelector('.card .title')?.textContent])",
+    );
+    let listed = on(|c| c.settings.get("discordServers").clone());
+    // that server switched off: nothing pops up; a direct message still does
+    on(|c| {
+        c.toasts_dismiss_all();
+        c.settings_action_test("discord-server", json!({ "name": "My Server", "on": false }));
+        c.on_site_notification("discord", 0, "Alice (#general, My Server)", "gg again", "", "t2");
+    });
+    wait(700);
+    let off = on(|c| c.toasts_count());
+    on(|c| c.on_site_notification("discord", 0, "Carol", "hi", "", "t3"));
+    wait(700);
+    let dm = on(|c| c.toasts_count());
+    log!("discord pop-ups: card {card} | servers {listed} | server switched off: pop-ups {off} | a direct message: pop-ups {dm} (expect [\"Discord · My Server · #general\",\"Alice\"], {{\"My Server\":true}}, 0, 1)");
+    on(move |c| {
+        c.toasts_dismiss_all();
+        c.settings.set("popups", popups_were);
+    });
+
+    // voice keys: a stand-in for Discord's user panel (its mic and sound switches), then the real
+    // global hotkey through Windows
+    view_js(
+        "discord",
+        "(() => { const s = document.createElement('section'); s.className = 'panels_test'; \
+         for (let i = 0; i < 2; i++) { const b = document.createElement('button'); b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', 'false'); \
+         b.onclick = () => b.setAttribute('aria-checked', b.getAttribute('aria-checked') === 'true' ? 'false' : 'true'); s.append(b); } \
+         document.body.append(s); return 1; })()",
+    );
+    let registered = on(|c| {
+        c.set_pref("discordMuteKey", json!("Control+Alt+Shift+M"));
+        c.hotkeys.iter().any(|(_, a)| *a == "discord-mute")
+    });
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
+    };
+    let key = |vk: VIRTUAL_KEY, up: bool| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT { wVk: vk, dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() }, ..Default::default() },
+        },
+    };
+    let m = VIRTUAL_KEY(0x4D);
+    let seq = [
+        key(VK_CONTROL, false),
+        key(VK_MENU, false),
+        key(VK_SHIFT, false),
+        key(m, false),
+        key(m, true),
+        key(VK_SHIFT, true),
+        key(VK_MENU, true),
+        key(VK_CONTROL, true),
+    ];
+    let sent = unsafe { SendInput(&seq, std::mem::size_of::<INPUT>() as i32) };
+    wait(1200);
+    let state = view_js("discord", "JSON.stringify([...document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]')].map(b => b.getAttribute('aria-checked')))");
+    let said = page_js("toasts", "document.querySelector('.card .title')?.textContent || ''");
+    shot("80-voice-key");
+    log!("discord voice key: registered {registered} | sent {sent} | switches now {state} | pop-up says {said} (expect true, 8, [\"true\",\"false\"], the mic is off)");
+    on(|c| {
+        c.set_pref("discordMuteKey", json!(""));
+        c.toasts_dismiss_all();
+        c.on_site_notification("discord", 0, "Bob (#off-topic, Gamers, Inc.)", "hey", "", "t4"); // a second server for the page
+        c.toasts_dismiss_all();
+    });
+
+    // the settings page (dark and light), off screen and never activated
+    on(|c| {
+        c.settings_mode = true;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+        c.emit("panel", "settings:goto", json!(["discord"]));
+    });
+    wait(1500);
+    for theme in ["dark", "light"] {
+        on(move |c| {
+            c.settings.set("theme", json!(theme));
+            c.apply_theme();
+        });
+        wait(700);
+        shot(&format!("81-discord-{theme}"));
+    }
+    log!(
+        "discord page: {}",
+        page_js("panel", "JSON.stringify({ shown: !document.querySelector('.set-page[data-page=discord]').hidden, servers: [...document.querySelectorAll('.dc-server b')].map(b => b.textContent), keys: document.querySelectorAll('[data-voice-keys] option').length })")
+    );
+    on(|c| {
+        c.settings.set("theme", json!("system"));
+        c.apply_theme();
+        c.settings_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+
+    // A call keeps Discord awake and its memory up, even when nobody talks: a real WebRTC call in
+    // the page (two connections talking to each other; no mic, camera or screen)
+    let (active_was, sleep_was) = on(|c| {
+        let was = (c.active(), c.settings.app_pref("discord", "sleep"));
+        c.set_active("instagram", false); // Discord out of sight and not the app in use
+        was
+    });
+    let start_call = "(() => { const a = new RTCPeerConnection(), b = new RTCPeerConnection(); \
+         a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate); \
+         b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate); \
+         a.addTransceiver('audio'); \
+         (async () => { await a.setLocalDescription(); await b.setRemoteDescription(a.localDescription); \
+         await b.setLocalDescription(); await a.setRemoteDescription(b.localDescription); })(); \
+         window.__testCall = [a, b]; return 1; })()";
+    let wait_call = |want: bool| {
+        for _ in 0..40 {
+            if on(|c| c.chats.in_call("discord")) == want {
+                return true;
+            }
+            wait(250);
+        }
+        false
+    };
+    let low_before = on(|c| c.chats.memory_low("discord"));
+    view_js("discord", start_call);
+    let started = wait_call(true);
+    let states = view_js("discord", "JSON.stringify(window.__testCall.map((p) => p.connectionState))");
+    let during = on(|c| {
+        c.set_app_pref("discord", "sleep", true);
+        c.last_used.insert("discord".into(), 0);
+        c.sleep_check();
+        (c.chats.memory_low("discord"), c.asleep.get("discord").copied().unwrap_or(false))
+    });
+    view_js("discord", "window.__testCall.forEach((p) => p.close()), 1");
+    let hung_up = wait_call(false);
+    let low_after = on(|c| c.chats.memory_low("discord"));
+    // a call, then the page reloads: the call ended with the old page
+    view_js("discord", start_call);
+    let again = wait_call(true);
+    view_js("discord", "location.reload(), 1");
+    let reloaded = wait_call(false);
+    let slept = on(|c| {
+        c.last_used.insert("discord".into(), 0);
+        c.sleep_check();
+        c.asleep.get("discord").copied().unwrap_or(false)
+    });
+    on(move |c| {
+        c.set_app_pref("discord", "sleep", sleep_was); // (wakes it)
+        c.set_active(&active_was, false);
+    });
+    log!(
+        "discord call: memory low before {low_before} | call seen {started} {states} | during: memory low, asleep {during:?} | hung up {hung_up}, memory low {low_after} | again {again}, after a reload {reloaded} | then asleep {slept} (expect true, true [connected x2], (false, false), true, true, true, true, true)"
+    );
+}
+
+/// A DevTools protocol call in an app's page; its JSON answer.
+fn cdp_call(id: &'static str, method: &'static str, params: String) -> String {
+    let (tx, rx) = mpsc::channel::<String>();
+    later(move |c| {
+        c.chats.cdp(id, method, &params, move |r| {
+            let _ = tx.send(r);
+        })
+    });
+    rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "err:no answer".into())
+}
+
+/// The visible top-level windows of these programs: program, class, title, owner's class, place.
+fn windows_of(exes: &[&str]) -> Vec<String> {
+    use windows::{
+        core::BOOL,
+        Win32::{
+            Foundation::{HWND, LPARAM, TRUE},
+            UI::WindowsAndMessaging::{EnumWindows, GetWindow, GetWindowTextW, IsWindowVisible, GW_OWNER},
+        },
+    };
+    unsafe extern "system" fn each(h: HWND, l: LPARAM) -> BOOL {
+        let list = &mut *(l.0 as *mut Vec<isize>);
+        if IsWindowVisible(h).as_bool() {
+            list.push(h.0 as isize);
+        }
+        TRUE
+    }
+    let mut all: Vec<isize> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(&mut all as *mut Vec<isize> as isize));
+    }
+    all.into_iter()
+        .filter_map(|h| {
+            let exe = win32::process_name(h);
+            if !exes.iter().any(|e| exe.eq_ignore_ascii_case(e)) {
+                return None;
+            }
+            let mut buf = [0u16; 200];
+            let n = unsafe { GetWindowTextW(HWND(h as _), &mut buf) }.max(0) as usize;
+            let owner = unsafe { GetWindow(HWND(h as _), GW_OWNER) }.map(|o| o.0 as isize).unwrap_or(0);
+            Some(format!(
+                "{exe} {} {:?} owner {} {:?}",
+                win32::class_name(h),
+                String::from_utf16_lossy(&buf[..n]),
+                if owner != 0 { win32::class_name(owner) } else { "-".into() },
+                win32::window_rect(h)
+            ))
+        })
+        .collect()
+}
+
+fn click_at(x: i32, y: i32) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
+    };
+    let was = win32::cursor_pos();
+    set_cursor(x, y);
+    wait(60);
+    let click = |flags| INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dwFlags: flags, ..Default::default() } } };
+    unsafe {
+        SendInput(&[click(MOUSEEVENTF_LEFTDOWN), click(MOUSEEVENTF_LEFTUP)], std::mem::size_of::<INPUT>() as i32);
+    }
+    wait(60);
+    set_cursor(was.0, was.1);
+}
+
+/// Screen sharing from a chat site (Discord's "Share your screen" calls getDisplayMedia): WebView2
+/// shows its own picker inside the panel. The test picks the entire screen, sends the stream through
+/// a loopback connection inside the page (nothing leaves the PC) and counts the frames that arrive,
+/// with the panel out and after it has hidden. CHATDOCK_SHARE_CLICKS="tabX,tabY;itemX,itemY;shareX,shareY"
+/// (panel-relative px) says where to click in the picker; without it the test only shows the picker.
+fn share_test() {
+    wait(7000); // the pages load
+    let app = on(|c| if c.is_enabled("discord") { "discord" } else { c.enabled_apps()[0] });
+    log!("share: WebView2 runtime {} | app {app}", on(|_| crate::chats::browser_version()));
+    on(move |c| c.open_panel(Some(app), "selftest"));
+    wait(1500);
+    let js = r#"
+      window.__share = 'pending'; window.__frames = [];
+      navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true }).then(async (s) => {
+        window.__share = 'ok: ' + s.getTracks().map(t => t.kind + '=' + t.label).join(', ');
+        const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+        a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate);
+        b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate);
+        s.getTracks().forEach(t => a.addTrack(t, s));
+        await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);
+        await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
+        window.__track = s.getVideoTracks()[0];
+        setInterval(async () => {
+          const st = await b.getStats(); let n = 0;
+          st.forEach(r => { if (r.type === 'inbound-rtp' && r.kind === 'video') n = r.framesDecoded || 0; });
+          window.__frames.push([Date.now(), n, document.visibilityState, window.__track.readyState]);
+        }, 1000);
+      }, e => { window.__share = 'err: ' + e.name + ': ' + e.message; });
+      'asked'"#;
+    let asked = cdp_call(app, "Runtime.evaluate", json!({ "expression": js, "userGesture": true }).to_string());
+    wait(2000);
+    let panel = on(|c| win32::window_rect(c.panel.hwnd));
+    screen_grab("71-picker", panel, (0, 0, 0));
+    let clicks: Vec<(i32, i32)> = std::env::var("CHATDOCK_SHARE_CLICKS")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|p| {
+            let (x, y) = p.split_once(',')?;
+            Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+        })
+        .collect();
+    for (i, (x, y)) in clicks.iter().enumerate() {
+        click_at(panel.x + x, panel.y + y);
+        wait(900);
+        screen_grab(&format!("72-picker-{i}"), panel, (0, 0, 0));
+    }
+    wait(2500);
+    let fg = win32::foreground_window();
+    log!(
+        "share: asked {asked} | page says {} | panel {:?} | in front: {} {} | WebView2 windows: {:?}",
+        view_js(app, "window.__share"),
+        panel_state(),
+        win32::process_name(fg),
+        win32::class_name(fg),
+        windows_of(&["msedgewebview2.exe"])
+    );
+    let r = win32::window_rect(fg);
+    if win32::process_name(fg).eq_ignore_ascii_case("msedgewebview2.exe") {
+        screen_grab("73-share-front", r, (0, 0, 0));
+    }
+    if clicks.is_empty() {
+        log!("share: no clicks given: leaving the picker as it is");
+    } else {
+        wait(3000);
+        let open = view_js(app, "JSON.stringify(window.__frames.slice(-3))");
+        close_panel(); // the chat hides (its page goes invisible) while the share goes on
+        wait(6000);
+        let hidden = view_js(app, "JSON.stringify(window.__frames.slice(-4))");
+        log!("share: frames with the panel out {open} | after it hid {hidden} (expect the count to keep rising, track live)");
+        view_js(app, "window.__track && window.__track.stop(); 1");
+    }
+    close_panel();
+}
+
 /// The newest release before the running one that has a What's new text (updating from it lists
 /// just this release).
 fn previous_release() -> String {
@@ -1739,7 +2055,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.6.2, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.7, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

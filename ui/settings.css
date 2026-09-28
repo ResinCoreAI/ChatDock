@@ -194,6 +194,7 @@
 .c-security { background: linear-gradient(145deg, #34d399, #03966a); }
 .c-updates { background: linear-gradient(145deg, #60a5fa, #2159e8); }
 .c-about { background: linear-gradient(145deg, #9aa7bb, #637188); }
+.c-discord { background: linear-gradient(145deg, #8b93ff, #5865f2); }
 .cat-text { flex: 1; min-width: 0; }
 .cat-text b { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.3; }
 .cat-text small {
@@ -685,6 +686,33 @@ select option { background: var(--card); color: var(--text); }
 .uc-actions .primary { height: 34px; }
 .uc-notes { margin-top: 14px; padding: 11px 12px; border-radius: 10px; background: var(--bg-soft); font-size: 12.5px; }
 .uc-notes p { margin: 5px 0 0; white-space: pre-wrap; color: var(--muted); max-height: 180px; overflow: auto; }
+
+/* ---------- Discord ---------- */
+.dc-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, #5865f2 35%, var(--card-line));
+  background: linear-gradient(135deg, color-mix(in srgb, #5865f2 16%, var(--card)), var(--card));
+}
+.dc-logo {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #8b93ff, #5865f2);
+  color: #fff;
+}
+.dc-logo svg { display: block; width: 26px; height: 26px; }
+.dc-hero p { margin: 0; font-size: 13px; line-height: 1.5; }
+.dc-server b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dc-empty { margin: 0; padding: 12px 14px; border-top: 1px solid var(--sep); color: var(--muted); font-size: 12.5px; }
+.dc-steps { margin: 0; padding: 12px 16px 12px 34px; font-size: 13px; line-height: 1.55; }
+.dc-steps li { margin: 4px 0; }
+.dc-steps li::marker { color: #5865f2; font-weight: 700; }
 
 /* ---------- about ---------- */
 .about { display: flex; align-items: center; gap: 13px; padding: 16px; }

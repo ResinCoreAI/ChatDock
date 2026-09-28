@@ -23,6 +23,8 @@ pub struct Fields {
     pub icon: String,
     pub tag: String,
     pub source: u64, // WebView2 notification to click through to (0 = none)
+    /// the small line after the app's name ("Server · #channel"); "" = "just messaged"
+    pub meta: String,
 }
 
 #[derive(Clone)]
@@ -130,7 +132,7 @@ impl Core {
             a.name,
             a.icon,
             a.colors[a.colors.len() - 1],
-            self.t("toast.justMessaged"),
+            if f.meta.is_empty() { self.t("toast.justMessaged") } else { f.meta },
             f.title,
             f.body,
             self.t("toast.clickToOpen"),
@@ -158,6 +160,30 @@ impl Core {
             "",
         );
         self.toasts_push(item);
+    }
+
+    /// A short word from ChatDock that goes by itself (e.g. "Discord: mic off" after a voice key),
+    /// shown even when message pop-ups are off: the user just asked for it.
+    pub fn notice_brief(&mut self, title: &str, body: &str, ms: i64) {
+        let item = Item::new_own(
+            "chatdock",
+            "ChatDock",
+            "logo",
+            "#8b5cf6",
+            String::new(),
+            title.into(),
+            body.into(),
+            String::new(),
+            "chatdock:brief",
+            "",
+        );
+        self.toasts_push(item);
+        if let Some(it) = self.toasts.items.first_mut().filter(|it| it.tag == "chatdock:brief") {
+            it.remaining = ms;
+        }
+        if !self.toasts.hovered {
+            self.toast_start(0); // with its own, shorter time
+        }
     }
 
     pub fn toasts_push(&mut self, mut item: Item) {

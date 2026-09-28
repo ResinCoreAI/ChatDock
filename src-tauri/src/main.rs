@@ -55,9 +55,10 @@ fn main() {
     let app = builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|_, _, event| {
+                .with_handler(|_, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        crate::core::later(|c| c.on_hotkey());
+                        let id = shortcut.id();
+                        crate::core::later(move |c| c.on_shortcut(id));
                     }
                 })
                 .build(),

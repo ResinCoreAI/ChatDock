@@ -39,6 +39,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | | |
 |---|---|
 | 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram and WhatsApp one switch away. Each app keeps its own login. |
+| 🎧 **Discord like the app** | Voice, watching streams and **sharing your screen** (a window or the entire screen, with its sound) keep going while ChatDock is hidden. Pop-ups say which server and channel, and each server has its own switch. Voice keys mute or deafen you from anywhere, even in a game. See [Discord](#discord). |
 | ↔️ **Left or right** | Dock on either screen edge. The panel, edge tab and unread glow all follow. |
 | 🖥️ **Several monitors** | *Settings → Monitors & position* shows a map of your monitors (with their own names, e.g. “DELL U2720Q” or “Built-in screen”). *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor, lit up on the map — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or click one monitor to always open the chat there: it is remembered by the monitor itself, so it survives unplugging and Windows renumbering its screens. *Show numbers on the screens* tells them apart, and pop-ups can go on the chat's monitor, where the mouse is, or the main monitor. |
 | 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 3 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
@@ -115,6 +116,20 @@ The tray menu (right-click the ChatDock icon) has the quick switches: pop-ups on
 Pop-ups come from the notifications the chat sites raise themselves. If a site doesn't say who wrote,
 ChatDock still tells you something arrived ("new message · 2 unread"). Discord needs
 *User Settings → Notifications → Enable Desktop Notifications* turned on once.
+
+### Discord
+
+- **Share your screen**: join a voice channel → *Share Your Screen* → pick a window or *Entire Screen*
+  (turn on *Share with system audio* for the game's sound). Hide ChatDock and it keeps going; stop it
+  in Discord or with *Stop sharing* on the bar at the bottom of the screen.
+- **Pop-ups per server** say where a message is from ("Discord · Server · #channel"). A server shows up
+  under *Settings → Discord* after its first pop-up, with its own switch (plus one for direct and group
+  messages). Which messages notify at all is still up to Discord's own notification settings.
+- **Voice keys**: Discord in a browser only hears its own keys while its window is in front. Pick a
+  *Mute* and a *Deafen* key under *Settings → Discord*: they work from anywhere, even in a game, and a
+  small pop-up says how it is now.
+- **Calls never get cut off**: while you're in a voice channel or sharing, Discord doesn't go to sleep
+  or give its memory back, even when nobody talks.
 
 ## Gaming tips
 

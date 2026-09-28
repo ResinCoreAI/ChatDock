@@ -40,6 +40,9 @@ use crate::{
 /// 3. WebSockets to this PC fail as if nothing listened there (WebView2 can't filter WebSockets
 ///    like other requests; Discord's page probes the desktop app on 127.0.0.1 and then nags
 ///    "Discord App Detected"). The socket goes to a name that never resolves instead.
+/// 4. Says when a call is on: a connected call (a voice channel stays connected while everyone is
+///    quiet), or a live mic, camera or screen share. A call keeps its app awake. Only weak
+///    references: the page still decides when its call and devices go.
 const SITE_SCRIPT: &str = r#"(() => {
   if (window.WebSocket) {
     const Real = window.WebSocket;
@@ -84,6 +87,68 @@ const SITE_SCRIPT: &str = r#"(() => {
     };
     sw.getNotifications = function getNotifications() { return Promise.resolve([]); };
   }
+  if (window.WeakRef && window.MediaStreamTrack) {
+    let held = [];
+    let said = 0;
+    let timer = 0;
+    const isTrack = (x) => x instanceof MediaStreamTrack;
+    const keep = (x) => (isTrack(x) ? x.readyState === 'live' : x.connectionState !== 'closed' && x.connectionState !== 'failed');
+    const counts = (x) => {
+      if (isTrack(x)) return true;
+      try { return /^(connecting|connected|disconnected)$/.test(x.connectionState) && x.getTransceivers().length > 0; } catch (e) { return false; }
+    };
+    const tell = () => {
+      held = held.filter((r) => { const x = r.deref(); return x && keep(x); });
+      const live = held.filter((r) => counts(r.deref())).length;
+      if (live !== said) {
+        said = live;
+        try { window.chrome.webview.postMessage(JSON.stringify({ type: 'call', live })); } catch (e) {}
+      }
+      if (held.length && !timer) timer = setInterval(tell, 15000);
+      else if (!held.length && timer) { clearInterval(timer); timer = 0; }
+    };
+    const has = (x) => held.some((r) => r.deref() === x);
+    const hold = (list) => {
+      for (const x of list) if (!has(x)) held.push(new WeakRef(x));
+      tell();
+    };
+    const track = MediaStreamTrack.prototype;
+    const realStop = track.stop;
+    track.stop = function stop() { const r = realStop.apply(this, arguments); if (has(this)) tell(); return r; };
+    const realClone = track.clone;
+    track.clone = function clone() { const t = realClone.apply(this, arguments); if (has(this)) hold([t]); return t; };
+    if (window.MediaStream) {
+      const realStreamClone = MediaStream.prototype.clone;
+      MediaStream.prototype.clone = function clone() {
+        const copy = realStreamClone.apply(this, arguments);
+        if (this.getTracks().some(has)) hold(copy.getTracks());
+        return copy;
+      };
+    }
+    const md = navigator.mediaDevices;
+    for (const name of md ? ['getUserMedia', 'getDisplayMedia'] : []) {
+      const original = md[name];
+      if (typeof original !== 'function') continue;
+      md[name] = function (...args) {
+        return original.apply(this, args).then((stream) => { try { hold(stream.getTracks()); } catch (e) {} return stream; });
+      };
+    }
+    if (window.RTCPeerConnection) {
+      const pc = RTCPeerConnection.prototype;
+      for (const name of ['setLocalDescription', 'setRemoteDescription']) {
+        const real = pc[name];
+        pc[name] = function (...args) {
+          if (!has(this)) {
+            this.addEventListener('connectionstatechange', tell);
+            hold([this]);
+          }
+          return real.apply(this, args);
+        };
+      }
+      const realClose = pc.close;
+      pc.close = function close() { const r = realClose.apply(this, arguments); if (has(this)) tell(); return r; };
+    }
+  }
 })();"#;
 
 pub struct View {
@@ -91,6 +156,8 @@ pub struct View {
     webview: ICoreWebView2,
     playing: bool,
     visible: bool,
+    in_use: bool,
+    in_call: bool,
     low_memory: bool,
 }
 
@@ -138,6 +205,38 @@ fn env() -> Option<ICoreWebView2Environment> {
     ENV.with(|e| e.borrow().clone())
 }
 
+static BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The WebView2 browser process the chats run in (0 until the first one is up). Its own windows,
+/// like the "… is sharing your screen" bar, count as ChatDock's.
+pub fn browser_pid() -> u32 {
+    BROWSER_PID.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The WebView2 runtime's version ("141.0.3537.71"), for the log.
+pub fn browser_version() -> String {
+    env()
+        .and_then(|e| unsafe {
+            let mut p = PWSTR::null();
+            e.BrowserVersionString(&mut p).ok().map(|_| take_pwstr(p))
+        })
+        .unwrap_or_default()
+}
+
+/// A page out of sight that isn't the app in use gives memory back, unless it's in a call.
+fn set_memory_level(v: &mut View) {
+    let low = !v.visible && !v.in_use && !v.in_call;
+    if v.low_memory != low {
+        v.low_memory = low;
+        if let Ok(wv19) = v.webview.cast::<ICoreWebView2_19>() {
+            let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+            unsafe {
+                let _ = wv19.SetMemoryUsageTargetLevel(level);
+            }
+        }
+    }
+}
+
 fn pwstr_string(p: PWSTR) -> String {
     take_pwstr(p)
 }
@@ -161,6 +260,23 @@ impl Chats {
 
     pub fn playing_audio(&self, id: &str) -> bool {
         self.views.get(id).is_some_and(|v| v.playing)
+    }
+
+    /// In a call, a voice channel or sharing the screen (as the page says).
+    pub fn in_call(&self, id: &str) -> bool {
+        self.views.get(id).is_some_and(|v| v.in_call)
+    }
+
+    pub fn set_in_call(&mut self, id: &str, on: bool) {
+        if let Some(v) = self.views.get_mut(id) {
+            v.in_call = on;
+            set_memory_level(v);
+        }
+    }
+
+    /// The page is giving memory back (for the self-test).
+    pub fn memory_low(&self, id: &str) -> bool {
+        self.views.get(id).is_some_and(|v| v.low_memory)
     }
 
     pub fn is_visible(&self, id: &str) -> bool {
@@ -201,17 +317,8 @@ impl Chats {
                     let _ = v.controller.SetIsVisible(on);
                 }
             }
-            let low = !on && !in_use;
-            if v.low_memory != low {
-                v.low_memory = low;
-                if let Ok(wv19) = v.webview.cast::<ICoreWebView2_19>() {
-                    let level =
-                        if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
-                    unsafe {
-                        let _ = wv19.SetMemoryUsageTargetLevel(level);
-                    }
-                }
-            }
+            v.in_use = in_use;
+            set_memory_level(v);
         }
     }
 
@@ -257,6 +364,25 @@ impl Chats {
             if wv.CallDevToolsProtocolMethod(&HSTRING::from("Page.reload"), &HSTRING::from("{\"ignoreCache\":true}"), &handler).is_err() {
                 let _ = wv.Reload();
             }
+        }
+    }
+
+    /// A DevTools protocol call in an app's page (e.g. Runtime.evaluate as a user gesture); its JSON
+    /// answer, or "err:…".
+    pub fn cdp(&self, id: &str, method: &str, params: &str, done: impl FnOnce(String) + 'static) {
+        let Some(v) = self.views.get(id) else {
+            done("err:no view".into());
+            return;
+        };
+        let mut done = Some(done);
+        unsafe {
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |r, json| {
+                if let Some(f) = done.take() {
+                    f(if r.is_ok() { json } else { format!("err:{r:?}") });
+                }
+                Ok(())
+            }));
+            let _ = v.webview.CallDevToolsProtocolMethod(&HSTRING::from(method), &HSTRING::from(params), &handler);
         }
     }
 
@@ -565,7 +691,7 @@ impl Core {
         if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.debug) } {
             log!("chat view {id} setup: {err}");
         }
-        let view = View { controller, webview, playing: false, visible: true, low_memory: false };
+        let view = View { controller, webview, playing: false, visible: true, in_use: false, in_call: false, low_memory: false };
         let (theme, dark) = self.chats.theme.clone();
         apply_theme(&view, &theme, dark);
         self.chats.views.insert(id.to_string(), view);
@@ -901,6 +1027,10 @@ fn allowed_permission(kind: COREWEBVIEW2_PERMISSION_KIND) -> bool {
 }
 
 unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id: &str, debug: bool) -> windows::core::Result<()> {
+    let mut pid = 0u32;
+    if wv.BrowserProcessId(&mut pid).is_ok() && pid != 0 {
+        BROWSER_PID.store(pid, std::sync::atomic::Ordering::Relaxed); // (a new one after a crash)
+    }
     let s = wv.Settings()?;
     s.SetAreDevToolsEnabled(debug)?;
     s.SetIsStatusBarEnabled(false)?;
@@ -962,6 +1092,16 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 args.SetCancel(true)?; // anything else opens in the normal browser
                 later(move |c| c.open_external(&uri));
             }
+            Ok(())
+        })),
+        &mut token,
+    )?;
+
+    let app = id.to_string();
+    wv.add_ContentLoading(
+        &ContentLoadingEventHandler::create(Box::new(move |_, _| {
+            let a = app.clone();
+            later(move |c| c.on_call(&a, false)); // a new page: the old one's call ended with it
             Ok(())
         })),
         &mut token,
@@ -1151,6 +1291,11 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                     let msg = take_pwstr(p);
                     if msg.contains("\"passkey\"") {
                         log!("passkey request blocked {app} {}", crate::core::clean_text(&msg, 200));
+                    } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg) {
+                        if v["type"] == "call" {
+                            let (a, on) = (app.clone(), v["live"].as_u64().unwrap_or(0) > 0);
+                            later(move |c| c.on_call(&a, on));
+                        }
                     }
                 }
             }

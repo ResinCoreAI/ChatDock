@@ -105,6 +105,7 @@
           <div class="card">
             <button class="cat" data-goto="apps"><i class="tile c-apps" data-icon="grid"></i><span class="cat-text"><b data-i18n="set.apps"></b><small data-text="sub-apps"></small></span><span class="chev" data-icon="chevronRight"></span></button>
             <button class="cat" data-goto="popups"><i class="tile c-popups" data-icon="bell"></i><span class="cat-text"><b data-i18n="set.notify"></b><small data-text="sub-popups"></small></span><span class="chev" data-icon="chevronRight"></span></button>
+            <button class="cat" data-goto="discord" data-show="discord"><i class="tile c-discord" data-icon="discordMono"></i><span class="cat-text"><b data-i18n="dc.title"></b><small data-text="sub-discord"></small></span><span class="chev" data-icon="chevronRight"></span></button>
           </div>
           <div class="card">
             <button class="cat" data-goto="security"><i class="tile c-security" data-icon="shield"></i><span class="cat-text"><b data-i18n="set.security"></b><small data-text="sub-security"></small></span><span class="chev" data-icon="chevronRight"></span></button>
@@ -338,6 +339,46 @@
         <h2 class="sec-title" data-i18n="set.perApp"></h2>
         <div class="card" data-perapp></div>
         <p class="hint" data-i18n="set.perAppNote"></p>
+      </div>
+
+      <!-- ─────────────── Discord (only while it is on) ─────────────── -->
+      <div class="set-page" data-page="discord" data-title="dc.title" hidden>
+        <div class="card dc-hero">
+          <span class="dc-logo" data-icon="discordMono"></span>
+          <p data-i18n="dc.intro"></p>
+        </div>
+
+        <h2 class="sec-title" data-i18n="dc.voice"></h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="dc.muteKey"></b><small data-text="dcMuteNote"></small></div>
+            <select data-pref="discordMuteKey" data-voice-keys></select>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="dc.deafenKey"></b><small data-text="dcDeafenNote"></small></div>
+            <select data-pref="discordDeafenKey" data-voice-keys></select>
+          </div>
+        </div>
+        <p class="hint" data-i18n="dc.voiceHint"></p>
+
+        <h2 class="sec-title" data-i18n="dc.popups"></h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="dc.dms"></b></div>
+            <label class="switch"><input type="checkbox" data-pref="discordDms"><span></span></label>
+          </div>
+          <div data-dc-servers></div>
+        </div>
+        <p class="hint" data-i18n="dc.popupsHint"></p>
+
+        <h2 class="sec-title" data-i18n="dc.share"></h2>
+        <div class="card">
+          <ol class="dc-steps">
+            <li data-i18n="dc.share1"></li>
+            <li data-i18n="dc.share2"></li>
+            <li data-i18n="dc.share3"></li>
+          </ol>
+        </div>
       </div>
 
       <!-- ─────────────── Privacy & security ─────────────── -->

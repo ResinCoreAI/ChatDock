@@ -283,6 +283,17 @@ pub fn set_alpha(hwnd: isize, alpha: u8) {
     }
 }
 
+/// The id of the process that owns a window (0 if none).
+pub fn window_pid(hwnd: isize) -> u32 {
+    let mut pid = 0u32;
+    if hwnd != 0 {
+        unsafe {
+            GetWindowThreadProcessId(h(hwnd), Some(&mut pid));
+        }
+    }
+    pid
+}
+
 /// The file name of the program that owns a window ("" if unknown).
 pub fn process_name(hwnd: isize) -> String {
     use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
