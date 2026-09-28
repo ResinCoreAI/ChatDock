@@ -160,6 +160,8 @@ pub struct Core {
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
     pub own_hwnds: Vec<isize>,
+    /// the chat's hotkey another program holds, already said
+    pub hotkey_warned: String,
     /// Call windows the chats opened (Messenger, Instagram): (window, app)
     pub call_windows: Vec<(isize, String)>,
     /// Looking for the call window a chat just asked for: the app, the windows there were, until when
@@ -481,7 +483,7 @@ impl Core {
             ("tab:log", "tab") => log!("tab renderer: {}", clean_text(&arg_str(&args, 0), 200)),
             ("tab:open", "tab") => {
                 let id = arg_str(&args, 0);
-                self.on_tab_open(&id);
+                self.on_tab_open(&id, arg_str(&args, 1) == "call");
             }
             (c, "toasts") if c.starts_with("toast:") => self.on_toast_message(c, &args),
             ("whatsnew:size", "whatsnew") => {
@@ -754,6 +756,7 @@ impl Core {
     pub fn set_pref(&mut self, key: &str, value: Value) -> bool {
         if !self.pref_ok(key, &value) {
             log!("setting rejected {}", clean_text(key, 40));
+            self.broadcast_state(); // the page shows what it really is again
             return false;
         }
         match key {
@@ -1304,12 +1307,13 @@ impl Core {
     /// A site raised a web notification (WebView2 NotificationReceived): who wrote, what, and their picture.
     pub fn on_site_notification(&mut self, id: &str, key: u64, title: &str, body: &str, icon: &str, tag: &str) {
         self.last_content_at.insert(id.to_string(), rt::epoch_ms());
-        let mut title = clean_text(title, 90);
-        let mut meta = String::new();
         // Discord says where a message is: "Name (#channel, Server)", or just "Name" for a direct
         // message. The pop-up shows the server and channel; a server's pop-ups can be switched off
-        // here without touching Discord's own settings (those are the same on the phone).
-        let place = if id == "discord" { discord_place(&title) } else { None };
+        // here without touching Discord's own settings (those are the same on the phone). Read
+        // before the title is shortened: a long server name would lose its ")".
+        let place = if id == "discord" { discord_place(&clean_text(title, 400)) } else { None };
+        let mut title = clean_text(title, 90);
+        let mut meta = String::new();
         log!(
             "site notification {id} {{\"title\":{},\"body\":{}{}}}",
             title.chars().count(),
@@ -1335,8 +1339,8 @@ impl Core {
             }
         }
         if let Some((who, channel, server)) = place {
-            title = who;
-            meta = format!("{server} · {channel}");
+            title = clean_text(&who, 90);
+            meta = clean_text(&format!("{server} · {channel}"), 90);
         }
         if !self.popup_allowed(Some(id)) || self.app_on_screen(id) {
             return;
@@ -1595,7 +1599,11 @@ impl Core {
                 "FAILED"
             }
         );
-        if !self.hotkey_ok && !acc.is_empty() && !self.args.selftest {
+        // said once per key: the Discord keys register again with it on their changes
+        if self.hotkey_ok || acc.is_empty() {
+            self.hotkey_warned.clear();
+        } else if !self.args.selftest && self.hotkey_warned != acc {
+            self.hotkey_warned = acc.clone();
             let body = self.tv("balloon.hotkeyBody", &[("hotkey", self.hotkey_label())]);
             let title = self.t("balloon.hotkeyTitle");
             self.notice(&title, &body);
@@ -1621,9 +1629,10 @@ impl Core {
             self.notice_brief(&title, "", 2500);
             return;
         }
-        // Discord's user panel (bottom left): its first two switches are the mic and the sound.
+        // Discord's user panel (bottom left): its last two switches are the mic and the sound, on
+        // the account row under anything a voice channel adds.
         let js = format!(
-            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[{which}]; \
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2 + {which}]; \
              if (!b) return 'none'; b.click(); return 'clicked'; }})()"
         );
         self.chats.execute("discord", &js, move |r| {
@@ -1649,7 +1658,7 @@ impl Core {
 
     fn discord_voice_said(&mut self, which: usize) {
         let js = format!(
-            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[{which}]; \
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2 + {which}]; \
              return b ? b.getAttribute('aria-checked') : 'none'; }})()"
         );
         self.chats.execute("discord", &js, move |r| {

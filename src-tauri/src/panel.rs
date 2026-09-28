@@ -275,6 +275,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         focus_watch: false,
         test_foreground: None,
         call_windows: Vec::new(),
+        hotkey_warned: String::new(),
         call_window_search: None,
         bar_shares: Default::default(),
         test_browser_pid: None,

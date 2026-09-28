@@ -422,14 +422,28 @@ impl Core {
         });
     }
 
-    pub fn on_tab_open(&mut self, id: &str) {
+    pub fn on_tab_open(&mut self, id: &str, call: bool) {
         let since = rt::epoch_ms() - self.edge.tab_shown_at;
-        log!("tab click {id} {{\"sinceShown\":{since}}} {}", self.snap());
+        log!("tab click {id}{} {{\"sinceShown\":{since}}} {}", if call { " (call)" } else { "" }, self.snap());
         if !self.edge.tab_shown || since < 150 {
             log!("tab click ignored");
             return;
         }
+        if let Some(hwnd) = self.tab_call_window(id, call) {
+            self.hide_tab(true);
+            let front = win32::restore_foreground(hwnd);
+            log!("tab: back to the {id} call window ({})", if front { "in front" } else { "not in front" });
+            return;
+        }
         let target = if self.is_enabled(id) { id.to_string() } else { self.preferred_app() };
         self.open_panel(Some(&target), "tab");
+    }
+
+    /// A call icon of an app whose call has a window of its own (Messenger, Instagram): that window.
+    pub fn tab_call_window(&self, id: &str, call: bool) -> Option<isize> {
+        if !call {
+            return None;
+        }
+        self.call_windows.iter().find(|(h, a)| a == id && win32::is_window(*h)).map(|(h, _)| *h)
     }
 }

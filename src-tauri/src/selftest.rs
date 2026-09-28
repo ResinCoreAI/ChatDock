@@ -52,6 +52,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("review") {
+            wait(7000); // the pages load
+            review_fixes_test();
         } else if only.as_deref() == Some("newsgif") {
             wait(3000);
             news_gif_frames();
@@ -1096,7 +1099,7 @@ fn discord_test() {
     view_js(
         "discord",
         "(() => { const s = document.createElement('section'); s.className = 'panels_test'; \
-         for (let i = 0; i < 2; i++) { const b = document.createElement('button'); b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', 'false'); \
+         for (let i = 0; i < 4; i++) { const b = document.createElement('button'); b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', 'false'); \
          b.onclick = () => b.setAttribute('aria-checked', b.getAttribute('aria-checked') === 'true' ? 'false' : 'true'); s.append(b); } \
          document.body.append(s); return 1; })()",
     );
@@ -1129,7 +1132,7 @@ fn discord_test() {
     let state = view_js("discord", "JSON.stringify([...document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]')].map(b => b.getAttribute('aria-checked')))");
     let said = page_js("toasts", "document.querySelector('.card .title')?.textContent || ''");
     shot("80-voice-key");
-    log!("discord voice key: registered {registered} | sent {sent} | switches now {state} | pop-up says {said} (expect true, 8, [\"true\",\"false\"], the mic is off)");
+    log!("discord voice key: registered {registered} | sent {sent} | switches now {state} | pop-up says {said} (expect true, 8, [\"false\",\"false\",\"true\",\"false\"], the mic is off)");
     on(|c| {
         c.set_pref("discordMuteKey", json!(""));
         c.toasts_dismiss_all();
@@ -1504,6 +1507,80 @@ fn news_gif_frames() {
         c.close_whats_new(false);
         c.whatsnew.offscreen = false;
     });
+}
+
+/// The pre-release review's findings, checked (nothing takes the focus or the keyboard; pop-ups off).
+fn review_fixes_test() {
+    // 1. a Discord title longer than 90 characters still says which server
+    let long = "Alice (#announcements-and-patch-notes, Official Valorant Thailand Community Server | Thai Players)";
+    let popups_was = on(|c| c.settings.get("popups").clone());
+    on(move |c| {
+        c.settings.set("popups", json!(false));
+        c.settings.set("discordServers", json!({}));
+        c.on_site_notification("discord", 0, long, "gg", "", "r1");
+    });
+    let listed = on(|c| c.settings.get("discordServers").to_string());
+    on(move |c| c.settings.set("popups", popups_was));
+    // 7. the mic and sound are the last two switches (a voice channel's own come first)
+    view_js(
+        "discord",
+        "(() => { document.querySelectorAll('section.panels_test').forEach((x) => x.remove()); const s = document.createElement('section'); s.className = 'panels_test'; \
+         for (let i = 0; i < 4; i++) { const b = document.createElement('button'); b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', 'false'); \
+         b.onclick = () => b.setAttribute('aria-checked', b.getAttribute('aria-checked') === 'true' ? 'false' : 'true'); s.append(b); } \
+         document.body.append(s); return 1; })()",
+    );
+    on(|c| c.discord_voice(0));
+    wait(900);
+    let after_mute = view_js(
+        "discord",
+        "JSON.stringify([...document.querySelectorAll('section.panels_test button')].map((b) => b.getAttribute('aria-checked')))",
+    );
+    on(|c| c.discord_voice(1));
+    wait(900);
+    let after_deafen = view_js(
+        "discord",
+        "JSON.stringify([...document.querySelectorAll('section.panels_test button')].map((b) => b.getAttribute('aria-checked')))",
+    );
+    on(|c| c.toasts_dismiss_all());
+    // 2. the call icon of an app with a call window gives that window; other icons, the panel
+    let picks = on(|c| {
+        c.call_windows.push((c.tab.hwnd, "instagram".into())); // any real window will do
+        let r = (
+            c.tab_call_window("instagram", true).is_some(),
+            c.tab_call_window("instagram", false).is_some(),
+            c.tab_call_window("discord", true).is_some(),
+        );
+        c.call_windows.clear();
+        r
+    });
+    // 4. the voice key dropdowns: the other one's key can't be picked; a refused one comes back
+    on(|c| {
+        c.settings.set("discordMuteKey", json!("Control+Alt+M"));
+        c.settings.set("discordDeafenKey", json!(""));
+        c.settings_mode = true;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+        c.emit("panel", "settings:goto", json!(["discord"]));
+    });
+    wait(1200);
+    let disabled = page_js(
+        "panel",
+        "JSON.stringify([...document.querySelectorAll('[data-voice-keys]')].map((s) => s.dataset.pref + ':' + [...s.options].filter((o) => o.disabled).map((o) => o.value).join('/')))",
+    );
+    let refused = on(|c| c.set_pref("discordDeafenKey", json!("Control+Alt+M")));
+    on(|c| {
+        c.settings.set("discordMuteKey", json!(""));
+        c.settings_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+    log!(
+        "review fixes: long title's server listed {listed} | after the mute key {after_mute}, after the deafen key {after_deafen} | call window for (the call icon, an app icon, no call window) {picks:?} | taken keys {disabled}, the same key twice refused {} (expect the long server listed, [false,false,true,false], [false,false,true,true], (true, false, false), deafen:Control+Alt+M, true)",
+        !refused
+    );
 }
 
 /// What keeps running while ChatDock sits hidden: animations left running in its own pages (each

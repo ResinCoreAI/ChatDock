@@ -99,7 +99,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   const btn = e.target.closest('.app, .chip');
-  chatdock.send('tab:open', btn ? btn.dataset.app : null);
+  chatdock.send('tab:open', btn ? btn.dataset.app : null, btn && btn.classList.contains('chip') ? 'call' : '');
 });
 
 chatdock.send('ui:ready');

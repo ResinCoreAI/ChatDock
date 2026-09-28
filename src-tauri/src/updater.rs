@@ -476,6 +476,7 @@ impl Core {
             return;
         }
         self.whatsnew.building = true;
+        self.whatsnew.fg_before = 0; // (what was in front the last time doesn't count)
         self.ready.remove("whatsnew");
         own_window("whatsnew".into(), "whatsnew.html", (NEWS_WIDTH, 420.0), false, self.args.clone(), |c, made| {
             c.whatsnew.building = false;
@@ -574,13 +575,15 @@ impl Core {
     pub fn close_whats_new(&mut self, releases: bool) {
         let Some(w) = self.whatsnew.win.take() else { return };
         let in_front = win32::foreground_window() == w.hwnd;
+        let manual = std::mem::take(&mut self.whatsnew.manual);
         self.own_hwnds.retain(|h| *h != w.hwnd);
         self.ready.remove("whatsnew");
-        self.whatsnew.manual = false;
         let _ = w.w.destroy();
         if releases {
             win32::open_url(&format!("{}/releases", crate::core::REPO_URL));
-        } else if in_front {
+        } else if in_front && manual && self.panel_state.showing() {
+            self.focus_panel(); // opened from Settings: back to the chat
+        } else if in_front && self.whatsnew.fg_before != 0 {
             win32::restore_foreground(self.whatsnew.fg_before);
         }
         log!("what's new closed{}", if releases { " (releases page)" } else { "" });

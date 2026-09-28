@@ -101,6 +101,7 @@ body:hover .pill { width: 46px; }
   place-items: center;
   border-radius: 50%;
   background: #fff;
+  color: #111; /* single-colour icons (X) */
   box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
 }
 .chip .from svg { display: block; width: 11px; height: 11px; }

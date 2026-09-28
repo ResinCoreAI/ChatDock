@@ -279,6 +279,10 @@
         for (const k of st.voiceKeys) sel.append(new Option(k.label, k.acc));
       }
     }
+    for (const sel of qa('[data-voice-keys]')) {
+      const other = st.prefs[sel.dataset.pref === 'discordMuteKey' ? 'discordDeafenKey' : 'discordMuteKey'];
+      for (const o of sel.options) o.disabled = !!o.value && (o.value === other || o.value === st.prefs.hotkey);
+    }
     const note = (key, ok) => (!st.prefs[key] ? [t('dc.keyOff'), ''] : ok ? [t('dc.keyNote'), ''] : [t('dc.keyTaken'), 'warn']);
     const [mute, muteCls] = note('discordMuteKey', dc.muteOk);
     const [deafen, deafenCls] = note('discordDeafenKey', dc.deafenOk);
