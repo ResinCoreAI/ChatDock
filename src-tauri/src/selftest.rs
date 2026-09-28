@@ -32,6 +32,9 @@ pub fn start() {
         if only.as_deref() == Some("edge") {
             wait(3000);
             edge_test(false);
+        } else if only.as_deref() == Some("fixes") {
+            wait(9000); // the chats load
+            fixes_test();
         } else if only.as_deref() == Some("view") {
             wait(9000); // the chats load
             for id in on(|c| c.enabled_apps()) {
@@ -333,6 +336,215 @@ fn screen_grab(name: &str, r: win32::Rect, bg: (u8, u8, u8)) -> (u32, u32) {
         let _ = std::fs::write(dir.join(format!("{name}-screen.bmp")), file);
     }
     ((bg * 100 / n) as u32, (black * 100 / n) as u32)
+}
+
+fn set_cursor(x: i32, y: i32) {
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::SetCursorPos(x, y);
+    }
+}
+
+fn log_has(text: &str) -> bool {
+    crate::log::path().and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains(text))
+}
+
+/// The 1.5.2 fixes, one check each.
+fn fixes_test() {
+    let first = on(|c| c.enabled_apps()[0]);
+    // (Something else may take the focus while this runs, which hides the panel: open it again.)
+    let ensure_open = move || {
+        if panel_state() != PanelState::Open {
+            on(move |c| c.open_panel(Some(first), "selftest"));
+            wait(700);
+        }
+    };
+    // Pop-ups already on screen move beside the panel when it opens (they used to stay over it).
+    // (A ChatDock notice: a pop-up of the app being opened goes away by design.)
+    close_panel();
+    on(|c| c.notice("ChatDock self-test", "this pop-up should move beside the panel"));
+    wait(900);
+    on(move |c| c.open_panel(Some(first), "selftest"));
+    wait(800);
+    let (shown, t, p, ui, left) =
+        on(|c| (c.toasts_visible(), c.toasts_bounds(), win32::window_rect(c.panel.hwnd), c.target_display().ui, c.on_left()));
+    let pad = (16.0 * ui).round() as i32 + 1;
+    let beside = if left { t.x >= p.right() - pad } else { t.right() <= p.x + pad };
+    log!("pop-up beside the open panel: shown {shown} | beside {beside} (pop-ups {t:?}, panel {p:?}) (expect true, true)");
+    on(|c| c.toasts_dismiss_all());
+    ensure_open();
+
+    // Chat window opacity is applied (whole window, chat included), and back to solid.
+    let alpha = on(|c| {
+        c.set_pref("opacity", json!(0.7));
+        (c.panel_alpha, win32::layered_alpha(c.panel.hwnd))
+    });
+    wait(300);
+    let seen = on(|c| {
+        let p = win32::window_rect(c.panel.hwnd);
+        let b = c.chats.bounds(&c.active()).unwrap_or_default();
+        win32::Rect { x: p.x + b.x, y: p.y + b.y, w: b.w, h: b.h }
+    });
+    let (_, _) = screen_grab("50-opacity-70", seen, (0, 0, 0));
+    let back = on(|c| {
+        c.set_pref("opacity", json!(1.0));
+        (c.panel_alpha, win32::layered_alpha(c.panel.hwnd))
+    });
+    log!("opacity 70%: alpha {alpha:?} | back to 100%: {back:?} (expect (179, Some(179)), (255, Some(255)))");
+
+    // The panel activated again (Alt+Tab back, a file picker closing): the keyboard goes back into
+    // the chat, not to the panel's own page.
+    on(|c| c.set_pref("pinned", json!(true)));
+    on(|c| c.test_popup());
+    wait(900);
+    let away = on(|c| win32::force_foreground(c.toastwin.hwnd));
+    wait(400);
+    let lost = view_js(first, "document.hasFocus()");
+    let back_front = on(|c| win32::force_foreground(c.panel.hwnd));
+    wait(600);
+    log!(
+        "focus after the panel is activated again: went away {away} (page focus {lost}) | back {back_front} | chat has focus {} | panel {:?} | in front {} (expect true, false, true, true, Open, PANEL)",
+        view_js(first, "document.hasFocus()"),
+        panel_state(),
+        on(|c| c.snap())
+    );
+    on(|c| {
+        c.toasts_dismiss_all();
+        c.set_pref("pinned", json!(false));
+    });
+    ensure_open();
+
+    // A site's own error page (HTTP 4xx) is shown, not ChatDock's "can't connect" screen.
+    on(move |c| c.chats.navigate(first, "https://discord.com/api/v9/users/@me"));
+    wait(4000);
+    let (load, visible) = on(move |c| (c.load_state.get(first).copied().unwrap_or("?"), c.chats.is_visible(first)));
+    log!("site error page: load state {load} | view visible {visible} (expect ready, true)");
+    on(move |c| c.load_home(first));
+    wait(2500);
+    ensure_open();
+
+    // Hard reload (Shift) works and the page comes back.
+    on(move |c| c.reload_app(first, true));
+    wait(3500);
+    log!("hard reload: load state {} (expect ready)", on(move |c| c.load_state.get(first).copied().unwrap_or("?")));
+
+    // Resize grip: the inner edge follows the real cursor (physical px, any monitor layout).
+    ensure_open();
+    let (p0, left) = on(|c| (win32::window_rect(c.panel.hwnd), c.on_left()));
+    let was = win32::cursor_pos();
+    let edge_x = if left { p0.right() - 3 } else { p0.x + 3 };
+    let mid_y = p0.y + p0.h / 2;
+    set_cursor(edge_x, mid_y);
+    on(|c| c.resize_start());
+    set_cursor(if left { edge_x + 80 } else { edge_x - 80 }, mid_y);
+    on(|c| c.resize_to());
+    let p1 = on(|c| win32::window_rect(c.panel.hwnd));
+    set_cursor(edge_x, mid_y);
+    on(|c| {
+        c.resize_to();
+        c.resize_grab = None;
+    });
+    let p2 = on(|c| win32::window_rect(c.panel.hwnd));
+    set_cursor(was.0, was.1);
+    log!("resize grip: width {} -> {} -> {} (expect +80, then back)", p0.w, p1.w, p2.w);
+    close_panel();
+
+    // "Clear data" of an app that isn't loaded (switched off / asleep) really clears it.
+    let sleeper = on(|c| {
+        let a = c.active();
+        c.enabled_apps().into_iter().find(|id| *id != a).unwrap_or(c.enabled_apps()[0])
+    });
+    on(move |c| {
+        c.set_app_pref(sleeper, "sleep", true);
+        c.last_used.insert(sleeper.to_string(), 0);
+        c.sleep_check();
+    });
+    wait(1500);
+    let asleep = on(move |c| !c.chats.has(sleeper));
+    on(move |c| c.clear_app_data(sleeper));
+    wait(4000);
+    log!("clear data of {sleeper} while asleep {asleep}: cleared {} (expect true, true)", log_has(&format!("data cleared {sleeper}")));
+    on(move |c| c.set_app_pref(sleeper, "sleep", false));
+
+    // Several monitors ("Automatic"): the edge only counts where the mouse really stops (the outer
+    // edge of any monitor), the tab comes out on that monitor, and the hotkey opens the panel on
+    // the monitor the mouse is on.
+    let screens = win32::displays();
+    if screens.len() > 1 {
+        let hold_was = on(|c| {
+            let h = c.settings.get("edgeHold").clone();
+            c.settings.set("edgeHold", json!(0));
+            h
+        });
+        for m in screens.clone() {
+            let (x, y, outer) = on({
+                let m = m.clone();
+                move |c| {
+                    let y = m.bounds.y + m.bounds.h / 2;
+                    let x = if c.on_left() { m.bounds.x } else { m.bounds.right() - 1 };
+                    (x, y, c.outer_edge_at(&m, y))
+                }
+            });
+            on(move |c| {
+                c.hide_tab(true);
+                c.edge.test_cursor = Some((x, y, false));
+            });
+            wait(700);
+            let (shown, tab) = on(|c| (c.edge.tab_shown, c.tab_bounds()));
+            let on_it = shown && m.bounds.contains(tab.x + tab.w / 2, tab.y + tab.h / 2);
+            log!("monitor {}: dock-side edge outer {outer} | tab out {shown} | on that monitor {on_it} (expect outer = tab out = on that monitor)", m.id);
+            on(|c| {
+                c.edge.test_cursor = None;
+                c.hide_tab(true);
+            });
+            wait(300);
+        }
+        on(move |c| c.settings.set("edgeHold", hold_was));
+        let was = win32::cursor_pos();
+        for m in screens {
+            set_cursor(m.bounds.x + m.bounds.w / 2, m.bounds.y + m.bounds.h / 2);
+            on(|c| c.open_panel(None, "hotkey"));
+            wait(700);
+            let p = on(|c| win32::window_rect(c.panel.hwnd));
+            log!("hotkey with the mouse on {}: panel there {} (expect true)", m.id, m.bounds.contains(p.x + p.w / 2, p.y + p.h / 2));
+            close_panel();
+        }
+        set_cursor(was.0, was.1);
+    }
+
+    // "Clear data" of an app that is loaded: its page leaves first, then the profile is wiped and
+    // the home page loads again.
+    let loaded = on(|c| c.active());
+    let loaded2 = loaded.clone();
+    on(move |c| c.clear_app_data(&loaded2));
+    wait(6000);
+    let loaded3 = loaded.clone();
+    let state = on(move |c| (c.load_state.get(loaded3.as_str()).copied().unwrap_or("?"), c.chats.source(&loaded3)));
+    log!(
+        "clear data of {loaded} (loaded): cleared {} | load state {} | page {} (expect true, ready, its home page)",
+        log_has(&format!("data cleared {loaded}")),
+        state.0,
+        state.1
+    );
+
+    let m = on(|c| c.memory_stats());
+    log!("RAM after the fix checks: {} MB in {} processes", m.total, m.processes);
+
+    // What's new is written for where the user comes from.
+    let firsts = on(|c| {
+        let now = rt::version();
+        let mut out = Vec::new();
+        for from in ["1.3.0", "1.5.0", "1.5.1"] {
+            c.settings.set("whatsNew", json!({ "version": now, "from": from, "notes": "", "at": rt::epoch_ms() }));
+            let text = c.whats_new_state()["text"].as_str().unwrap_or("").to_string();
+            out.push(format!(
+                "from {from}: {} lines, first {:?}",
+                text.lines().count(),
+                text.lines().next().unwrap_or("").chars().take(40).collect::<String>()
+            ));
+        }
+        out
+    });
+    log!("what's new {} (expect hold first / 1.5 fix first / this release first)", firsts.join(" | "));
 }
 
 fn toasts_snapshot() -> String {
@@ -731,6 +943,8 @@ fn full_test() {
         hotkey.2
     );
 
+    fixes_test();
+
     // Settings screen, and values it must refuse
     on(|c| c.open_settings("", "selftest"));
     wait(700);
@@ -953,7 +1167,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.5.1, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.5.2, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

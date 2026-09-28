@@ -47,6 +47,16 @@ fn icon(unread: bool) -> Option<Image<'static>> {
     Image::from_bytes(bytes).ok()
 }
 
+/// Take the icon out of the tray (before the update installer closes ChatDock, so no dead icon
+/// stays behind) or put it back.
+pub fn set_shown(on: bool) {
+    TRAY.with(|t| {
+        if let Some(t) = t.borrow().as_ref() {
+            let _ = t.set_visible(on);
+        }
+    });
+}
+
 pub fn exists() -> bool {
     TRAY.with(|t| t.borrow().is_some())
 }

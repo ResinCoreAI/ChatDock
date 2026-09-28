@@ -30,9 +30,14 @@ fn main() {
     let args = crate::core::Args::parse();
     log::init(&args.data_dir, args.debug);
     log!("start {:?}", std::env::args().skip(1).collect::<Vec<_>>());
-    migrate::electron_logins(&args.data_dir); // before WebView2 first starts
-    if !args.profile && !cfg!(debug_assertions) {
-        migrate::electron_leftovers();
+    // Nothing from outside switches on WebView2 remote debugging or other engine options.
+    for var in [
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
+        "WEBVIEW2_USER_DATA_FOLDER",
+        "WEBVIEW2_RELEASE_CHANNEL_PREFERENCE",
+    ] {
+        std::env::remove_var(var);
     }
 
     let mut builder = tauri::Builder::default();
@@ -58,6 +63,12 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![crate::core::ui_send])
         .setup(move |app| {
+            // Here the single-instance lock is held and no WebView2 has started yet.
+            migrate::electron_logins(&args.data_dir);
+            migrate::electron_caches(&args.data_dir);
+            if !args.profile && !cfg!(debug_assertions) {
+                migrate::electron_leftovers();
+            }
             rt::init(app.handle().clone());
             panel::init(app, args)?;
             Ok(())
@@ -68,6 +79,9 @@ fn main() {
     app.run(|handle, event| match event {
         // Closing windows never quits: ChatDock lives in the tray until "Quit".
         RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+        // Alt+F4 (or any close message) never closes one of ChatDock's windows: the panel slides
+        // away instead (see panel.rs), the others stay. Quit and updates use app.exit / destroy.
+        RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { api, .. }, .. } => api.prevent_close(),
         RunEvent::Exit => {
             crate::core::with(|c| c.settings.flush());
             let _ = handle.webview_windows(); // keep the handle alive until here

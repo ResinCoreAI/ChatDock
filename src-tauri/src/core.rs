@@ -156,6 +156,22 @@ pub struct Core {
     pub own_hwnds: Vec<isize>,
     /// the panel page's own child windows (Tauri's WebView): kept under the chat views
     pub panel_page_hwnds: Vec<isize>,
+    /// chat views with a reload coming after their renderer crashed
+    pub reload_pending: HashSet<String>,
+    /// ChatDock is starting itself again (WebView2 stopped)
+    pub recovering: bool,
+    /// "Automatic" monitor: the one the dock is on right now (where the edge was used last, or where
+    /// the mouse was when the hotkey was pressed); "" = the outermost monitor on the dock side
+    pub dock_display: String,
+    /// monitor scale and page scale the layout was last made for (to notice a Text size change)
+    pub applied_scale: (f64, f64),
+    /// ChatDock's own pages are being loaded again after their renderer crashed
+    pub ui_reload_pending: bool,
+    pub ui_crashes: Vec<i64>,
+    /// the panel's current see-through level (255 = solid)
+    pub panel_alpha: u8,
+    /// while the resize grip is dragged: cursor x minus the panel's inner edge, physical px
+    pub resize_grab: Option<i32>,
     pub chats: chats::Chats,
     // per app
     pub counts: HashMap<String, u32>,
@@ -199,6 +215,9 @@ pub struct Core {
 thread_local! {
     static CORE: RefCell<Option<Core>> = const { RefCell::new(None) };
 }
+
+/// Windows is signing out or shutting down (set from the panel's window messages).
+pub static SESSION_ENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn install(core: Core) {
     CORE.with(|c| *c.borrow_mut() = Some(core));
@@ -348,13 +367,12 @@ impl Core {
                     return;
                 }
                 if self.settings_mode {
-                    // an app tab leaves the settings screen
-                    self.set_setting("active", json!(id));
-                    self.fit_panel_to_app();
+                    // an app tab leaves the settings screen (set_active wakes a sleeping app)
+                    self.set_active(&id, false);
                     self.close_settings();
                 } else if self.help_mode {
                     // clicking an app on the welcome / help screen means "take me there"
-                    self.set_setting("active", json!(id));
+                    self.set_active(&id, false);
                     self.finish_onboarding(None);
                 } else if id == self.active() && self.view_showable(&id) {
                     self.go_home(&id);
@@ -403,10 +421,11 @@ impl Core {
                 let name = arg_str(&args, 0);
                 self.settings_action(&name, args.get(1).cloned().unwrap_or(Value::Null));
             }
-            ("panel:resize", "panel") => {
-                if let Some(edge) = args.first().and_then(Value::as_f64) {
-                    self.resize_to(edge);
-                }
+            ("panel:resize-start", "panel") => self.resize_start(),
+            ("panel:resize", "panel") => self.resize_to(),
+            ("panel:resize-end", "panel") => {
+                self.resize_to();
+                self.resize_grab = None;
             }
             ("panel:zoom-reset", "panel") => {
                 let id = self.active();
@@ -530,7 +549,7 @@ impl Core {
             }
         }
         prefs.insert("autostart".into(), json!(self.autostart_cache));
-        prefs.insert("displayId".into(), json!(self.target_display().id));
+        prefs.insert("displayId".into(), json!(if self.auto_display() { "auto".to_string() } else { self.target_display().id }));
         let memory = self.memory_stats();
         let catalog: Vec<Value> = apps::CATALOG
             .iter()
@@ -543,7 +562,7 @@ impl Core {
                 })
             })
             .collect();
-        let displays: Vec<Value> = win32::displays()
+        let mut displays: Vec<Value> = win32::displays()
             .iter()
             .enumerate()
             .map(|(i, d)| {
@@ -551,6 +570,9 @@ impl Core {
                 json!({ "id": d.id, "label": format!("{}{} — {}×{}", self.tv("display.label", &[("n", (i + 1).to_string())]), primary, d.bounds.w, d.bounds.h) })
             })
             .collect();
+        if displays.len() > 1 {
+            displays.insert(0, json!({ "id": "auto", "label": self.t("display.auto") }));
+        }
         let version = rt::version();
         json!({
             "prefs": prefs,
@@ -600,7 +622,7 @@ impl Core {
             "side" => one_of(&["right", "left"]),
             "edgeMode" => one_of(&["always", "no-fullscreen", "off"]),
             "edgeHold" => num_in(&[0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0]),
-            "displayId" => v.as_str().is_some_and(|s| win32::displays().iter().any(|d| d.id == s)),
+            "displayId" => v.as_str().is_some_and(|s| s == "auto" || win32::displays().iter().any(|d| d.id == s)),
             "theme" => one_of(&["system", "dark", "light"]),
             "opacity" => v.as_f64().is_some_and(|n| (0.6..=1.0).contains(&n)),
             "hotkey" => v.as_str().is_some_and(|s| s.is_empty() || HOTKEYS.iter().any(|(a, _)| *a == s)),
@@ -648,8 +670,8 @@ impl Core {
             }
             "displayId" => {
                 let id = value.as_str().unwrap_or("").to_string();
-                let primary = win32::displays().into_iter().find(|d| d.primary).map(|d| d.id).unwrap_or_default();
-                self.set_setting("displayId", if id == primary { Value::Null } else { json!(id) });
+                self.set_setting("displayId", if id == "auto" { Value::Null } else { json!(id) });
+                self.dock_display.clear();
                 self.on_displays_changed();
             }
             "glow" => {
@@ -660,7 +682,13 @@ impl Core {
                 self.set_setting("theme", value);
                 self.apply_theme();
             }
-            "opacity" => self.set_setting("opacity", value),
+            "opacity" => {
+                self.set_setting("opacity", value);
+                if self.panel_state == PanelState::Open {
+                    let a = self.panel_opacity();
+                    self.set_panel_alpha(a);
+                }
+            }
             "muted" => {
                 self.set_setting("muted", value);
                 for id in apps::ids() {
@@ -1050,27 +1078,42 @@ impl Core {
         Some(from)
     }
 
-    /// What's new in the version running now: our own translated list, else the release notes.
+    /// What's new in the version running now, for whoever updated to it: this release's list, and
+    /// what changed on the way from the version they came from (the hold-to-open edge from 1.4, the
+    /// move to Tauri in 1.5). Our own translated texts; else the release notes.
     pub fn whats_new_state(&self) -> Value {
         let now = rt::version();
-        let now = now.as_str();
-        let key = i18n::build(now).map(|n| format!("whatsnew.{n}")).unwrap_or_default();
-        let local = if key.is_empty() { String::new() } else { self.t(&key) };
         let w = self.settings.get("whatsNew");
-        let mine = w.get("version").and_then(Value::as_str) == Some(now);
-        let text = if !key.is_empty() && local != key {
-            local
-        } else if mine {
-            w.get("notes").and_then(Value::as_str).unwrap_or("").to_string()
-        } else {
-            String::new()
+        let mine = w.get("version").and_then(Value::as_str) == Some(now.as_str());
+        let from = if mine { w.get("from").and_then(Value::as_str).unwrap_or("") } else { "" };
+        let before = |v: &str| from == "older" || (!from.is_empty() && version_less(from, v));
+        let mut parts: Vec<String> = Vec::new();
+        let mut add = |key: &str| {
+            let text = self.t(key);
+            if text != key && !text.is_empty() {
+                parts.push(text);
+            }
         };
+        if before("1.4.0") {
+            add("whatsnew.hold"); // first: it changes how ChatDock opens
+        }
+        if from == "1.5.0" {
+            add("whatsnew.fix151");
+        }
+        if let Some(n) = i18n::build(&now) {
+            add(&format!("whatsnew.{n}"));
+        }
+        if before("1.5.0") {
+            add("whatsnew.1.5");
+        }
+        let text =
+            if parts.is_empty() && mine { w.get("notes").and_then(Value::as_str).unwrap_or("").to_string() } else { parts.join("\n") };
         if text.is_empty() {
             return Value::Null;
         }
         let at = w.get("at").and_then(Value::as_i64).unwrap_or(0);
         json!({
-            "title": self.tv("upd.notesFor", &[("version", self.build_name(now))]),
+            "title": self.tv("upd.notesFor", &[("version", self.build_name(&now))]),
             "text": text,
             "justUpdated": mine && rt::epoch_ms() - at < 24 * 60 * 60 * 1000,
         })
@@ -1147,6 +1190,64 @@ impl Core {
         self.toggle_panel("hotkey");
     }
 
+    /// WebView2's browser process is gone: every page is dead and can't be brought back from here.
+    /// Start ChatDock again (a clean exit first, so the single-instance lock is free).
+    pub fn restart_after_crash(&mut self, why: &str) {
+        if self.recovering || self.quitting {
+            return;
+        }
+        self.recovering = true;
+        if SESSION_ENDING.load(std::sync::atomic::Ordering::SeqCst) || win32::shutting_down() {
+            log!("{why} while Windows signs out: quitting");
+            self.quit();
+            return;
+        }
+        // The new copy inherits this: a browser that crashes again right away is left alone
+        // (the tray still works, Quit and start ChatDock again), instead of restarting forever.
+        const KEY: &str = "CHATDOCK_CRASH_RESTART_AT";
+        let now = rt::epoch_ms();
+        let last = std::env::var(KEY).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        if now - last < 120_000 {
+            log!("{why} again, within 2 minutes of the last restart: not restarting");
+            return;
+        }
+        std::env::set_var(KEY, now.to_string());
+        log!("{why}: starting ChatDock again");
+        self.settings.flush();
+        rt::app().request_restart();
+    }
+
+    /// The renderer that draws ChatDock's own pages crashed (they share one, so every page reports
+    /// it): load them all again, once, a moment later; slower each time it happens again.
+    pub fn reload_ui_pages(&mut self) {
+        if self.recovering || self.quitting || self.ui_reload_pending {
+            return;
+        }
+        let now = rt::epoch_ms();
+        self.ui_crashes.retain(|t| now - t < 60_000);
+        self.ui_crashes.push(now);
+        let n = self.ui_crashes.len() as u32;
+        if n > 4 {
+            self.restart_after_crash("ChatDock's own pages keep crashing");
+            return;
+        }
+        self.ui_reload_pending = true;
+        let delay = (300 * 3u64.pow(n - 1)).min(10_000);
+        log!("ChatDock's own pages crashed: loading them again in {delay} ms");
+        timer(delay, |c| {
+            c.ui_reload_pending = false;
+            if c.recovering || c.quitting {
+                return;
+            }
+            let mut pages = vec![c.panel.clone(), c.tab.clone(), c.glow.clone(), c.edgewin.clone(), c.toastwin.clone()];
+            pages.extend(c.update_win.clone());
+            for w in pages {
+                c.ready.remove(w.w.label());
+                let _ = w.w.reload();
+            }
+        });
+    }
+
     pub fn quit(&mut self) {
         self.quitting = true;
         self.settings.flush();
@@ -1180,6 +1281,12 @@ pub const PREF_KEYS: [&str; 23] = [
     "updateAutoCheck",
     "updateAutoDownload",
 ];
+
+/// "1.3.0" < "1.4.0" (numbers compared part by part; anything unreadable counts as 0)
+pub fn version_less(a: &str, b: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> { v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect() };
+    parts(a) < parts(b)
+}
 
 /// "(3) Instagram" -> Some(3); no count in front -> None
 pub fn parse_count(title: &str) -> Option<u32> {

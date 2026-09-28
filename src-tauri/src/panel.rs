@@ -10,7 +10,10 @@ use windows::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, WPARAM},
     UI::{
         Shell::{DefSubclassProc, SetWindowSubclass},
-        WindowsAndMessaging::{SPI_SETWORKAREA, WA_INACTIVE, WM_ACTIVATE, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE},
+        WindowsAndMessaging::{
+            SPI_SETWORKAREA, WA_INACTIVE, WM_ACTIVATE, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ENDSESSION, WM_QUERYENDSESSION,
+            WM_SETTINGCHANGE,
+        },
     },
 };
 
@@ -40,8 +43,15 @@ fn ease_in_cubic(t: f64) -> f64 {
 
 #[derive(Clone, Copy)]
 pub enum AnimKind {
-    SlideX { from: i32, to: i32 },
-    Show, // no slide (another monitor right against the dock edge): just appear
+    SlideX {
+        from: i32,
+        to: i32,
+    },
+    /// no slide (another monitor right against the dock edge): fade in / out instead
+    Fade {
+        from: u8,
+        to: u8,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -98,7 +108,41 @@ fn window(
     }
     let w = b.build()?;
     let hwnd = w.hwnd()?.0 as isize;
+    lock_down_page(&w, args.debug);
     Ok(Win { w, hwnd })
+}
+
+/// One of ChatDock's own pages: no browser context menu (Back / Refresh / Print... on the tab or a
+/// pop-up) and no browser keys (Ctrl+P, Ctrl+F, F5 on ChatDock's own pages); if the renderer that
+/// draws them crashes, they are loaded again.
+pub fn lock_down_page(w: &tauri::WebviewWindow, debug: bool) {
+    use webview2_com::{Microsoft::Web::WebView2::Win32::*, ProcessFailedEventHandler};
+    use windows::core::Interface;
+    let _ = w.with_webview(move |pw| unsafe {
+        let Ok(wv) = pw.controller().CoreWebView2() else { return };
+        if let Ok(s) = wv.Settings() {
+            let _ = s.SetAreDefaultContextMenusEnabled(debug);
+            if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
+                let _ = s3.SetAreBrowserAcceleratorKeysEnabled(debug);
+            }
+        }
+        let mut token = 0i64;
+        let _ = wv.add_ProcessFailed(
+            &ProcessFailedEventHandler::create(Box::new(|_, args| {
+                let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                if let Some(args) = args {
+                    let _ = args.ProcessFailedKind(&mut kind);
+                }
+                if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
+                    later(|c| c.reload_ui_pages());
+                } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+                    later(|c| c.restart_after_crash("the WebView2 browser process stopped"));
+                }
+                Ok(())
+            })),
+            &mut token,
+        );
+    });
 }
 
 // Window messages Tauri doesn't forward: the panel losing activation (click elsewhere), the tab or
@@ -109,27 +153,47 @@ unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
             let inactive = (wparam.0 & 0xFFFF) as u32 == WA_INACTIVE;
             match (which, inactive) {
                 (1, true) => later(|c| c.on_panel_blur()),
+                (1, false) => {
+                    // Windows gives the window focus, and wry then hands the keyboard to the panel
+                    // page. After Alt+Tab, a closed file picker or a click from another window the
+                    // chat must get it back (Electron did this by itself).
+                    let r = DefSubclassProc(hwnd, msg, wparam, lparam);
+                    later(|c| c.on_panel_activated());
+                    return r;
+                }
                 (2, false) => later(|c| c.on_tab_focus()),
                 (3, false) => later(|c| c.on_toast_focus()),
                 _ => {}
             }
         }
         WM_DISPLAYCHANGE | WM_DPICHANGED if which == 1 => {
+            let r = DefSubclassProc(hwnd, msg, wparam, lparam);
             win32::forget_displays();
             later(|c| c.on_displays_changed());
+            return r;
         }
         WM_SETTINGCHANGE if which == 1 => {
             win32::forget_displays();
             if wparam.0 == SPI_SETWORKAREA.0 as usize {
                 later(|c| c.on_displays_changed()); // the taskbar moved or changed size
             } else {
-                later(|c| c.apply_theme()); // light / dark
+                later(|c| {
+                    c.apply_theme(); // light / dark
+                    let d = c.target_display();
+                    if (d.scale - c.applied_scale.0).abs() > 1e-6 || (d.ui - c.applied_scale.1).abs() > 1e-6 {
+                        c.on_displays_changed(); // Text size (or the monitor scale) changed
+                    }
+                });
             }
+        }
+        WM_QUERYENDSESSION | WM_ENDSESSION if which == 1 => {
+            core::SESSION_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         WM_CLOSE if which == 1 => {
             later(|c| c.close_panel(true, "alt-f4"));
             return LRESULT(0);
         }
+        WM_CLOSE => return LRESULT(0), // the tab and the pop-ups can't be closed (Alt+F4)
         _ => {}
     }
     DefSubclassProc(hwnd, msg, wparam, lparam)
@@ -175,6 +239,14 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         ready: HashSet::new(),
         own_hwnds,
         panel_page_hwnds: Vec::new(),
+        panel_alpha: 255,
+        dock_display: String::new(),
+        applied_scale: (0.0, 0.0),
+        ui_reload_pending: false,
+        ui_crashes: Vec::new(),
+        reload_pending: HashSet::new(),
+        recovering: false,
+        resize_grab: None,
         chats: Default::default(),
         counts: HashMap::new(),
         load_state: HashMap::new(),
@@ -231,7 +303,9 @@ impl Core {
             let first = self.enabled_apps()[0];
             self.set_setting("active", json!(first));
         }
+        self.resolve_legacy_display();
         let d = self.target_display();
+        self.applied_scale = (d.scale, d.ui);
         frames::set_display(&d.id, d.hz);
         let g = self.panel_geometry(&d);
         win32::set_bounds(self.panel.hwnd, Rect { x: self.hidden_x(&g, &d), ..g });
@@ -279,12 +353,28 @@ impl Core {
     // -----------------------------------------------------------------------------------------
     // Geometry (physical pixels; widths are stored in DIP)
     // -----------------------------------------------------------------------------------------
+    /// Monitor setting "Automatic" (the default): no monitor chosen in Settings.
+    pub fn auto_display(&self) -> bool {
+        !self.settings.get("displayId").is_string()
+    }
+
+    /// The monitor the dock is on: the one chosen in Settings; with "Automatic", the one it was used
+    /// on last, and at first the outermost monitor on the dock side (its edge is where the mouse
+    /// stops when you push it all the way right, or left).
     pub fn target_display(&self) -> Display {
         let list = win32::displays();
         let want = self.settings.str("displayId");
+        let left = self.on_left();
+        let outermost = || {
+            list.iter().max_by_key(|d| {
+                let edge = if left { -d.bounds.x } else { d.bounds.right() };
+                (edge, d.primary)
+            })
+        };
         list.iter()
             .find(|d| !want.is_empty() && d.id == want)
-            .or_else(|| list.iter().find(|d| d.primary))
+            .or_else(|| list.iter().find(|d| !self.dock_display.is_empty() && d.id == self.dock_display))
+            .or_else(outermost)
             .or_else(|| list.first())
             .cloned()
             .unwrap_or(Display {
@@ -292,9 +382,38 @@ impl Core {
                 bounds: Rect { x: 0, y: 0, w: 1920, h: 1080 },
                 work: Rect { x: 0, y: 0, w: 1920, h: 1040 },
                 scale: 1.0,
+                ui: 1.0,
                 hz: 60,
                 primary: true,
             })
+    }
+
+    /// Is the dock-side edge of this monitor a real screen edge at height y (the mouse stops there),
+    /// or the seam to another monitor (the mouse just passes into it)?
+    pub fn outer_edge_at(&self, d: &Display, y: i32) -> bool {
+        let beyond = if self.on_left() { d.bounds.x - 1 } else { d.bounds.right() };
+        !win32::displays().iter().any(|o| o.id != d.id && o.bounds.contains(beyond, y))
+    }
+
+    pub fn display_at(&self, x: i32, y: i32) -> Option<Display> {
+        win32::displays().into_iter().find(|d| d.bounds.contains(x, y))
+    }
+
+    /// "Automatic": the dock moves to this monitor (the tab, line, glow, pop-ups and the panel).
+    pub fn use_display(&mut self, d: &Display) {
+        if !self.auto_display() || self.dock_display == d.id {
+            return;
+        }
+        log!("dock moves to {}", d.id);
+        self.dock_display = d.id.clone();
+        frames::set_display(&d.id, d.hz);
+        if self.panel_state == PanelState::Hidden {
+            let g = self.panel_geometry(d);
+            win32::set_bounds(self.panel.hwnd, Rect { x: self.hidden_x(&g, d), ..g });
+        }
+        self.hide_glow_now();
+        self.update_glow(false);
+        self.toasts_reposition();
     }
 
     pub fn on_left(&self) -> bool {
@@ -311,12 +430,12 @@ impl Core {
     }
 
     fn max_width(&self, d: &Display) -> i32 {
-        ((MIN_W * d.scale).round() as i32).max((d.work.w as f64 * 0.7).round() as i32)
+        ((MIN_W * d.ui).round() as i32).max((d.work.w as f64 * 0.7).round() as i32)
     }
 
     pub fn panel_geometry(&self, d: &Display) -> Rect {
-        let min = (MIN_W * d.scale).round() as i32;
-        let width = ((self.app_width_dip(&self.active()) * d.scale).round() as i32).clamp(min, self.max_width(d));
+        let min = (MIN_W * d.ui).round() as i32;
+        let width = ((self.app_width_dip(&self.active()) * d.ui).round() as i32).clamp(min, self.max_width(d));
         let x = if self.on_left() { d.work.x } else { d.work.right() - width };
         Rect { x, y: d.work.y, w: width, h: d.work.h }
     }
@@ -368,17 +487,29 @@ impl Core {
     /// Where the chat goes inside the panel: under the header (and banner), beside the grip.
     pub fn layout_views(&mut self) {
         let r = win32::window_rect(self.panel.hwnd);
-        let scale = self.target_display().scale;
+        let scale = self.target_display().ui; // the panel page's header / grip are CSS px
         let top = ((HEADER_H + if self.banner_shown { BANNER_H } else { 0.0 }) * scale).round() as i32;
         let grip = (GRIP_W * scale).round() as i32;
         let bounds = Rect { x: if self.on_left() { 0 } else { grip }, y: top, w: (r.w - grip).max(1), h: (r.h - top).max(1) };
         let active = self.active();
         let panel_up = self.panel_state != PanelState::Hidden;
+        let was_shown = self.chats.is_visible(&active);
         for id in self.chats.ids() {
             let show = panel_up && id == active && self.view_showable(&id);
             self.chats.set_bounds(&id, bounds);
             self.chats.set_visible(&id, show, id == active);
         }
+        // The keyboard follows while the user is in the panel: to the chat when it appears (an app
+        // that was loading or asleep), to the panel page when it goes (the error screen).
+        if self.panel_state == PanelState::Open && win32::foreground_window() == self.panel.hwnd {
+            let shown = self.chats.is_visible(&active);
+            if shown && !was_shown {
+                self.chats.focus(&active);
+            } else if was_shown && !shown {
+                crate::chats::focus_panel_page();
+            }
+        }
+        self.chats.notify_moved();
         // The panel page covers the whole window; the chat goes on top of it (like Electron's views).
         // (Development builds can leave it as 1.5.0 had it, to check that the self-test notices.)
         if !(cfg!(debug_assertions) && std::env::var_os("CHATDOCK_TEST_OLD_STACKING").is_some()) {
@@ -398,7 +529,13 @@ impl Core {
             "vis": win32::is_visible(self.panel.hwnd),
             "foc": fg == self.panel.hwnd,
             "x": win32::window_rect(self.panel.hwnd).x,
-            "fg": if fg == self.panel.hwnd { "PANEL".to_string() } else { win32::class_name(fg) },
+            "fg": if fg == self.panel.hwnd {
+                "PANEL".to_string()
+            } else if self.args.selftest {
+                format!("{}@{}", win32::class_name(fg), win32::process_name(fg))
+            } else {
+                win32::class_name(fg)
+            },
             "tab": self.edge.tab_shown,
         })
         .to_string()
@@ -413,7 +550,8 @@ impl Core {
         if source == "toast" && self.is_ours(fg) {
             fg = self.toast_foreground;
         }
-        self.prev_foreground = if source == "tray" || self.is_ours(fg) { 0 } else { fg };
+        self.prev_foreground =
+            if source == "tray" || source == "menu" || fg == 0 || self.is_ours(fg) || !win32::is_visible(fg) { 0 } else { fg };
         log!("foreground before open: {fg} {} -> {}", win32::class_name(fg), self.prev_foreground);
     }
 
@@ -432,7 +570,20 @@ impl Core {
     fn focus_content(&mut self) {
         let active = self.active();
         if !(self.view_showable(&active) && self.chats.focus(&active)) {
-            let _ = self.panel.w.set_focus();
+            crate::chats::focus_panel_page();
+        }
+    }
+
+    /// The panel became the active window (see subclass_proc).
+    pub fn on_panel_activated(&mut self) {
+        if self.panel_state.showing() && win32::foreground_window() == self.panel.hwnd {
+            self.focus_content();
+            // once more a moment later: wry's own focus call for the panel page can arrive after ours
+            timer(150, |c| {
+                if c.panel_state.showing() && win32::foreground_window() == c.panel.hwnd {
+                    c.focus_content();
+                }
+            });
         }
     }
 
@@ -462,6 +613,12 @@ impl Core {
             return;
         }
         // hidden, or re-opened while still sliding out (focus may already be back in the game)
+        if matches!(source, "hotkey" | "tray" | "menu" | "launch") && self.panel_state == PanelState::Hidden {
+            let (x, y) = win32::cursor_pos();
+            if let Some(m) = self.display_at(x, y) {
+                self.use_display(&m); // "Automatic": where the user is
+            }
+        }
         self.remember_foreground(source);
         self.blurred_while_opening = false;
         self.banner_shown = !self.banner_dismissed && win32::is_exclusive_fullscreen();
@@ -474,6 +631,13 @@ impl Core {
         let visible = win32::is_visible(self.panel.hwnd);
         let from_x = if visible { win32::window_rect(self.panel.hwnd).x } else { self.hidden_x(&g, &d) };
         win32::set_bounds(self.panel.hwnd, Rect { x: if slide { from_x } else { g.x }, ..g });
+        let opacity = self.panel_opacity();
+        let from_alpha = if visible { self.panel_alpha } else { 0 };
+        if !slide {
+            self.set_panel_alpha(from_alpha); // before it shows: it fades in from there
+        } else if opacity < 255 || self.panel_alpha < 255 {
+            self.set_panel_alpha(opacity);
+        }
         self.panel_state = PanelState::Opening;
         self.layout_views();
         if !visible {
@@ -485,7 +649,7 @@ impl Core {
         self.toasts_dismiss_app(&active); // reading it now
         self.toasts_reposition(); // other pop-ups move beside the chat
         log!("open {{\"source\":\"{source}\",\"slide\":{slide},\"prevForeground\":{}}}", self.prev_foreground);
-        let kind = if slide { AnimKind::SlideX { from: from_x, to: g.x } } else { AnimKind::Show };
+        let kind = if slide { AnimKind::SlideX { from: from_x, to: g.x } } else { AnimKind::Fade { from: from_alpha, to: opacity } };
         self.animate(OPEN_MS, ease_out_quint, kind, AnimDone::Opened);
     }
 
@@ -505,6 +669,7 @@ impl Core {
             self.focus_panel(); // Windows didn't let us take focus when it started; try once more
         }
         self.chats.notify_moved();
+        self.toasts_reposition();
         self.broadcast_state();
         log!("opened {}", self.snap());
     }
@@ -515,6 +680,7 @@ impl Core {
             return;
         }
         self.panel_state = PanelState::Closing;
+        self.resize_grab = None;
         let target = if restore_focus { self.prev_foreground } else { 0 };
         self.prev_foreground = 0;
         if target != 0 {
@@ -533,7 +699,7 @@ impl Core {
         let to_x = self.hidden_x(&b, &d);
         self.broadcast_state();
         log!("close {{\"restoreFocus\":{restore_focus},\"target\":{target}}}");
-        let kind = if slide { AnimKind::SlideX { from: b.x, to: to_x } } else { AnimKind::Show };
+        let kind = if slide { AnimKind::SlideX { from: b.x, to: to_x } } else { AnimKind::Fade { from: self.panel_alpha, to: 0 } };
         self.animate(CLOSE_MS, ease_in_cubic, kind, AnimDone::Closed);
     }
 
@@ -572,7 +738,7 @@ impl Core {
         let gen = self.anim_gen;
         let last_x = match kind {
             AnimKind::SlideX { from, .. } => from,
-            AnimKind::Show => 0,
+            AnimKind::Fade { .. } => 0,
         };
         ANIM.with(|a| *a.borrow_mut() = Some(Anim { gen, t0: None, ms, ease, kind, done, last_x }));
         frames::request(move |now| anim_frame(gen, now));
@@ -588,12 +754,20 @@ impl Core {
         let t0 = *a.t0.get_or_insert(now);
         let t = ((now - t0) / a.ms).clamp(0.0, 1.0);
         let p = (a.ease)(t);
-        if let AnimKind::SlideX { from, to } = a.kind {
-            let x = (from as f64 + (to - from) as f64 * p).round() as i32;
-            if x != a.last_x {
-                a.last_x = x;
-                let r = win32::window_rect(self.panel.hwnd);
-                win32::move_to(self.panel.hwnd, x, r.y);
+        match a.kind {
+            AnimKind::SlideX { from, to } => {
+                let x = (from as f64 + (to - from) as f64 * p).round() as i32;
+                if x != a.last_x {
+                    a.last_x = x;
+                    let r = win32::window_rect(self.panel.hwnd);
+                    win32::move_to(self.panel.hwnd, x, r.y);
+                }
+            }
+            AnimKind::Fade { from, to } => {
+                let alpha = (from as f64 + (to as f64 - from as f64) * p).round().clamp(0.0, 255.0) as u8;
+                if alpha != self.panel_alpha {
+                    self.set_panel_alpha(alpha);
+                }
             }
         }
         if t < 1.0 {
@@ -615,6 +789,7 @@ impl Core {
     // Hiding when you click elsewhere
     // -----------------------------------------------------------------------------------------
     pub fn on_panel_blur(&mut self) {
+        self.resize_grab = None; // a drag can't go on in a window that isn't active
         log!("blur {}", self.snap());
         if self.panel_state == PanelState::Opening {
             // Only a real mouse click counts (some games grab focus back on their own); decided
@@ -684,7 +859,7 @@ impl Core {
         self.layout_views();
         if self.panel_state.showing() {
             self.activate_panel();
-            let _ = self.panel.w.set_focus();
+            crate::chats::focus_panel_page();
             self.broadcast_state();
         } else {
             self.open_panel(None, source);
@@ -771,14 +946,39 @@ impl Core {
         list[(i + 1) % list.len()].to_string()
     }
 
-    /// edge: where the user dragged the panel's inner edge to (screen position in DIP)
-    pub fn resize_to(&mut self, edge: f64) {
-        if self.panel_state != PanelState::Open || !edge.is_finite() {
+    /// The chat window's see-through setting (60-100 %) as a window alpha.
+    pub fn panel_opacity(&self) -> u8 {
+        (self.settings.f64("opacity").clamp(0.6, 1.0) * 255.0).round() as u8
+    }
+
+    pub fn set_panel_alpha(&mut self, alpha: u8) {
+        win32::set_alpha(self.panel.hwnd, alpha);
+        self.panel_alpha = alpha;
+    }
+
+    /// The resize grip was grabbed: remember where on it (physical px, so any monitor layout and
+    /// scale works; the page's own screen coordinates don't match Windows' on mixed-DPI setups).
+    pub fn resize_start(&mut self) {
+        if self.panel_state != PanelState::Open {
             return;
         }
+        let (cx, _) = win32::cursor_pos();
+        let r = win32::window_rect(self.panel.hwnd);
+        let grip = ((GRIP_W * self.target_display().ui).round() as i32).max(1);
+        let off = if self.on_left() { r.right() - cx } else { cx - r.x };
+        self.resize_grab = Some(off.clamp(0, grip));
+    }
+
+    /// The grip is being dragged (once per frame): the inner edge follows the cursor.
+    pub fn resize_to(&mut self) {
+        let Some(grab) = self.resize_grab.filter(|_| self.panel_state == PanelState::Open) else {
+            self.resize_grab = None;
+            return;
+        };
+        let (cx, _) = win32::cursor_pos();
         let d = self.target_display();
-        let edge_px = (edge * d.scale).round() as i32;
-        let min = (MIN_W * d.scale).round() as i32;
+        let edge_px = if self.on_left() { cx + grab } else { cx - grab };
+        let min = (MIN_W * d.ui).round() as i32;
         let width = (if self.on_left() { edge_px - d.work.x } else { d.work.right() - edge_px }).clamp(min, self.max_width(&d));
         if width == win32::window_rect(self.panel.hwnd).w {
             return;
@@ -787,7 +987,7 @@ impl Core {
         win32::set_bounds(self.panel.hwnd, Rect { x, y: d.work.y, w: width, h: d.work.h });
         self.layout_views();
         let active = self.active();
-        self.settings.set_in("widths", &active, json!((width as f64 / d.scale).round())); // remembered per app
+        self.settings.set_in("widths", &active, json!((width as f64 / d.ui).round())); // remembered per app
         self.save_soon();
         self.toasts_reposition();
     }
@@ -799,8 +999,15 @@ impl Core {
         }
         self.hide_tab(true);
         self.stop_hold(false);
+        self.resize_grab = None;
         self.set_setting("side", json!(side));
         log!("dock side {side}");
+        if self.auto_display() {
+            // "Automatic": the outermost monitor on the new side (its edge is where the mouse stops)
+            self.dock_display.clear();
+            let d = self.target_display();
+            frames::set_display(&d.id, d.hz);
+        }
         self.broadcast_state(); // panel, tab and glow mirror themselves
         if self.panel_state == PanelState::Open {
             let d = self.target_display();
@@ -817,15 +1024,40 @@ impl Core {
         self.toasts_reposition();
     }
 
+    /// The Electron builds named a non-main monitor by a number that means nothing now. With
+    /// exactly one other monitor it can only have been that one; with none plugged in, wait.
+    pub fn resolve_legacy_display(&mut self) {
+        if !self.settings.get("displayId").is_number() {
+            return;
+        }
+        let others: Vec<Display> = win32::displays().into_iter().filter(|d| !d.primary).collect();
+        match others.len() {
+            0 => {}
+            1 => {
+                log!("dock monitor from the Electron build: {}", others[0].id);
+                self.set_setting("displayId", json!(others[0].id));
+            }
+            _ => {
+                log!("dock monitor from the Electron build: several to choose from, main one used");
+                self.set_setting("displayId", Value::Null);
+            }
+        }
+    }
+
     pub fn on_displays_changed(&mut self) {
+        self.resolve_legacy_display();
+        if !self.dock_display.is_empty() && !win32::displays().iter().any(|d| d.id == self.dock_display) {
+            self.dock_display.clear(); // that monitor is gone
+        }
         self.hide_tab(true);
         self.stop_hold(false);
         let d = self.target_display();
+        self.applied_scale = (d.scale, d.ui);
         frames::set_display(&d.id, d.hz);
-        if self.panel_state.showing() {
+        if self.panel_state == PanelState::Open {
             win32::set_bounds(self.panel.hwnd, self.panel_geometry(&d));
             self.layout_views();
-        }
+        } // (still sliding in: opened() fits it)
         self.update_glow(false);
         self.toasts_reposition();
     }

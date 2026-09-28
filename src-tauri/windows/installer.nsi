@@ -349,8 +349,15 @@ Function PageLeaveReinstall
     ${Else}
       ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
       ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
-      ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
-      ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
+      ${If} $R0 = 0
+      ${AndIf} $PassiveMode <> 1
+        ; ChatDock: the user picked "Uninstall ChatDock" (same version): a real uninstall, which
+        ; asks, offers "Delete app data", and removes the shortcuts and "start with Windows"
+      ${Else}
+        ; ChatDock: this installer installs again right after, so the old copy goes as in an update
+        ; (it keeps "start with Windows", the shortcuts and the logins, and asks nothing)
+        StrCpy $R1 "$R1 /UPDATE /P"
+      ${EndIf}
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
       ExecWait '$R1' $0
     ${EndIf}
@@ -375,6 +382,12 @@ Function PageLeaveReinstall
       ; Other erros? show generic error message and return to select un/reinstall page
       MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
       Abort
+    ${EndIf}
+    ; ChatDock: after a real "Uninstall ChatDock", stop here instead of installing it again
+    ${If} $R0 = 0
+    ${AndIf} $PassiveMode <> 1
+    ${AndIf} $WixMode <> 1
+      Quit
     ${EndIf}
   reinst_done:
 FunctionEnd

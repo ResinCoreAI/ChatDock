@@ -114,8 +114,10 @@ impl Settings {
         if !saved.contains_key("lang") && saved.get("onboarded") == Some(&json!(true)) {
             data.insert("lang".into(), json!("th"));
         }
-        // Electron builds stored a numeric display id; monitors are now named by their device.
-        if !matches!(data.get("displayId"), Some(Value::String(_)) | Some(Value::Null)) {
+        // Electron builds stored a numeric display id (only ever for a monitor that isn't the main
+        // one); monitors are now named by their device. It stays until it can be matched (see
+        // Core::resolve_legacy_display); until then the main monitor is used.
+        if !matches!(data.get("displayId"), Some(Value::String(_)) | Some(Value::Null) | Some(Value::Number(_))) {
             data.insert("displayId".into(), Value::Null);
         }
         for gone in ["notifications", "popupApps", "cookiesMigrated"] {

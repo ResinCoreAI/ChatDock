@@ -23,11 +23,11 @@ use windows::{
             WindowsAndMessaging::{
                 BringWindowToTop, GetAncestor, GetClassNameW, GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
                 GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow,
-                IsWindowVisible, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-                WindowFromPoint, CURSORINFO, CURSOR_SHOWING, GA_PARENT, GA_ROOTOWNER, GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT,
-                HWND_BOTTOM, HWND_TOPMOST, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE,
-                SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL,
-                WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_CLIPSIBLINGS, WS_EX_TOOLWINDOW,
+                IsWindowVisible, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW,
+                SetWindowPos, ShowWindow, WindowFromPoint, CURSORINFO, CURSOR_SHOWING, GA_PARENT, GA_ROOTOWNER, GWL_EXSTYLE, GWL_STYLE,
+                GW_CHILD, GW_HWNDNEXT, HWND_BOTTOM, HWND_TOPMOST, LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+                SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA,
+                SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
             },
         },
     },
@@ -113,7 +113,7 @@ pub fn force_foreground(hwnd: isize) -> bool {
 
 /// Give focus back to a window we took it from (un-minimizing exclusive-fullscreen games first).
 pub fn restore_foreground(hwnd: isize) -> bool {
-    if !is_window(hwnd) {
+    if !is_window(hwnd) || !is_visible(hwnd) {
         return false;
     }
     unsafe {
@@ -262,6 +262,60 @@ pub fn child_on_top_at(parent: isize, x: i32, y: i32) -> isize {
     0
 }
 
+/// See-through for the whole window, chats included (0 = invisible, 255 = solid). Once layered the
+/// window stays layered, like Electron's: switching it back while visible makes the pages flash.
+pub fn set_alpha(hwnd: isize, alpha: u8) {
+    unsafe {
+        let ex = GetWindowLongPtrW(h(hwnd), GWL_EXSTYLE);
+        if ex & WS_EX_LAYERED.0 as isize == 0 {
+            if alpha == 255 {
+                return;
+            }
+            SetWindowLongPtrW(h(hwnd), GWL_EXSTYLE, ex | WS_EX_LAYERED.0 as isize);
+        }
+        let _ = SetLayeredWindowAttributes(h(hwnd), windows::Win32::Foundation::COLORREF(0), alpha, LWA_ALPHA);
+    }
+}
+
+/// The file name of the program that owns a window ("" if unknown).
+pub fn process_name(hwnd: isize) -> String {
+    use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(h(hwnd), Some(&mut pid));
+        let Ok(proc) = windows::Win32::System::Threading::OpenProcess(
+            windows::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid,
+        ) else {
+            return String::new();
+        };
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(proc, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = windows::Win32::Foundation::CloseHandle(proc);
+        if !ok {
+            return String::new();
+        }
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        path.rsplit('\\').next().unwrap_or("").to_string()
+    }
+}
+
+/// Windows is shutting down or signing out right now.
+pub fn shutting_down() -> bool {
+    unsafe { GetSystemMetrics(windows::Win32::UI::WindowsAndMessaging::SM_SHUTTINGDOWN) != 0 }
+}
+
+/// The window's real see-through level (None = not layered, i.e. solid).
+pub fn layered_alpha(hwnd: isize) -> Option<u8> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetLayeredWindowAttributes, LAYERED_WINDOW_ATTRIBUTES_FLAGS};
+    let mut alpha = 0u8;
+    let mut flags = LAYERED_WINDOW_ATTRIBUTES_FLAGS(0);
+    unsafe { GetLayeredWindowAttributes(h(hwnd), None, Some(&mut alpha), Some(&mut flags)).ok()? };
+    (flags.0 & LWA_ALPHA.0 != 0).then_some(alpha)
+}
+
 /// Never listed in Alt+Tab or on the taskbar (the tab, pop-ups and other small windows).
 pub fn set_tool_window(hwnd: isize) {
     unsafe {
@@ -299,12 +353,20 @@ pub fn raise(hwnd: isize) {
 pub fn set_bounds(hwnd: isize, r: Rect) {
     unsafe {
         let _ = SetWindowPos(h(hwnd), None, r.x, r.y, r.w, r.h, SWP_NOZORDER | SWP_NOACTIVATE);
+        if window_rect(hwnd) != r {
+            let _ = SetWindowPos(h(hwnd), None, r.x, r.y, r.w, r.h, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
 }
 
 pub fn move_to(hwnd: isize, x: i32, y: i32) {
+    let before = window_rect(hwnd);
     unsafe {
         let _ = SetWindowPos(h(hwnd), None, x, y, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+    }
+    let after = window_rect(hwnd);
+    if after.w != before.w || after.h != before.h {
+        set_bounds(hwnd, Rect { x, y, w: before.w, h: before.h });
     }
 }
 
@@ -355,7 +417,11 @@ pub struct Display {
     pub id: String,
     pub bounds: Rect,
     pub work: Rect,
+    /// monitor scale: DIP -> physical px (panel widths, cursor distances)
     pub scale: f64,
+    /// scale of ChatDock's own pages' CSS px: the monitor scale times Windows' "Text size" (WebView2
+    /// renders pages with both)
+    pub ui: f64,
     pub hz: u32,
     pub primary: bool,
 }
@@ -380,6 +446,7 @@ unsafe extern "system" fn monitor_cb(mon: HMONITOR, _hdc: HDC, _rect: *mut RECT,
             bounds: Rect::from_win(info.monitorInfo.rcMonitor),
             work: Rect::from_win(info.monitorInfo.rcWork),
             scale: dx as f64 / 96.0,
+            ui: dx as f64 / 96.0 * text_scale(),
             hz: if hz > 1 { hz } else { 60 },
             primary: info.monitorInfo.dwFlags & 1 != 0,
         });
@@ -405,6 +472,35 @@ pub fn displays() -> Vec<Display> {
 
 pub fn forget_displays() {
     *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *TEXT_SCALE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+static TEXT_SCALE: std::sync::Mutex<Option<f64>> = std::sync::Mutex::new(None);
+
+/// Settings > Accessibility > Text size (1.0 - 2.25).
+pub fn text_scale() -> f64 {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut cache = TEXT_SCALE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(v) = *cache {
+        return v;
+    }
+    let mut value = 0u32;
+    let mut size = 4u32;
+    let ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(r"Software\Microsoft\Accessibility"),
+            &HSTRING::from("TextScaleFactor"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut std::ffi::c_void),
+            Some(&mut size),
+        )
+        .is_ok()
+    };
+    let v = if ok && (100..=225).contains(&value) { value as f64 / 100.0 } else { 1.0 };
+    *cache = Some(v);
+    v
 }
 
 fn enum_displays() -> Vec<Display> {

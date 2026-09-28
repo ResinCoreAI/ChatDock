@@ -70,7 +70,7 @@ impl Core {
 
     fn tab_size(&self, d: &Display) -> (i32, i32) {
         let n = self.enabled_apps().len() as f64;
-        ((TAB_W * d.scale).round() as i32, ((74.0 + 40.0 * n) * d.scale).round() as i32)
+        ((TAB_W * d.ui).round() as i32, ((74.0 + 40.0 * n) * d.ui).round() as i32)
     }
 
     /// One look at the cursor. Returns when to look again (0 = at the next screen refresh).
@@ -80,9 +80,6 @@ impl Core {
             self.stop_hold(false);
             return 200;
         }
-        let d = self.target_display();
-        let b = d.bounds;
-        let s = d.scale;
         let (px, py, test_captured) = match self.edge.test_cursor {
             Some((x, y, cap)) => (x, y, Some(cap)),
             None => {
@@ -90,6 +87,21 @@ impl Core {
                 (x, y, None)
             }
         };
+        let auto = self.auto_display();
+        // "Automatic": the edge counts on whichever monitor the mouse is on (while nothing is going
+        // on at the edge yet). The dock moves there when the mouse arrives at its outer edge.
+        if auto && !self.edge.tab_shown && !self.edge.hold_line && self.edge.dwell_start == 0 {
+            if let Some(m) = self.display_at(px, py) {
+                let reach = (EDGE_PX * m.scale).round().max(1.0) as i32;
+                let at = if self.on_left() { px < m.bounds.x + reach } else { px >= m.bounds.right() - reach };
+                if at && m.id != self.target_display().id && self.outer_edge_at(&m, py) {
+                    self.use_display(&m);
+                }
+            }
+        }
+        let d = self.target_display();
+        let b = d.bounds;
+        let s = d.scale;
         let left = self.on_left();
         let right = b.right();
         let now = rt::epoch_ms();
@@ -99,7 +111,8 @@ impl Core {
         let zone_bottom = d.work.bottom() - margin;
         let reach = ((if self.edge.dwell_start != 0 { HOLD_SLACK_PX } else { EDGE_PX }) * s).round().max(1.0) as i32;
         let at_edge = if left { px >= b.x && px < b.x + reach } else { px >= right - reach && px <= right };
-        let on_edge = at_edge && py >= zone_top && py <= zone_bottom;
+        // With "Automatic", a seam between two monitors never counts: the mouse only passes it.
+        let on_edge = at_edge && py >= zone_top && py <= zone_bottom && (!auto || self.outer_edge_at(&d, py));
         // A game that has taken the mouse (pointer hidden, or held inside the game) pushes the pointer
         // against the screen edge whenever you aim or turn. That must never bring the tab out.
         let captured = (on_edge || self.edge.tab_shown) && test_captured.unwrap_or_else(win32::mouse_captured);
@@ -180,7 +193,7 @@ impl Core {
     fn follow_cursor(&mut self, cursor_y: i32) {
         let d = self.target_display();
         let (_, h) = self.tab_size(&d);
-        let m = (16.0 + TAB_FOLLOW_MARGIN) * d.scale;
+        let m = (16.0 + TAB_FOLLOW_MARGIN) * d.ui;
         let top = self.edge.tab_target_y + m;
         let bottom = self.edge.tab_target_y + h as f64 - m;
         let cy = cursor_y as f64;
@@ -262,7 +275,7 @@ impl Core {
     /// of the screen and reaches both when the hold time is up (edge.js draws it at the screen's
     /// refresh rate; here it only learns where the cursor is).
     fn show_hold_line(&mut self, cursor_y: i32, held: i64, total: i64, d: &Display) {
-        let s = d.scale;
+        let s = d.ui; // edge.js works in its own CSS px
         let b = d.bounds;
         let y_dip = ((cursor_y - b.y) as f64 / s).round();
         if !self.edge.hold_line {
@@ -319,7 +332,7 @@ impl Core {
         rt::cancel(self.edge.glow_hide_timer);
         self.edge.glow_hide_timer = 0;
         let d = self.target_display();
-        let s = d.scale;
+        let s = d.ui;
         let (gw, gh) = ((GLOW_W * s).round() as i32, (GLOW_H * s).round() as i32);
         let cy = self.edge.tab_center_y.unwrap_or(d.bounds.y + d.bounds.h / 2);
         let y = (cy - gh / 2).clamp(d.bounds.y, (d.work.bottom() - gh).max(d.bounds.y));

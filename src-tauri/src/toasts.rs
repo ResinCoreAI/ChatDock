@@ -39,7 +39,7 @@ pub struct Item {
     hint: String,
     tag: String,
     pub source: u64,
-    chime: bool,
+    pub chime: bool,
     pub action: String,
     remaining: i64,
     timer: u64,
@@ -264,7 +264,7 @@ impl Core {
             return;
         }
         let d = self.target_display();
-        let s = d.scale;
+        let s = d.ui;
         let wa = d.work;
         let w = ((CARD_W + PAD * 2.0) * s).round() as i32;
         let content = if self.toasts.content_height > 0.0 { self.toasts.content_height } else { 120.0 };
@@ -273,7 +273,7 @@ impl Core {
         let on_left = pos.ends_with("left");
         let (edge, pad) = ((EDGE * s).round() as i32, (PAD * s).round() as i32);
         // the open chat: pop-ups go beside it, never on top of it
-        let panel = if self.panel_state.showing() { Some(win32::window_rect(self.panel.hwnd)) } else { None };
+        let panel = if self.panel_state.showing() { Some(self.panel_geometry(&d)) } else { None };
         let x = if on_left {
             let mut x = wa.x + edge - pad;
             if let Some(p) = panel.filter(|p| p.x <= wa.x + 1) {
@@ -511,7 +511,7 @@ impl Core {
 }
 
 fn toast_watch_tick() {
-    crate::core::with(|c| {
+    let ran = crate::core::with(|c| {
         if !win32::is_visible(c.toastwin.hwnd) {
             c.toasts.watch_timer = 0;
             return;
@@ -526,4 +526,7 @@ fn toast_watch_tick() {
         }
         c.toasts.watch_timer = rt::after(400, toast_watch_tick);
     });
+    if ran.is_none() {
+        rt::after(50, toast_watch_tick); // the app state was busy: look again in a moment
+    }
 }

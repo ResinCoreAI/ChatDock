@@ -35,6 +35,74 @@ pub struct UpdState {
     recheck: u64,
 }
 
+/// Start the downloaded installer the way Tauri's updater would (progress bar only, restart
+/// ChatDock after), but check that it really started before ChatDock quits.
+fn launch_installer(version: &str, bytes: &[u8]) -> Result<(), String> {
+    use windows::{
+        core::{HSTRING, PCWSTR},
+        Win32::{
+            Foundation::CloseHandle,
+            UI::{
+                Shell::{ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW},
+                WindowsAndMessaging::SW_SHOWNORMAL,
+            },
+        },
+    };
+    if !bytes.starts_with(b"MZ") {
+        return Err("the download is not an installer".into());
+    }
+    let dir = std::env::temp_dir().join(format!("ChatDock-{version}-update"));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = dir.join(format!("ChatDock_{version}_x64-setup.exe"));
+    std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    let mut params = String::from("/P /R /UPDATE");
+    let keep: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("--selftest") && a != "--keep").collect();
+    if !keep.is_empty() {
+        params.push_str(" /ARGS");
+        for a in keep {
+            params.push(' ');
+            params.push_str(&if a.contains(' ') { format!("\"{a}\"") } else { a });
+        }
+    }
+    let (verb, path, params) = (HSTRING::from("open"), HSTRING::from(file.as_os_str()), HSTRING::from(params.as_str()));
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI,
+        lpVerb: PCWSTR(verb.as_ptr()),
+        lpFile: PCWSTR(path.as_ptr()),
+        lpParameters: PCWSTR(params.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    unsafe {
+        ShellExecuteExW(&mut info).map_err(|e| format!("the installer did not start: {e}"))?;
+        if !info.hProcess.is_invalid() {
+            let _ = CloseHandle(info.hProcess);
+        }
+    }
+    log!("updater: installer started ({})", file.display());
+    Ok(())
+}
+
+/// Update errors as the settings screen understands them: no connection shows its translated
+/// "can't reach GitHub" text (it looks for "net::ERR_"); the full reason goes to the log.
+fn describe(err: &tauri_plugin_updater::Error) -> String {
+    use std::error::Error as _;
+    let mut text = err.to_string();
+    let mut source = err.source();
+    while let Some(e) = source {
+        text.push_str(": ");
+        text.push_str(&e.to_string());
+        source = e.source();
+    }
+    if let tauri_plugin_updater::Error::Reqwest(e) = err {
+        if e.is_connect() || e.is_timeout() || e.is_request() || e.is_body() {
+            return format!("net::ERR_INTERNET_DISCONNECTED ({text})");
+        }
+    }
+    text
+}
+
 /// A local test feed: the folder (like the Electron builds took it) or its latest.json.
 fn test_feed() -> Option<String> {
     let feed = std::env::var("CHATDOCK_UPDATE_FEED").ok()?;
@@ -103,7 +171,7 @@ impl Core {
                     let url = tauri::Url::parse(&feed).map_err(|e| e.to_string())?;
                     b = b.endpoints(vec![url]).map_err(|e| e.to_string())?;
                 }
-                b.build().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())
+                b.build().map_err(|e| e.to_string())?.check().await.map_err(|e| describe(&e))
             }
             .await;
             match result {
@@ -179,7 +247,7 @@ impl Core {
                     later(|c| c.update_ready());
                 }
                 Err(err) => {
-                    let err = err.to_string();
+                    let err = describe(&err);
                     later(move |c| {
                         log!("updater error: {err}");
                         c.upd.error = crate::core::clean_text(&err, 300);
@@ -226,6 +294,8 @@ impl Core {
             "chatdock:update",
             "update",
         );
+        let mut item = item;
+        item.chime = self.settings.bool("popupSound");
         self.toasts_push(item);
     }
 
@@ -254,18 +324,22 @@ impl Core {
     fn run_installer(&mut self) {
         self.quitting = true;
         self.settings.flush();
+        crate::tray::set_shown(false); // no dead icon left behind in the tray
         log!("updater: starting the installer");
-        std::thread::spawn(|| {
+        let version = self.upd.version.clone();
+        std::thread::spawn(move || {
             let pending = PENDING.lock().unwrap().take();
             let result = match pending {
-                Some((update, Some(bytes))) => update.install(bytes).map_err(|e| e.to_string()), // exits ChatDock on success
+                // the download's signature was checked when it arrived (Update::download)
+                Some((_, Some(bytes))) => launch_installer(&version, &bytes),
                 _ => Err("nothing downloaded".into()),
             };
-            if let Err(err) = result {
-                later(move |c| c.install_failed(&err));
+            match result {
+                Ok(()) => later(|c| c.quit()), // the installer runs: step aside (it restarts ChatDock)
+                Err(err) => later(move |c| c.install_failed(&err)),
             }
         });
-        // Normally ChatDock has quit long before this. If not, the installer didn't start.
+        // Normally ChatDock has quit long before this. If not, something is stuck.
         timer(20_000, |c| c.install_failed("still running"));
     }
 
@@ -275,6 +349,7 @@ impl Core {
         }
         log!("update install did not start: {why}");
         self.quitting = false;
+        crate::tray::set_shown(true);
         self.set_setting("pendingUpdate", Value::Null);
         if let Some(w) = self.update_win.take() {
             let _ = w.w.destroy();
@@ -307,6 +382,7 @@ impl Core {
                 Ok(w) => {
                     let hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
                     win32::set_tool_window(hwnd);
+                    crate::panel::lock_down_page(&w, args.debug);
                     later(move |c| {
                         c.update_win = Some(Win { w, hwnd });
                         c.pending_update_to = to;
@@ -321,7 +397,7 @@ impl Core {
     pub fn update_window_ready(&mut self) {
         let Some(w) = self.update_win.clone() else { return };
         let d = self.target_display();
-        let (width, height) = ((452.0 * d.scale).round() as i32, (196.0 * d.scale).round() as i32);
+        let (width, height) = ((452.0 * d.ui).round() as i32, (196.0 * d.ui).round() as i32);
         win32::set_bounds(
             w.hwnd,
             Rect { x: d.work.x + (d.work.w - width) / 2, y: d.work.y + (d.work.h - height) / 2, w: width, h: height },

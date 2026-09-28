@@ -173,34 +173,39 @@ $('#start').addEventListener('click', () => {
 });
 $('#welcome [data-lang-select]').addEventListener('change', (e) => chatdock.send('settings:set', 'lang', e.target.value));
 
-// Drag the inner edge to resize. We send where that edge should be (screen DIP) once per frame:
-// the panel's left edge when docked right, its right edge when docked left.
+// Drag the inner edge to resize. ChatDock follows the real cursor itself (in physical pixels, so it
+// works on any monitor layout); the page only says when the drag starts, moves (once per frame)
+// and ends.
 const grip = $('#grip');
 let dragging = false;
-let grabOffset = 0;
-let pendingEdge = null;
+let tick = false;
 grip.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   dragging = true;
-  grabOffset = side === 'left' ? window.innerWidth - e.clientX : e.clientX;
   grip.setPointerCapture(e.pointerId);
   document.body.classList.add('resizing');
+  chatdock.send('panel:resize-start');
 });
 grip.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  if (pendingEdge === null) {
-    requestAnimationFrame(() => {
-      chatdock.send('panel:resize', pendingEdge);
-      pendingEdge = null;
-    });
+  if (dragging && !(e.buttons & 1)) { // the button came up somewhere we didn't hear about
+    endDrag();
+    return;
   }
-  pendingEdge = side === 'left' ? e.screenX + grabOffset : e.screenX - grabOffset;
+  if (!dragging || tick) return;
+  tick = true;
+  requestAnimationFrame(() => {
+    tick = false;
+    if (dragging) chatdock.send('panel:resize');
+  });
 });
 const endDrag = () => {
+  if (!dragging) return;
   dragging = false;
   document.body.classList.remove('resizing');
+  chatdock.send('panel:resize-end');
 };
 grip.addEventListener('pointerup', endDrag);
+grip.addEventListener('lostpointercapture', endDrag);
 grip.addEventListener('pointercancel', endDrag);
 
 chatdock.on('state', render);

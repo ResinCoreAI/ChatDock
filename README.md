@@ -39,7 +39,8 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | | |
 |---|---|
 | 💬 **Chat apps** | Instagram, Facebook, X, Discord on by default; Telegram and WhatsApp one switch away. Each app keeps its own login. |
-| ↔️ **Left or right** | Dock on either screen edge (and on any monitor). The panel, edge tab and unread glow all follow. |
+| ↔️ **Left or right** | Dock on either screen edge. The panel, edge tab and unread glow all follow. |
+| 🖥️ **Several monitors** | *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or pin it to one monitor in Settings. |
 | 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 3 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
 | ⚙️ **Fully adjustable pop-ups** | Any screen corner · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
@@ -164,7 +165,7 @@ Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number withou
 
 | Problem | Fix |
 |---|---|
-| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off and the right monitor/edge is chosen. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
+| The white tab doesn't appear | Check *Cursor on the screen edge* isn't off. With several monitors, use an outer edge (where the mouse stops): the seam between two monitors never counts, the mouse just passes through it. If a monitor is picked under *Settings → Position & look → Monitor*, only that monitor's edge works; *Automatic* uses all of them. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
 | The hotkey does nothing | Another program took it. Pick another one in Settings → General. |
 | No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *Test pop-up*. Check that app’s own switches under Settings → Notifications → Per app. Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |

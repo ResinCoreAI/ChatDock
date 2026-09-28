@@ -75,7 +75,11 @@ const SITE_SCRIPT: &str = r#"(() => {
   if (window.ServiceWorkerRegistration && window.Notification) {
     const sw = ServiceWorkerRegistration.prototype;
     sw.showNotification = function showNotification(title, options) {
-      try { new Notification(title, options); } catch (e) {}
+      const o = Object.assign({}, options || {});
+      delete o.actions; // page notifications reject buttons (WhatsApp's call Accept / Decline)
+      if (!o.tag) delete o.renotify;
+      if (o.silent) delete o.vibrate;
+      try { new Notification(title, o); } catch (e) {}
       return Promise.resolve();
     };
     sw.getNotifications = function getNotifications() { return Promise.resolve([]); };
@@ -92,6 +96,8 @@ pub struct View {
 
 #[derive(Default)]
 pub struct Chats {
+    clear_when_made: HashSet<String>,
+    clear_after_blank: HashSet<String>,
     views: HashMap<String, View>,
     creating: HashSet<String>,
     env_ready: bool,
@@ -111,8 +117,21 @@ thread_local! {
     static CREATED: RefCell<HashMap<String, ICoreWebView2Controller>> = RefCell::new(HashMap::new());
     static NOTES: RefCell<HashMap<u64, (String, ICoreWebView2Notification)>> = RefCell::new(HashMap::new());
     static NOTE_SEQ: Cell<u64> = const { Cell::new(0) };
+    /// The panel page's own WebView2 (Tauri's): gets the keyboard when no chat is on screen.
+    static PANEL_CTRL: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
     /// Apps with a navigation ChatDock started itself (their home page, a retry): allowed wherever it goes.
     static OWN_NAV: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
+/// Keyboard into the panel page itself (header, settings, welcome and error screens). Tauri's own
+/// window focus call does nothing for windows ChatDock shows itself, and it could send the game a
+/// synthetic Alt key.
+pub fn focus_panel_page() {
+    if let Some(c) = PANEL_CTRL.with(|p| p.borrow().clone()) {
+        unsafe {
+            let _ = c.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        }
+    }
 }
 
 fn env() -> Option<ICoreWebView2Environment> {
@@ -219,6 +238,24 @@ impl Chats {
         if let Some(v) = self.views.get(id) {
             unsafe {
                 let _ = v.webview.Reload();
+            }
+        }
+    }
+
+    /// Reload without the cache (Shift+F5 / Ctrl+Shift+R).
+    pub fn reload_ignoring_cache(&self, id: &str) {
+        let Some(v) = self.views.get(id) else { return };
+        let wv = v.webview.clone();
+        let fallback = wv.clone();
+        unsafe {
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |r, _| {
+                if r.is_err() {
+                    let _ = fallback.Reload();
+                }
+                Ok(())
+            }));
+            if wv.CallDevToolsProtocolMethod(&HSTRING::from("Page.reload"), &HSTRING::from("{\"ignoreCache\":true}"), &handler).is_err() {
+                let _ = wv.Reload();
             }
         }
     }
@@ -402,6 +439,25 @@ impl Core {
         let debug = self.args.debug;
         let _ = self.panel.w.with_webview(move |pw| {
             ENV.with(|e| *e.borrow_mut() = Some(pw.environment()));
+            PANEL_CTRL.with(|p| *p.borrow_mut() = Some(pw.controller()));
+            if let Ok(env5) = pw.environment().cast::<ICoreWebView2Environment5>() {
+                let mut token = 0i64;
+                unsafe {
+                    let _ = env5.add_BrowserProcessExited(
+                        &BrowserProcessExitedEventHandler::create(Box::new(|_, args| {
+                            let mut kind = COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND::default();
+                            if let Some(args) = args {
+                                let _ = args.BrowserProcessExitKind(&mut kind);
+                            }
+                            if kind == COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND_FAILED {
+                                later(|c| c.restart_after_crash("the WebView2 browser process stopped"));
+                            }
+                            Ok(())
+                        })),
+                        &mut token,
+                    );
+                }
+            }
             // the shortcuts work in the panel's own page too (Esc Esc, Ctrl+1..9, ...)
             hook_keys(&pw.controller(), None);
             if let Ok(wv) = unsafe { pw.controller().CoreWebView2() } {
@@ -409,6 +465,9 @@ impl Core {
                     unsafe {
                         let _ = s.SetAreDefaultContextMenusEnabled(debug);
                         let _ = s.SetIsStatusBarEnabled(false);
+                        if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
+                            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(debug);
+                        }
                     }
                 }
             }
@@ -471,6 +530,7 @@ impl Core {
                                 let a = app.clone();
                                 later(move |c| {
                                     c.chats.creating.remove(&a);
+                                    c.set_load(&a, "error");
                                 });
                             }
                         }
@@ -482,6 +542,7 @@ impl Core {
         if let Err(err) = result {
             log!("chat view {id}: {err}");
             self.chats.creating.remove(id);
+            self.set_load(id, "error");
         }
     }
 
@@ -516,6 +577,9 @@ impl Core {
         self.first_shown.insert(id.to_string(), false);
         self.layout_views();
         self.load_home(id);
+        if self.chats.clear_when_made.remove(id) {
+            self.clear_app_data(id);
+        }
     }
 
     pub fn destroy_view(&mut self, id: &str) {
@@ -539,12 +603,18 @@ impl Core {
         }
     }
 
-    pub fn reload_app(&mut self, id: &str, _hard: bool) {
+    pub fn reload_app(&mut self, id: &str, hard: bool) {
         if !self.chats.has(id) {
+            // its view could not be made (see create_view): "Try again" makes it again
+            if self.is_enabled(id) && !*self.asleep.get(id).unwrap_or(&false) {
+                self.create_view(id);
+            }
             return;
         }
         if self.load_state.get(id).copied() == Some("error") {
             self.load_home(id);
+        } else if hard {
+            self.chats.reload_ignoring_cache(id);
         } else {
             self.chats.reload(id);
         }
@@ -577,23 +647,30 @@ impl Core {
         self.set_load(id, "loading");
     }
 
-    fn on_load_done(&mut self, id: &str, ok: bool, status: i32) {
-        if ok {
-            if self.load_state.get(id).copied() == Some("loading") {
-                self.set_load(id, "ready");
-            }
+    fn on_load_done(&mut self, id: &str, ok: bool, status: i32, http: i32) {
+        if self.chats.clear_after_blank.contains(id) && self.chats.source(id) == "about:blank" {
+            let a = id.to_string();
+            timer(600, move |c| c.clear_now(&a)); // the old page's unload handlers have run by then
             return;
         }
-        // cancelled = normal when navigating away or when a link opened in the browser instead
-        if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED.0
+        // The server answered (http > 0): whatever it sent is shown, a "verify you are human" or
+        // "try again later" page included, as in 1.4. Cancelled = navigating away, or a link that
+        // opened in the browser instead. Only a load with no answer at all is an error.
+        if ok
+            || http > 0
+            || status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED.0
             || status == COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED.0
+            || status == COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED.0
         {
+            if !ok {
+                log!("page {id} shown although not ok: status {status} http {http}");
+            }
             if self.load_state.get(id).copied() == Some("loading") {
                 self.set_load(id, "ready");
             }
             return;
         }
-        log!("load failed {id} status {status}");
+        log!("load failed {id} status {status} http {http}");
         self.set_load(id, "error");
         if let Some(t) = self.retry_timers.remove(id) {
             rt::cancel(t);
@@ -626,28 +703,65 @@ impl Core {
     pub fn clear_app_data(&mut self, id: &str) {
         self.toasts_dismiss_app(id);
         self.set_count(id, 0);
-        let Some(v) = self.chats.views.get(id) else {
-            log!("data cleared {id} (not loaded)");
+        if self.chats.creating.contains(id) {
+            self.chats.clear_when_made.insert(id.to_string()); // done as soon as its view exists
             return;
+        }
+        let app = id.to_string();
+        if self.chats.has(id) {
+            // The site's page leaves first: a running chat could otherwise write its login back
+            // while (or right after) it is wiped. Cleared once about:blank has loaded.
+            self.chats.clear_after_blank.insert(app.clone());
+            self.chats.navigate(id, "about:blank");
+            let a = app.clone();
+            timer(4000, move |c| c.clear_now(&a)); // in case the blank page never reports back
+            return;
+        }
+        // Not loaded (switched off or asleep): open its profile for a moment, without a page.
+        if let Err(err) = self.wipe_unloaded_profile(&app) {
+            log!("clear data failed {id}: {err}");
+        }
+    }
+
+    fn clear_now(&mut self, id: &str) {
+        if !self.chats.clear_after_blank.remove(id) {
+            return; // done already
+        }
+        let result = match self.chats.views.get(id) {
+            Some(v) => unsafe { clear_profile(&v.webview, id, None) },
+            None => self.wipe_unloaded_profile(id),
         };
+        if let Err(err) = result {
+            log!("clear data failed {id}: {err}");
+        }
+    }
+
+    fn wipe_unloaded_profile(&mut self, id: &str) -> windows::core::Result<()> {
+        let Some(env) = env() else { return Ok(()) };
         let app = id.to_string();
         unsafe {
-            let result =
-                v.webview.cast::<ICoreWebView2_13>().and_then(|w| w.Profile()).and_then(|p| p.cast::<ICoreWebView2Profile2>()).and_then(
-                    |p2| {
-                        p2.ClearBrowsingDataAll(&ClearBrowsingDataCompletedHandler::create(Box::new(move |_| {
-                            let a = app.clone();
-                            later(move |c| {
-                                c.load_home(&a);
-                                log!("data cleared {a}");
-                            });
-                            Ok(())
-                        })))
-                    },
-                );
-            if let Err(err) = result {
-                log!("clear data failed {id}: {err}");
-            }
+            let env10: ICoreWebView2Environment10 = env.cast()?;
+            let opts = env10.CreateCoreWebView2ControllerOptions()?;
+            opts.SetProfileName(&HSTRING::from(id))?;
+            opts.SetIsInPrivateModeEnabled(false)?;
+            env10.CreateCoreWebView2ControllerWithOptions(
+                win32::h(self.panel.hwnd),
+                &opts,
+                &CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |err, controller| {
+                    match (err, controller) {
+                        (Ok(()), Some(ctrl)) => {
+                            let _ = ctrl.SetIsVisible(false);
+                            let result = ctrl.CoreWebView2().and_then(|wv| clear_profile(&wv, &app, Some(ctrl.clone())));
+                            if let Err(err) = result {
+                                log!("clear data failed {app}: {err}");
+                                let _ = ctrl.Close();
+                            }
+                        }
+                        (err, _) => log!("clear data failed {app}: {err:?}"),
+                    }
+                    Ok(())
+                })),
+            )
         }
     }
 
@@ -735,6 +849,45 @@ fn renderer_app(info: &ICoreWebView2ProcessExtendedInfo, pages: &[(String, Strin
 // ---------------------------------------------------------------------------------------------
 // Setting up one chat view
 // ---------------------------------------------------------------------------------------------
+/// Wipe a profile (login, cookies, storage, cache), give the site back its permissions, then load
+/// its home page again, or close the stand-in controller used for an app that isn't loaded.
+unsafe fn clear_profile(wv: &ICoreWebView2, id: &str, temporary: Option<ICoreWebView2Controller>) -> windows::core::Result<()> {
+    let profile = wv.cast::<ICoreWebView2_13>()?.Profile()?;
+    let p2 = profile.cast::<ICoreWebView2Profile2>()?;
+    let app = id.to_string();
+    let keep = profile.clone();
+    p2.ClearBrowsingDataAll(&ClearBrowsingDataCompletedHandler::create(Box::new(move |_| {
+        grant_site_permissions(&keep, &app);
+        if let Some(ctrl) = &temporary {
+            let _ = ctrl.Close();
+        }
+        let a = app.clone();
+        later(move |c| {
+            if c.chats.has(&a) {
+                c.load_home(&a);
+            }
+            log!("data cleared {a}");
+        });
+        Ok(())
+    })))
+}
+
+unsafe fn grant_site_permissions(profile: &ICoreWebView2Profile, id: &str) {
+    let Ok(p4) = profile.cast::<ICoreWebView2Profile4>() else { return };
+    for origin in apps::notification_origins(id) {
+        for kind in
+            [COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_CAMERA]
+        {
+            let _ = p4.SetPermissionState(
+                kind,
+                &HSTRING::from(origin.as_str()),
+                COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+                &SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(()))),
+            );
+        }
+    }
+}
+
 fn allowed_permission(kind: COREWEBVIEW2_PERMISSION_KIND) -> bool {
     [
         COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
@@ -751,6 +904,11 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     s.SetAreDevToolsEnabled(debug)?;
     s.SetIsStatusBarEnabled(false)?;
     s.SetIsZoomControlEnabled(true)?;
+    if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
+        // no find bar / print / save-as on Ctrl+F, Ctrl+P, Ctrl+S (1.4 had none); ChatDock's own
+        // keys still arrive through AcceleratorKeyPressed
+        s3.SetAreBrowserAcceleratorKeysEnabled(debug)?;
+    }
     s.SetIsBuiltInErrorPageEnabled(false)?; // a failed load shows ChatDock's own "can't connect" screen
     if let Ok(s4) = s.cast::<ICoreWebView2Settings4>() {
         s4.SetIsPasswordAutosaveEnabled(false)?;
@@ -766,18 +924,10 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
         &HSTRING::from(SITE_SCRIPT),
         &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(()))),
     )?;
-    // The app's own pages may show notifications from the start (like a site you allowed in a browser)
+    // The app's own sites may show notifications from the start (like a site you allowed in a
+    // browser), and use the mic and camera for calls (also in their call windows)
     if let Ok(profile) = wv.cast::<ICoreWebView2_13>().and_then(|w| w.Profile()) {
-        if let Ok(p4) = profile.cast::<ICoreWebView2Profile4>() {
-            for origin in apps::notification_origins(id) {
-                let _ = p4.SetPermissionState(
-                    COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
-                    &HSTRING::from(origin),
-                    COREWEBVIEW2_PERMISSION_STATE_ALLOW,
-                    &SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(()))),
-                );
-            }
-        }
+        grant_site_permissions(&profile, id);
     }
     // Chat sites have no business talking to programs on this PC. (Discord's page probes the
     // desktop app on localhost and then nags "Discord App Detected".)
@@ -824,8 +974,12 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             args.IsSuccess(&mut ok)?;
             let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
             args.WebErrorStatus(&mut status)?;
+            let mut http = 0i32;
+            if let Ok(a2) = args.cast::<ICoreWebView2NavigationCompletedEventArgs2>() {
+                let _ = a2.HttpStatusCode(&mut http);
+            }
             let (a, ok, st) = (app.clone(), ok.as_bool(), status.0);
-            later(move |c| c.on_load_done(&a, ok, st));
+            later(move |c| c.on_load_done(&a, ok, st, http));
             Ok(())
         })),
         &mut token,
@@ -943,12 +1097,21 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let Some(args) = args else { return Ok(()) };
             let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
             args.ProcessFailedKind(&mut kind)?;
-            log!("renderer gone {app} kind {}", kind.0);
-            if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
-                || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
-            {
+            log!("renderer problem {app} kind {}", kind.0);
+            if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
                 let a = app.clone();
-                timer(1500, move |c| c.chats.reload(&a));
+                later(move |c| {
+                    if !c.reload_pending.insert(a.clone()) {
+                        return; // already coming
+                    }
+                    let b = a.clone();
+                    timer(1500, move |c| {
+                        c.reload_pending.remove(&b);
+                        c.chats.reload(&b);
+                    });
+                });
+            } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+                later(|c| c.restart_after_crash("the WebView2 browser process stopped"));
             }
             Ok(())
         })),
