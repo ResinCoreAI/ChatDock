@@ -190,7 +190,7 @@ Releases are called **Beta Build 1.1, 1.2, 1.3, …**: the version number withou
 | Problem | Fix |
 |---|---|
 | The white tab doesn't appear | Check *Cursor on the screen edge* isn't off. With several monitors, use an outer edge (where the mouse stops): the seam between two monitors never counts, the mouse just passes through it. The map under *Settings → Monitors & position* lights up exactly where the edge works. If one monitor is picked there, only that monitor's edge works (if it touches another monitor, the page says so: use the hotkey, or the other edge); *Automatic* uses all of them. The top and bottom corners are left alone on purpose (close buttons, clock), so aim for the middle, and keep the cursor there until the line reaches the top and bottom (or set *Hold time at the edge* to *Right away*). Holding a mouse button down also suppresses it. |
-| The hotkey does nothing | Another program took it. Pick another one in Settings → General. |
+| The hotkey does nothing | Another program took it. Pick another one in *Settings → Opening the chat*. |
 | No pop-ups | Check pop-ups are on and do-not-disturb is off (tray menu), then *Test pop-up*. Check that app’s own switches under Settings → Notifications → Per app. Chats you're currently looking at don't pop up. For Discord, enable its desktop notifications. |
 | A pop-up only says "new message" | That site didn't include the details in its notification; ChatDock only knows the count. |
 | "Continue with Google" on X fails | Google blocks sign-in inside embedded browsers. Use X's own username + password. |
