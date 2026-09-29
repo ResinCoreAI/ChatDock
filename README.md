@@ -116,7 +116,8 @@ The tray menu (right-click the ChatDock icon) has the quick switches: pop-ups on
 
 Pop-ups come from the notifications the chat sites raise themselves. If a site doesn't say who wrote,
 ChatDock still tells you something arrived ("new message · 2 unread"). Discord needs
-*User Settings → Notifications → Enable Desktop Notifications* turned on once.
+*User Settings → Notifications → Enable Desktop Notifications* turned on once (until it is, its
+pop-ups say where).
 
 ### Discord
 

@@ -1097,9 +1097,28 @@ fn counts_test() {
     log!(
         "counts ({app}) on a new page: seen while it loads {seen_while_loading:?}, the same number again {same_again} | after a restart: the same number {restart_same}, a lower one {restart_lower} (expect Some(1), 0 | 0, 2)"
     );
+    // Discord without a notification of its own yet (its desktop notifications off): its count
+    // pop-up says where to turn them on
+    let dc = on(|c| c.is_enabled("discord"));
+    let dc_hint = if dc {
+        on(|c| {
+            c.last_content_at.insert("discord".into(), 0);
+            c.load_started_at.insert("discord".into(), 0);
+            c.on_title("discord", "(1) Discord");
+        });
+        wait(2900);
+        page_js("toasts", "[...document.querySelectorAll('.card:not(.leaving) .hint')].map((h) => h.textContent).join(' | ')")
+    } else {
+        "(Discord is off)".into()
+    };
+    let dc_text = on(|c| c.t("toast.discordWho"));
+    log!("counts: Discord's count pop-up with no notification from it: {dc_hint} (expect \"{dc_text}\")");
     on(move |c| {
         c.toasts_dismiss_all();
         c.on_title(app, "Instagram");
+        if dc {
+            c.on_title("discord", "Discord");
+        }
         c.settings.set("popups", popups_were);
         c.set_setting("active", json!(active_was));
     });

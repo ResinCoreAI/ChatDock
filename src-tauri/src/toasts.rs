@@ -25,6 +25,8 @@ pub struct Fields {
     pub source: u64, // WebView2 notification to click through to (0 = none)
     /// the small line after the app's name ("Server · #channel"); "" = "just messaged"
     pub meta: String,
+    /// the last line; "" = "Click to open this chat"
+    pub hint: String,
 }
 
 #[derive(Clone)]
@@ -135,7 +137,7 @@ impl Core {
             if f.meta.is_empty() { self.t("toast.justMessaged") } else { f.meta },
             f.title,
             f.body,
-            self.t("toast.clickToOpen"),
+            if f.hint.is_empty() { self.t("toast.clickToOpen") } else { f.hint },
             &f.tag,
             "",
         );

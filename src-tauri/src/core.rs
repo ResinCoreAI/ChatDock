@@ -1418,6 +1418,7 @@ impl Core {
             tag: if tag.is_empty() { String::new() } else { format!("{id}:{}", clean_text(tag, 80)) },
             source: key,
             meta,
+            hint: String::new(),
         };
         self.popup(id, fields);
     }
@@ -1509,6 +1510,13 @@ impl Core {
                 return; // page just (re)loaded: old unread counts are not new messages
             }
             let flash = c.last_flash.get(&app).filter(|(_, at)| now - at < 15_000).map(|(t, _)| clean_text(t, 120)).unwrap_or_default();
+            // Discord says who wrote only with its own desktop notifications on (a setting of each
+            // browser, ChatDock's too): none from it yet, so the card says where to turn them on
+            let hint = if app == "discord" && c.last_content_at.get(&app).copied().unwrap_or(0) == 0 {
+                c.t("toast.discordWho")
+            } else {
+                String::new()
+            };
             let fields = toasts::Fields {
                 title: if flash.is_empty() { c.t("toast.newMessage") } else { flash },
                 body: c.tv("toast.unread", &[("n", count.to_string())]),
@@ -1516,6 +1524,7 @@ impl Core {
                 tag: format!("{app}:count"), // one "new messages" card per app, updated in place
                 source: 0,
                 meta: String::new(),
+                hint,
             };
             c.popup(&app, fields);
         });
@@ -1532,6 +1541,7 @@ impl Core {
             tag: "test".into(),
             source: 0,
             meta: String::new(),
+            hint: String::new(),
         };
         self.popup(&id, fields);
     }
