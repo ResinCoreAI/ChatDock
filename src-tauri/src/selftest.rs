@@ -52,6 +52,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("fixes172") {
+            wait(8000); // the pages load
+            fixes172_test();
         } else if only.as_deref() == Some("review171") {
             wait(8000); // the pages load
             review171_test();
@@ -1912,6 +1915,52 @@ fn review171_test() {
     );
 }
 
+/// 1.7.2's fixes (found by GolfZzz): clearing an app's data forgets what it had seen, a failed
+/// update install starts the edge's watch again, a called-off sign-out isn't a sign-out, and "the
+/// hotkey is taken" names the page the hotkey is on. Nothing shows on the screen.
+fn fixes172_test() {
+    // 1. seen counts
+    let cleared = on(|c| {
+        c.site_counts.insert("x".into(), 5);
+        c.settings.set_in("seenCounts", "x", json!(5));
+        c.clear_app_data("x");
+        (c.settings.get("seenCounts").get("x").cloned(), c.site_counts.get("x").copied())
+    });
+    // 2. the edge's watch: running, stopped by "quitting", running again after the failed install
+    let looks = || on(|c| c.edge.looks);
+    let a = looks();
+    wait(600);
+    let running = looks() > a;
+    on(|c| {
+        c.upd.status = "installing";
+        c.quitting = true;
+    });
+    wait(400);
+    let b = looks();
+    wait(600);
+    let stopped = looks() == b;
+    on(|c| c.install_failed("self-test"));
+    let d = looks();
+    wait(600);
+    let again = looks() > d;
+    // 3. a sign-out called off
+    let panel = on(|c| c.panel.hwnd);
+    crate::core::SESSION_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+    unsafe {
+        use windows::Win32::{
+            Foundation::{LPARAM, WPARAM},
+            UI::WindowsAndMessaging::{SendMessageW, WM_ENDSESSION},
+        };
+        SendMessageW(win32::h(panel), WM_ENDSESSION, Some(WPARAM(0)), Some(LPARAM(0)));
+    }
+    let ending = crate::core::SESSION_ENDING.load(std::sync::atomic::Ordering::SeqCst);
+    // 4. the text
+    let text = on(|c| c.tv("balloon.hotkeyBody", &[("hotkey", "Ctrl+Alt+C".into())]));
+    log!(
+        "1.7.2 fixes: after clearing X's data seen {cleared:?} | the edge's watch running {running}, stopped while installing {stopped}, back after the failed install {again} | still signing out after a called-off sign-out {ending} | {text} (expect (Some(0), Some(0)), true, true, true, false, ... Opening the chat)"
+    );
+}
+
 /// Which protected-media (DRM) systems the chats' browser offers: Spotify's web player needs
 /// Widevine to play anything.
 fn drm_test() {
@@ -2808,7 +2857,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.7.1, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.7.2, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

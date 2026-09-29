@@ -50,6 +50,8 @@ pub struct EdgeState {
     pub scrolling: bool,
     /// self-test: a pretend cursor (x, y, a game holds the mouse)
     pub test_cursor: Option<(i32, i32, bool)>,
+    /// how many times the edge has been looked at (the self-test sees the watch running)
+    pub looks: u64,
 }
 
 fn edge_tick() {
@@ -85,6 +87,7 @@ impl Core {
 
     /// One look at the cursor. Returns when to look again (0 = at the next screen refresh).
     pub fn edge_step(&mut self) -> u64 {
+        self.edge.looks += 1;
         let next = self.edge_look();
         // the wheel only matters while the edge is being held or the tab is out
         let guard = self.settings.bool("edgeWheel");

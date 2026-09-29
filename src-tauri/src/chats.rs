@@ -1082,6 +1082,11 @@ impl Core {
     pub fn clear_app_data(&mut self, id: &str) {
         self.toasts_dismiss_app(id);
         self.set_count(id, 0);
+        // a new login starts from scratch: nothing it will count has been seen yet (the old "seen"
+        // would hide the first new messages)
+        self.site_counts.insert(id.to_string(), 0);
+        self.settings.set_in("seenCounts", id, serde_json::json!(0));
+        self.save_soon();
         if self.chats.creating.contains(id) {
             self.chats.clear_when_made.insert(id.to_string()); // done as soon as its view exists
             return;

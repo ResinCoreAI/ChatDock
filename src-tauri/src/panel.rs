@@ -188,8 +188,12 @@ unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
                 });
             }
         }
-        WM_QUERYENDSESSION | WM_ENDSESSION if which == 1 => {
+        WM_QUERYENDSESSION if which == 1 => {
             core::SESSION_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        WM_ENDSESSION if which == 1 => {
+            // FALSE: the sign-out or shutdown was called off (another program said no)
+            core::SESSION_ENDING.store(wparam.0 != 0, std::sync::atomic::Ordering::SeqCst);
         }
         WM_CLOSE if which == 1 => {
             later(|c| c.close_panel(true, "alt-f4"));

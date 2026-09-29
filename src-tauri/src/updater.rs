@@ -415,12 +415,13 @@ impl Core {
         timer(20_000, |c| c.install_failed("still running"));
     }
 
-    fn install_failed(&mut self, why: &str) {
+    pub(crate) fn install_failed(&mut self, why: &str) {
         if self.upd.status != "installing" {
             return;
         }
         log!("update install did not start: {why}");
         self.quitting = false;
+        self.edge_tick_soon(16); // the edge's watch stopped with "quitting": start it again
         crate::tray::set_shown(true);
         self.set_setting("pendingUpdate", Value::Null);
         if let Some(w) = self.update_win.take() {
