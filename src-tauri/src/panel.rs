@@ -192,7 +192,7 @@ unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
             core::SESSION_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         WM_ENDSESSION if which == 1 => {
-            // FALSE: the sign-out or shutdown was called off (another program said no)
+            // FALSE: the sign-out or shutdown was cancelled (an app wouldn't close), ChatDock carries on
             core::SESSION_ENDING.store(wparam.0 != 0, std::sync::atomic::Ordering::SeqCst);
         }
         WM_CLOSE if which == 1 => {

@@ -3,7 +3,11 @@
 //! later()) and logs what it saw, followed by "(expect …)". Run it on a test profile only: it
 //! switches settings around. `--selftest-only=edge` never takes focus, so it can run during a game.
 
-use std::{path::PathBuf, sync::mpsc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{atomic::Ordering, mpsc},
+    time::Duration,
+};
 
 use serde_json::json;
 use tauri::Manager;
@@ -11,17 +15,21 @@ use webview2_com::{CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler
 use windows::{
     core::HSTRING,
     Win32::{
+        Foundation::WPARAM,
         Graphics::Gdi::{
             BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
             BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, SRCCOPY,
         },
         System::Com::{STGM_CREATE, STGM_WRITE},
-        UI::Shell::SHCreateStreamOnFileEx,
+        UI::{
+            Shell::SHCreateStreamOnFileEx,
+            WindowsAndMessaging::{SendMessageW, WM_ENDSESSION, WM_QUERYENDSESSION},
+        },
     },
 };
 
 use crate::{
-    core::{later, Core, PanelState},
+    core::{later, Core, PanelState, SESSION_ENDING},
     frames, i18n, log, rt, win32,
 };
 
@@ -1625,6 +1633,16 @@ fn review_fixes_test() {
         "review fixes: long title's server listed {listed} | after the mute key {after_mute}, after the deafen key {after_deafen} | call window for (the call icon, an app icon, no call window) {picks:?} | taken keys {disabled}, the same key twice refused {} (expect the long server listed, [false,false,true,false], [false,false,true,true], (true, false, false), deafen:Control+Alt+M, true)",
         !refused
     );
+    // A sign-out or shutdown that was cancelled (an app wouldn't close): ChatDock carries on, so a
+    // WebView2 crash after it restarts ChatDock instead of quitting
+    let ending = on(|c| unsafe {
+        let h = win32::h(c.panel.hwnd);
+        SendMessageW(h, WM_QUERYENDSESSION, None, None);
+        let asked = SESSION_ENDING.load(Ordering::SeqCst);
+        SendMessageW(h, WM_ENDSESSION, Some(WPARAM(0)), None);
+        (asked, SESSION_ENDING.load(Ordering::SeqCst))
+    });
+    log!("a sign-out asked for, then cancelled: ending {} -> {} (expect true -> false)", ending.0, ending.1);
 }
 
 /// Each app's volume: what the page plays is the site's volume times ChatDock's, the site still

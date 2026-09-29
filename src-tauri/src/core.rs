@@ -247,7 +247,8 @@ thread_local! {
     static CORE: RefCell<Option<Core>> = const { RefCell::new(None) };
 }
 
-/// Windows is signing out or shutting down (set from the panel's window messages).
+/// Windows is signing out or shutting down (set from the panel's window messages, and cleared again
+/// when that is cancelled).
 pub static SESSION_ENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn install(core: Core) {
