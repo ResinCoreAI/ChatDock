@@ -196,6 +196,9 @@ pub struct Core {
     pub counts: HashMap<String, u32>,
     /// what each site counts right now (its page title, e.g. "(3) Instagram")
     pub site_counts: HashMap<String, u32>,
+    /// apps whose current page has shown a number in its title. Until then what the site counts
+    /// isn't known (a page that is still loading shows none), so "seen" isn't checked against it.
+    pub counted_pages: HashSet<String>,
     pub load_state: HashMap<String, &'static str>,
     pub first_shown: HashMap<String, bool>,
     pub asleep: HashMap<String, bool>,
@@ -1249,21 +1252,25 @@ impl Core {
     fn set_site_count(&mut self, id: &str, n: u32) {
         self.site_counts.insert(id.to_string(), n);
         self.refresh_count(id);
+        if n > 0 {
+            self.counted_pages.insert(id.to_string()); // (after: its first number is checked against "seen")
+        }
     }
 
     /// Unread = what the site counts minus what the user has already seen. Whatever it counts while
     /// its chat is on screen has been seen (a message that arrives in the conversation you're reading,
     /// or the likes and follows a site adds to the same number), so it never pops up or shows as a
-    /// number once you look away. Remembered across restarts.
+    /// number once you look away. Remembered across restarts (seen_after: a page ChatDock wasn't
+    /// watching).
     pub fn refresh_count(&mut self, id: &str) {
         let site = *self.site_counts.get(id).unwrap_or(&0);
         let seen = self.seen_count(id);
-        let seen_now = if self.chat_in_view(id) { site } else { seen.min(site) };
+        let seen_now = seen_after(seen, site, self.chat_in_view(id), self.counted_pages.contains(id));
         if seen_now != seen {
             self.settings.set_in("seenCounts", id, json!(seen_now));
             self.save_soon();
         }
-        self.set_count(id, site - seen_now);
+        self.set_count(id, site.saturating_sub(seen_now));
     }
 
     /// The chat on screen changed (the panel came out, another app, back from Settings): what its
@@ -1933,6 +1940,23 @@ pub fn parse_count(title: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
+/// How much of what a site counts the user has already seen, now that it counts `site`.
+/// `counted`: this page has already shown a number, so `seen` has been checked against it.
+fn seen_after(seen: u32, site: u32, in_view: bool, counted: bool) -> u32 {
+    if site == 0 && !counted {
+        seen // no number yet: the page may still be loading
+    } else if in_view {
+        site // on screen: everything it counts has been seen
+    } else if counted || site >= seen {
+        // watched all along, it went down (read elsewhere); or the same or more: the seen part stays seen
+        seen.min(site)
+    } else {
+        // it went down while ChatDock wasn't watching (closed, the app asleep or off), then new
+        // messages came: old and new can't be told apart, so none of them is hidden
+        0
+    }
+}
+
 /// Titles like "Somchai sent you a message" / "สมชาย ส่งข้อความถึงคุณ" (not the site's normal title)
 pub fn message_words(title: &str) -> bool {
     let t = title.to_lowercase();
@@ -1951,5 +1975,45 @@ pub fn safe_icon(url: &str) -> String {
         url.to_string()
     } else {
         String::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::seen_after;
+
+    // seen_after(seen, site, in_view, counted)
+
+    #[test]
+    fn on_screen_everything_counted_is_seen() {
+        assert_eq!(seen_after(0, 3, true, true), 3);
+        assert_eq!(seen_after(5, 2, true, false), 2);
+    }
+
+    #[test]
+    fn watched_all_along_seen_follows_the_count_down() {
+        assert_eq!(seen_after(5, 1, false, true), 1); // read elsewhere, e.g. on the phone
+        assert_eq!(seen_after(5, 6, false, true), 5); // one new message
+        assert_eq!(seen_after(3, 0, false, true), 0); // a zero that stuck
+    }
+
+    #[test]
+    fn a_page_without_a_number_yet_keeps_what_was_seen() {
+        // a reload or a wake: the title has no "(N)" while the page loads
+        assert_eq!(seen_after(3, 0, false, false), 3);
+        assert_eq!(seen_after(3, 0, true, false), 3);
+    }
+
+    #[test]
+    fn a_new_page_with_the_same_or_a_higher_number_keeps_what_was_seen() {
+        assert_eq!(seen_after(5, 5, false, false), 5); // the likes and follows seen before a restart
+        assert_eq!(seen_after(5, 7, false, false), 5); // and two new messages
+    }
+
+    #[test]
+    fn a_new_page_with_a_lower_number_shows_all_of_it() {
+        // it went down while ChatDock wasn't watching (closed, the app asleep or off), then new
+        // messages came: they can't be told apart from the old ones, so none of them is hidden
+        assert_eq!(seen_after(5, 2, false, false), 0);
     }
 }

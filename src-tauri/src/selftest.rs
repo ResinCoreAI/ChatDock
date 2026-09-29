@@ -1011,8 +1011,8 @@ fn identify_test() {
 /// Unread numbers = what the site counts minus what was seen while its chat was on screen. Replays
 /// what happened on Instagram (a message arrives in the conversation being read, the title shows
 /// "(1)" and clears at once, the chat is closed in that moment: that must not pop up), then a new
-/// message while away, and a site that counts other things too. The panel isn't really opened
-/// (nothing takes the keyboard): "on screen" is set directly.
+/// message while away, a site that counts other things too, and a new page (a reload, a wake, a
+/// restart). The panel isn't really opened (nothing takes the keyboard): "on screen" is set directly.
 fn counts_test() {
     let app = on(|c| c.enabled_apps()[0]);
     let count = move || on(move |c| c.counts.get(app).copied().unwrap_or(0));
@@ -1063,6 +1063,31 @@ fn counts_test() {
     let dropped = count();
     log!(
         "counts ({app}): hidden {hidden} | on screen {in_view} | message while reading {while_reading} | closed right away: number {after_close}, pop-ups {popups_after_close} | new message while away: number {new_msg}, pop-ups {popups_new} | site counts 5 while away: {five}, opened: {opened}, a 6th: {one_more}, seen kept {kept:?} | site drops to 1: {dropped} (expect 2 | 0 | 0 | 0, 0 | 1, 1 | 5, 0, 1, Some(5) | 0)"
+    );
+    // A new page: while it loads without a number the remembered "seen" stays; the same number
+    // again is still seen; a lower one went down while nobody watched, so all of it shows.
+    on(move |c| {
+        c.counted_pages.remove(app); // what the page's ContentLoading does
+        c.on_title(app, "Instagram");
+    });
+    wait(3300);
+    let seen_while_loading = on(move |c| c.settings.get("seenCounts").get(app).cloned());
+    on(move |c| c.on_title(app, "(1) Instagram"));
+    let same_again = count();
+    on(move |c| {
+        c.counted_pages.remove(app); // a restart
+        c.load_started_at.insert(app.to_string(), rt::epoch_ms()); // (a page that just loaded: no count pop-up)
+        c.settings.set_in("seenCounts", app, json!(5));
+        c.on_title(app, "(5) Instagram");
+    });
+    let restart_same = count();
+    on(move |c| {
+        c.counted_pages.remove(app);
+        c.on_title(app, "(2) Instagram");
+    });
+    let restart_lower = count();
+    log!(
+        "counts ({app}) on a new page: seen while it loads {seen_while_loading:?}, the same number again {same_again} | after a restart: the same number {restart_same}, a lower one {restart_lower} (expect Some(1), 0 | 0, 2)"
     );
     on(move |c| {
         c.toasts_dismiss_all();

@@ -952,6 +952,7 @@ impl Core {
         }
         self.counts.insert(id.to_string(), 0);
         self.site_counts.insert(id.to_string(), 0);
+        self.counted_pages.remove(id);
         self.load_state.insert(id.to_string(), "loading");
         self.first_shown.insert(id.to_string(), false);
     }
@@ -1368,7 +1369,10 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     wv.add_ContentLoading(
         &ContentLoadingEventHandler::create(Box::new(move |_, _| {
             let a = app.clone();
-            later(move |c| c.on_call(&a, false, false, false)); // a new page: the old one's call ended with it
+            later(move |c| {
+                c.on_call(&a, false, false, false); // a new page: the old one's call ended with it
+                c.counted_pages.remove(&a); // and its unread number has to show again (seen_after)
+            });
             Ok(())
         })),
         &mut token,

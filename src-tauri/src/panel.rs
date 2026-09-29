@@ -258,6 +258,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         chats: Default::default(),
         counts: HashMap::new(),
         site_counts: HashMap::new(),
+        counted_pages: HashSet::new(),
         load_state: HashMap::new(),
         first_shown: HashMap::new(),
         asleep: HashMap::new(),
