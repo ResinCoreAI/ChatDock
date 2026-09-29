@@ -1655,6 +1655,16 @@ fn spotify_test() {
     wait(12000); // it loads
     let info = on(|c| (c.load_state.get("spotify").copied().unwrap_or("?"), c.chats.source("spotify"), c.chats.has("spotify")));
     let title = view_js("spotify", "document.title");
+    // a load replaced by the next one right away: no error screen, no reload
+    view_js("spotify", "(() => { location.href = 'https://open.spotify.com/search'; setTimeout(() => { location.href = 'https://open.spotify.com/'; }, 40); return 1; })()");
+    wait(9000);
+    let replaced = on(|c| c.load_state.get("spotify").copied().unwrap_or("?"));
+    let links = [
+        crate::chats::opens_outside("https://example.com/", false),
+        crate::chats::opens_outside("spotify:track:1", false),
+        crate::chats::opens_outside("spotify:track:1", true),
+        crate::chats::opens_outside("mailto:a@b.c", true),
+    ];
     let drm = view_js_async(
         "spotify",
         "navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{ initDataTypes: ['cenc'], audioCapabilities: [{ contentType: 'audio/mp4; codecs=\"mp4a.40.2\"' }] }]).then(() => 'widevine', (e) => 'no: ' + e.message)",
@@ -1685,7 +1695,7 @@ fn spotify_test() {
         on(|c| c.set_app_enabled("spotify", false));
     }
     log!(
-        "spotify: stays inside (its login, Google sign-in, Google search, X's Google sign-in, Discord to Google) {inside:?} | a song title's number {} | page {info:?} {title} | {drm} (expect [true, true, false, true, false], 0, loaded open.spotify.com, widevine)",
+        "spotify: stays inside (its login, Google sign-in, Google search, X's Google sign-in, Discord to Google) {inside:?} | a song title's number {} | page {info:?} {title} | {drm} | two loads at once: {replaced} | outside (a web page, a spotify: link by itself, clicked, a clicked mailto:) {links:?} (expect [true, true, false, true, false], 0, loaded open.spotify.com, widevine, ready, [true, false, true, true])",
         was.1
     );
 }

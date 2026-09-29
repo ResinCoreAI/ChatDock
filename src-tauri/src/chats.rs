@@ -349,6 +349,25 @@ pub fn browser_version() -> String {
         .unwrap_or_default()
 }
 
+/// A page leaving the app: other sites open in the browser; a link to a program (spotify:,
+/// discord://, mailto:) only when the user clicked it, so a site can't start one by itself (Spotify's
+/// page and the Spotify app).
+pub fn opens_outside(uri: &str, clicked: bool) -> bool {
+    uri.starts_with("https://") || uri.starts_with("http://") || clicked
+}
+
+/// What kind of link it was, for the log (never the address).
+fn outside_kind(uri: &str) -> String {
+    let scheme = uri.split(':').next().unwrap_or("").to_ascii_lowercase();
+    if scheme == "http" || scheme == "https" {
+        "a web page".into()
+    } else if !scheme.is_empty() && scheme.len() <= 20 && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)) {
+        format!("a {scheme}: link")
+    } else {
+        "a link".into()
+    }
+}
+
 /// A page out of sight that isn't the app in use gives memory back, unless it's in a call.
 fn set_memory_level(v: &mut View) {
     let low = !v.visible && !v.in_use && !v.in_call && !v.popup_call && !v.playing; // (music too)
@@ -950,8 +969,12 @@ impl Core {
         // The server answered (http > 0): whatever it sent is shown, a "verify you are human" or
         // "try again later" page included, as in 1.4. Cancelled = navigating away, or a link that
         // opened in the browser instead. Only a load with no answer at all is an error.
+        // Aborted with a page already on screen: the load was replaced by the next one (a redirect,
+        // a second click, a sign-in bouncing between sites) or became a download. The page stays.
+        let aborted = status == COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED.0 && *self.first_shown.get(id).unwrap_or(&false);
         if ok
             || http > 0
+            || aborted
             || status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED.0
             || status == COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED.0
             || status == COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED.0
@@ -959,8 +982,15 @@ impl Core {
             if !ok {
                 log!("page {id} shown although not ok: status {status} http {http}");
             }
-            if self.load_state.get(id).copied() == Some("loading") {
+            let page = ok || http > 0; // a real page arrived (after an error too: it's over)
+            let state = self.load_state.get(id).copied();
+            if state == Some("loading") || (state == Some("error") && page) {
                 self.set_load(id, "ready");
+            }
+            if page {
+                if let Some(t) = self.retry_timers.remove(id) {
+                    rt::cancel(t);
+                }
             }
             return;
         }
@@ -1264,7 +1294,17 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 later(move |c| c.on_load_start(&a));
             } else {
                 args.SetCancel(true)?; // anything else opens in the normal browser
-                later(move |c| c.open_external(&uri));
+                let mut clicked = BOOL(0);
+                let _ = args.IsUserInitiated(&mut clicked);
+                let (a, what) = (app.clone(), outside_kind(&uri));
+                if opens_outside(&uri, clicked.as_bool()) {
+                    later(move |c| {
+                        log!("{a}: {what} opens outside ChatDock");
+                        c.open_external(&uri);
+                    });
+                } else {
+                    later(move |_| log!("{a}: {what} not opened (nobody clicked it)"));
+                }
             }
             Ok(())
         })),
