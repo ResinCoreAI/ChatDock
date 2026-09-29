@@ -1088,6 +1088,9 @@ impl Core {
         self.site_counts.insert(id.to_string(), 0);
         self.settings.set_in("seenCounts", id, serde_json::json!(0));
         self.save_soon();
+        // and the site's own settings go with the data (Discord's desktop notifications are off
+        // again): its count pop-up says where to turn them on until a notification comes
+        self.last_content_at.remove(id);
         if self.chats.creating.contains(id) {
             self.chats.clear_when_made.insert(id.to_string()); // done as soon as its view exists
             return;

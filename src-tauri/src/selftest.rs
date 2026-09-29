@@ -1983,12 +1983,13 @@ fn review171_test() {
 /// the hotkey is on. GolfZzz's own checks are in counts_test, edge_test and review_fixes_test.
 /// Nothing shows on the screen.
 fn fixes172_test() {
-    // 1. seen counts: a new login starts with nothing seen
+    // 1. seen counts: a new login starts with nothing seen (and no notification from it yet)
     let cleared = on(|c| {
         c.site_counts.insert("x".into(), 5);
         c.settings.set_in("seenCounts", "x", json!(5));
+        c.last_content_at.insert("x".into(), rt::epoch_ms());
         c.clear_app_data("x");
-        (c.settings.get("seenCounts").get("x").cloned(), c.site_counts.get("x").copied())
+        (c.settings.get("seenCounts").get("x").cloned(), c.site_counts.get("x").copied(), c.last_content_at.get("x").copied())
     });
     // 2. the edge's watch: running, idle while quitting for the installer, running again when the
     // install didn't start
@@ -2011,7 +2012,7 @@ fn fixes172_test() {
     // 3. the text
     let text = on(|c| c.tv("balloon.hotkeyBody", &[("hotkey", "Ctrl+Alt+C".into())]));
     log!(
-        "1.7.2 fixes: after clearing X's data seen {cleared:?} | the edge's watch running {running}, idle while installing {idle}, back after the failed install {again} | {text} (expect (Some(0), Some(0)), true, true, true, ... Opening the chat)"
+        "1.7.2 fixes: after clearing X's data seen, site, last notification {cleared:?} | the edge's watch running {running}, idle while installing {idle}, back after the failed install {again} | {text} (expect (Some(0), Some(0), None), true, true, true, ... Opening the chat)"
     );
 }
 
