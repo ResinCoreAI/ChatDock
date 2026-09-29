@@ -420,8 +420,7 @@ impl Core {
             return;
         }
         log!("update install did not start: {why}");
-        self.quitting = false;
-        self.edge_tick_soon(16); // the edge's watch stopped with "quitting": start it again
+        self.quitting = false; // (the edge's watch kept looking while quitting: it carries on)
         crate::tray::set_shown(true);
         self.set_setting("pendingUpdate", Value::Null);
         if let Some(w) = self.update_win.take() {

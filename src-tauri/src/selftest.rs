@@ -1107,6 +1107,7 @@ fn counts_test() {
             c.on_title("discord", "(1) Discord");
         });
         wait(2900);
+        shot("counts-discord-hint"); // (the hint wraps: the card grows, nothing is cut off)
         page_js("toasts", "[...document.querySelectorAll('.card:not(.leaving) .hint')].map((h) => h.textContent).join(' | ')")
     } else {
         "(Discord is off)".into()
@@ -1977,18 +1978,20 @@ fn review171_test() {
     );
 }
 
-/// 1.7.2's fixes (found by GolfZzz): clearing an app's data forgets what it had seen, a failed
-/// update install starts the edge's watch again, a called-off sign-out isn't a sign-out, and "the
-/// hotkey is taken" names the page the hotkey is on. Nothing shows on the screen.
+/// 1.7.2: clearing an app's data forgets what it had seen, the edge's watch goes on after an update
+/// install that didn't start (the real install_failed), and "the hotkey is taken" names the page
+/// the hotkey is on. GolfZzz's own checks are in counts_test, edge_test and review_fixes_test.
+/// Nothing shows on the screen.
 fn fixes172_test() {
-    // 1. seen counts
+    // 1. seen counts: a new login starts with nothing seen
     let cleared = on(|c| {
         c.site_counts.insert("x".into(), 5);
         c.settings.set_in("seenCounts", "x", json!(5));
         c.clear_app_data("x");
         (c.settings.get("seenCounts").get("x").cloned(), c.site_counts.get("x").copied())
     });
-    // 2. the edge's watch: running, stopped by "quitting", running again after the failed install
+    // 2. the edge's watch: running, idle while quitting for the installer, running again when the
+    // install didn't start
     let looks = || on(|c| c.edge.looks);
     let a = looks();
     wait(600);
@@ -2000,26 +2003,15 @@ fn fixes172_test() {
     wait(400);
     let b = looks();
     wait(600);
-    let stopped = looks() == b;
+    let idle = looks() == b;
     on(|c| c.install_failed("self-test"));
     let d = looks();
     wait(600);
     let again = looks() > d;
-    // 3. a sign-out called off
-    let panel = on(|c| c.panel.hwnd);
-    crate::core::SESSION_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
-    unsafe {
-        use windows::Win32::{
-            Foundation::{LPARAM, WPARAM},
-            UI::WindowsAndMessaging::{SendMessageW, WM_ENDSESSION},
-        };
-        SendMessageW(win32::h(panel), WM_ENDSESSION, Some(WPARAM(0)), Some(LPARAM(0)));
-    }
-    let ending = crate::core::SESSION_ENDING.load(std::sync::atomic::Ordering::SeqCst);
-    // 4. the text
+    // 3. the text
     let text = on(|c| c.tv("balloon.hotkeyBody", &[("hotkey", "Ctrl+Alt+C".into())]));
     log!(
-        "1.7.2 fixes: after clearing X's data seen {cleared:?} | the edge's watch running {running}, stopped while installing {stopped}, back after the failed install {again} | still signing out after a called-off sign-out {ending} | {text} (expect (Some(0), Some(0)), true, true, true, false, ... Opening the chat)"
+        "1.7.2 fixes: after clearing X's data seen {cleared:?} | the edge's watch running {running}, idle while installing {idle}, back after the failed install {again} | {text} (expect (Some(0), Some(0)), true, true, true, ... Opening the chat)"
     );
 }
 
