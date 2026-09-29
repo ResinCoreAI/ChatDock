@@ -52,6 +52,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("review171") {
+            wait(8000); // the pages load
+            review171_test();
         } else if only.as_deref() == Some("ui171") {
             wait(8000); // the pages load
             ui171_test();
@@ -1805,6 +1808,107 @@ fn ui171_test() {
     });
     log!(
         "1.7.1 screens: servers from the sidebar {listed} | sleep warning {warning}, button pressed {pressed}, awake {awake} | speaker {icon} | open {open} | wheel up -> {after_wheel} | mute (sound on, state) {muted:?} | closed {closed} (expect Gamers + My Server only, true, true, true, volume at 60 %, bar shown + tabs hidden + 60, 65, (false, false), true)"
+    );
+}
+
+/// 1.7.1's pre-release review, checked: the volume in a frame and on media that only got a source,
+/// the chat-wide mute and Spotify, the tab leaving a sign-in page, Facebook sign-in pages, the
+/// header with many apps, and the volume bar closing with the chat. Nothing takes the focus.
+fn review171_test() {
+    // frames get the app's volume: X's view on example.com (a page that may be framed), with a
+    // frame of the same site so the test can look inside
+    on(|c| c.chats.navigate("x", "https://example.com/"));
+    wait(4000);
+    view_js("x", "(() => { const f = document.createElement('iframe'); f.id = 'cd-frame'; f.src = '/?frame'; document.body.append(f); return 1; })()");
+    wait(2500);
+    on(|c| c.set_app_volume("x", 40.0));
+    wait(600);
+    let frame = view_js("x", "(() => { try { return String(document.getElementById('cd-frame').contentWindow[Symbol.for('chatdock.volume')]); } catch (e) { return 'threw ' + e.message; } })()");
+    // a frame made after the level was set asks for it
+    view_js("x", "(() => { const f = document.createElement('iframe'); f.id = 'cd-frame2'; f.src = '/?later'; document.body.append(f); return 1; })()");
+    wait(2500);
+    let late_frame = view_js("x", "(() => { try { return String(document.getElementById('cd-frame2').contentWindow[Symbol.for('chatdock.volume')]); } catch (e) { return 'threw ' + e.message; } })()");
+    on(|c| c.set_app_volume("x", 100.0));
+    on(|c| c.set_app_volume("discord", 40.0));
+    // media that only got a source (no play(), no volume): at the app's volume
+    view_js("discord", "(() => { const a = new Audio(); a.src = 'data:,'; window.__vs = a; return 1; })()");
+    let state = {
+        on(|c| {
+            c.volume_states.remove("discord");
+            c.chats.post_json("discord", &json!({ "type": "chatdock-volume-check" }));
+        });
+        wait(400);
+        on(|c| c.volume_states.get("discord").cloned().unwrap_or_default())
+    };
+    on(|c| c.set_app_volume("discord", 100.0));
+
+    // "all chat sounds off" leaves Spotify alone
+    let muted = on(|c| {
+        let spotify = c.is_enabled("spotify");
+        if !spotify {
+            c.set_app_enabled("spotify", true);
+        }
+        c.set_pref("muted", json!(true));
+        spotify
+    });
+    wait(6000);
+    let (discord_muted, spotify_muted) = on(|c| (c.chats.is_muted("discord"), c.chats.is_muted("spotify")));
+    on(|c| c.set_pref("muted", json!(false)));
+
+    // the Spotify tab from a sign-in page goes back to Spotify
+    view_js("spotify", "location.href = 'https://accounts.google.com/', 1");
+    wait(5000);
+    let away = on(|c| c.chats.source("spotify"));
+    on(|c| c.go_home("spotify"));
+    wait(5000);
+    let back = on(|c| c.chats.source("spotify"));
+
+    // Facebook: its sign-in pages are a sign-in; an ordinary Facebook link isn't
+    let facebook = [
+        crate::apps::is_auth_popup("spotify", "https://www.facebook.com/v19.0/dialog/oauth?client_id=1"),
+        crate::apps::is_auth_popup("spotify", "https://www.facebook.com/login.php"),
+        crate::apps::is_auth_popup("spotify", "https://www.facebook.com/SomeArtist"),
+        crate::apps::keep_inside("spotify", "https://www.facebook.com/SomeArtist"),
+    ];
+
+    // the header with seven apps in a narrow panel: the tabs stop before the buttons; the volume
+    // bar closes with the chat
+    let apps_were = on(|c| c.settings.get("apps").clone());
+    on(|c| {
+        for id in ["telegram", "whatsapp", "spotify"] {
+            c.set_app_enabled(id, true);
+        }
+        c.set_active("discord", false);
+        let d = c.target_display();
+        let mut g = c.panel_geometry(&d);
+        g.w = (340.0 * d.ui).round() as i32;
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.panel_state = PanelState::Open;
+        c.broadcast_state();
+    });
+    wait(1200);
+    let header = page_js(
+        "panel",
+        "(() => { const a = document.querySelector('.apps').getBoundingClientRect(), v = document.getElementById('vol').getBoundingClientRect(); return JSON.stringify({ tabsEnd: Math.round(a.right), speakerStart: Math.round(v.left), clear: a.right <= v.left }); })()",
+    );
+    shot("90-header-crowded");
+    js_click("panel", "#vol");
+    wait(300);
+    on(|c| {
+        c.panel_state = PanelState::Hidden;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+    wait(500);
+    let bar_closed = page_js("panel", "document.getElementById('volbar').hidden");
+    on(move |c| {
+        c.settings.set("apps", apps_were);
+        c.set_active("instagram", false);
+        c.broadcast_state();
+    });
+    log!(
+        "1.7.1 review: frame {frame}, a later frame {late_frame} | source only {state} | all sounds off: discord muted {discord_muted}, spotify muted {spotify_muted} (spotify was on {muted}) | tab from a sign-in page: {away} -> {back} | facebook (dialog, login, a page, stays inside) {facebook:?} | header {header} | bar closed with the chat {bar_closed} (expect 0.4, 0.4, real 0.4, true, false, accounts.google.com -> open.spotify.com, [true, true, false, false], clear, true)"
     );
 }
 

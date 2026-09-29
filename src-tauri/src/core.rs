@@ -474,6 +474,9 @@ impl Core {
                     self.set_app_volume(&id, level);
                 }
             }
+            ("panel:sounds-on", "panel") => {
+                self.set_pref("muted", json!(false));
+            }
             ("panel:sound", "panel") => {
                 let id = arg_str(&args, 0);
                 let on = args.get(1).and_then(Value::as_bool).unwrap_or(true);
@@ -1197,7 +1200,8 @@ impl Core {
     }
 
     pub fn apply_audio(&mut self, id: &str) {
-        let muted = self.settings.bool("muted") || !self.settings.app_pref(id, "sound");
+        // "all chat sounds off" is about the chats: music plays on
+        let muted = (self.settings.bool("muted") && id != "spotify") || !self.settings.app_pref(id, "sound");
         self.chats.set_muted(id, muted);
     }
 

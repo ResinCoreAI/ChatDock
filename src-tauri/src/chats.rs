@@ -202,6 +202,7 @@ const SITE_SCRIPT: &str = r#"(() => {
       if (!seen.has(el)) {
         seen.add(el);
         elements.push(new WeakRef(el));
+        if (elements.length % 64 === 0) elements = elements.filter((r) => r.deref()); // (gone ones)
       }
       try { desc.set.call(el, Math.max(0, Math.min(1, (asked.has(el) ? asked.get(el) : 1) * level))); } catch (e) {}
     };
@@ -218,6 +219,13 @@ const SITE_SCRIPT: &str = r#"(() => {
     });
     const realPlay = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function play() { apply(this); return realPlay.apply(this, arguments); };
+    // media that plays without play() or a volume of its own (autoplay on a stream, not in the page)
+    for (const prop of ['src', 'srcObject']) {
+      const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, prop);
+      if (d && d.set) {
+        Object.defineProperty(HTMLMediaElement.prototype, prop, { ...d, set(v) { d.set.call(this, v); apply(this); } });
+      }
+    }
     document.addEventListener('play', (e) => { if (e.target instanceof HTMLMediaElement) apply(e.target); }, true);
     const AN = window.AudioNode;
     const ADN = window.AudioDestinationNode;
@@ -252,11 +260,36 @@ const SITE_SCRIPT: &str = r#"(() => {
         return realDisconnect.apply(this, arguments);
       };
     }
+    // Frames (a YouTube player in a chat, a Discord activity): the page passes its level down to
+    // each frame, and a new frame asks its parent. Handled before the site's own listeners.
+    const KEY = '__chatdockVolume';
+    const passDown = () => {
+      for (let i = 0; i < window.frames.length; i++) {
+        try { window.frames[i].postMessage({ [KEY]: level }, '*'); } catch (e) {}
+      }
+    };
     const setLevel = (v) => {
       level = Math.max(0, Math.min(1, Number(v) || 0));
       elements = elements.filter((r) => { const el = r.deref(); if (el) apply(el); return !!el; });
       gains = gains.filter((r) => { const g = r.deref(); if (g) { try { g.gain.value = level; } catch (e) {} } return !!g; });
+      passDown();
     };
+    const isChild = (w) => { for (let i = 0; i < window.frames.length; i++) if (window.frames[i] === w) return true; return false; };
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || typeof d !== 'object') return;
+      if (KEY in d && e.source === window.parent && window.parent !== window) {
+        e.stopImmediatePropagation();
+        setLevel(d[KEY]);
+      } else if ((KEY + 'Ask') in d && isChild(e.source)) {
+        e.stopImmediatePropagation();
+        try { e.source.postMessage({ [KEY]: level }, '*'); } catch (err) {}
+      }
+    }, true);
+    if (window.parent !== window) {
+      try { window.parent.postMessage({ [KEY + 'Ask']: 1 }, '*'); } catch (e) {}
+    }
+    try { Object.defineProperty(window, Symbol.for('chatdock.volume'), { get: () => level }); } catch (e) {} // (self-test)
     try {
       window.chrome.webview.addEventListener('message', (e) => {
         const d = e.data;
@@ -605,6 +638,19 @@ impl Chats {
         }
     }
 
+    /// The page's sound is off (the self-test).
+    pub fn is_muted(&self, id: &str) -> bool {
+        let mut on = BOOL(0);
+        if let Some(v) = self.views.get(id) {
+            if let Ok(wv8) = v.webview.cast::<ICoreWebView2_8>() {
+                unsafe {
+                    let _ = wv8.IsMuted(&mut on);
+                }
+            }
+        }
+        on.as_bool()
+    }
+
     pub fn set_muted(&self, id: &str, muted: bool) {
         if let Some(v) = self.views.get(id) {
             if let Ok(wv8) = v.webview.cast::<ICoreWebView2_8>() {
@@ -935,8 +981,10 @@ impl Core {
 
     pub fn go_home(&mut self, id: &str) {
         let Some(a) = apps::get(id) else { return };
-        let path = tauri::Url::parse(&self.chats.source(id)).map(|u| u.path().to_string()).unwrap_or_default();
-        if !path.starts_with(a.home_path) {
+        let source = self.chats.source(id);
+        let path = tauri::Url::parse(&source).map(|u| u.path().to_string()).unwrap_or_default();
+        // (on another site's page, like a sign-in one, the path says nothing)
+        if !path.starts_with(a.home_path) || !apps::owns(id, &source) {
             self.load_home(id);
         }
     }

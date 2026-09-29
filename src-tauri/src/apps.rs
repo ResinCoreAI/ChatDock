@@ -139,10 +139,20 @@ pub fn owns(id: &str, url: &str) -> bool {
 }
 
 pub fn is_auth_popup(id: &str, url: &str) -> bool {
-    match (get(id), https_host(url)) {
-        (Some(a), Some(host)) => host_matches(&host, a.auth_domains),
-        _ => false,
+    let (Some(a), Some(host)) = (get(id), https_host(url)) else { return false };
+    if !host_matches(&host, a.auth_domains) {
+        return false;
     }
+    // facebook.com is a sign-in only on its sign-in pages (Spotify's "Continue with Facebook");
+    // any other Facebook link opens in the browser
+    if host_matches(&host, &["facebook.com"]) {
+        let path = Url::parse(url).map(|u| u.path().to_ascii_lowercase()).unwrap_or_default();
+        return path.contains("/dialog/")
+            || path.starts_with("/login")
+            || path.starts_with("/checkpoint")
+            || path.starts_with("/two_step_verification");
+    }
+    true
 }
 
 /// l.facebook.com/l.php?u=<real link> and friends: the sites' "you are leaving" redirects.

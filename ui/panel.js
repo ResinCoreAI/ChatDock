@@ -164,7 +164,8 @@ function render(s) {
 
 // This app's volume (on top of the site's own): the speaker, its wheel, and the slider that takes
 // the tabs' place.
-let volState = { id: '', level: 100, on: true, name: '' };
+let volState = { id: '', level: 100, on: true, own: true, name: '' };
+let wheelAcc = 0;
 let volSendAt = 0;
 function volIcon(level, on) {
   return !on || level === 0 ? 'volumeOff' : level < 50 ? 'volumeLow' : 'volume';
@@ -172,8 +173,11 @@ function volIcon(level, on) {
 function renderVolume(s) {
   const a = s.apps.find((x) => x.id === s.active);
   const level = (s.volumes && s.volumes[s.active]) ?? 100;
-  const on = !(s.soundOn && s.soundOn[s.active] === false) && !s.allMuted;
-  volState = { id: s.active, level, on, name: a ? a.name : '' };
+  const own = !(s.soundOn && s.soundOn[s.active] === false); // this app's own switch
+  const all = s.allMuted && s.active !== 'spotify'; // "all chat sounds off" (music plays on)
+  const on = own && !all;
+  volState = { id: s.active, level, on, own, name: a ? a.name : '' };
+  if (!s.shown || s.settingsOpen || s.help) openVolume(false); // it closes with the chat
   const icon = volIcon(level, on);
   const btn = $('#vol');
   if (btn.dataset.icon !== icon) {
@@ -186,7 +190,7 @@ function renderVolume(s) {
   const mute = $('#vol-mute');
   mute.innerHTML = window.iconHTML(icon);
   mute.classList.toggle('off', !on);
-  mute.title = i18n.t(on ? 'panel.mute' : 'panel.unmute', { name: volState.name });
+  mute.title = own && all ? i18n.t('panel.allSoundsOff') : i18n.t(on ? 'panel.mute' : 'panel.unmute', { name: volState.name });
   const range = $('#vol-range');
   if (performance.now() - volSendAt > 600) range.value = String(level); // not while it's being dragged
   range.setAttribute('aria-label', btn.title);
@@ -205,15 +209,25 @@ function openVolume(open) {
   document.body.classList.toggle('vol-open', open);
   if (open) $('#vol-range').focus();
 }
+// One wheel notch = 5 %; a touchpad's many small steps add up to the same, and sideways does nothing
 const wheelStep = (e) => {
   e.preventDefault();
-  setVolume(Number($('#vol-range').value) + (e.deltaY < 0 ? 5 : -5));
+  if (!e.deltaY) return;
+  wheelAcc += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY; // (lines, roughly in pixels)
+  while (Math.abs(wheelAcc) >= 100) {
+    const up = wheelAcc < 0;
+    wheelAcc += up ? 100 : -100;
+    setVolume(Number($('#vol-range').value) + (up ? 5 : -5));
+  }
 };
 $('#vol').addEventListener('click', () => openVolume($('#volbar').hidden));
 $('#vol').addEventListener('wheel', wheelStep, { passive: false });
 $('#volbar').addEventListener('wheel', wheelStep, { passive: false });
 $('#vol-range').addEventListener('input', (e) => setVolume(Number(e.target.value)));
-$('#vol-mute').addEventListener('click', () => chatdock.send('panel:sound', volState.id, !volState.on));
+$('#vol-mute').addEventListener('click', () => {
+  if (volState.own && !volState.on) chatdock.send('panel:sounds-on'); // muted by "all chat sounds off"
+  else chatdock.send('panel:sound', volState.id, !volState.on);
+});
 $('#vol-done').addEventListener('click', () => openVolume(false));
 $('#volbar').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {

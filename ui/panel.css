@@ -119,6 +119,7 @@ body.left #bar, body.left #banner, body.left #stage { left: 0; right: var(--grip
   border-radius: 12px;
   background: var(--seg);
   min-width: 0;
+  overflow: hidden; /* many apps in a narrow panel: the open tab's name gives way, and the tabs never cover the buttons */
 }
 .app {
   position: relative;
@@ -144,6 +145,9 @@ body.left #bar, body.left #banner, body.left #stage { left: 0; right: var(--grip
 .app:not(.active) .name { display: none; } /* many apps: only the open one shows its name */
 .app.asleep .ico { opacity: .45; filter: grayscale(.7); } /* sleeping to save RAM: wakes when opened */
 .app:not(.active) { padding: 0 9px; }
+.app { flex: none; }
+.app.active { flex: 0 1 auto; min-width: 36px; overflow: hidden; }
+.app .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .app .badge {
   min-width: 18px;
   height: 18px;
