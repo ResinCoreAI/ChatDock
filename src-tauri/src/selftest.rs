@@ -2321,6 +2321,24 @@ fn edge_test(with_panel: bool) {
     wait(1300);
     let (line, tab) = on(|c| (c.edge.hold_line, c.edge.tab_shown));
     log!("mouse held by a game: line {line} | tab {tab} (expect false, false)");
+    // An update that couldn't start: ChatDock was quitting for the installer, then carries on
+    // (install_failed). The edge has to work again.
+    let away = edge_x + if on(|c| c.on_left()) { 300 } else { -300 };
+    on(move |c| {
+        c.edge.test_cursor = Some((away, hy, false));
+        c.quitting = true;
+    });
+    wait(500);
+    on(|c| c.quitting = false);
+    on(move |c| c.edge.test_cursor = Some((edge_x, hy, false)));
+    wait(1600);
+    let tab = on(|c| c.edge.tab_shown);
+    log!("after an update that couldn't start: tab {tab} (expect true)");
+    on(move |c| {
+        c.hide_tab(true);
+        c.edge.test_cursor = Some((away, hy, false));
+    });
+    wait(300);
     wheel_test(edge_x, hy);
     on(move |c| {
         c.edge.test_cursor = None;

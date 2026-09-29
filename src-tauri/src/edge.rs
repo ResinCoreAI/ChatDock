@@ -60,7 +60,9 @@ fn edge_tick() {
         Some(Some(ms)) => {
             rt::after(ms, edge_tick);
         }
-        Some(None) => {}
+        Some(None) => {
+            rt::after(200, edge_tick); // quitting, or handing over to the installer: if that fails, go on
+        }
         None => {
             rt::after(16, edge_tick); // the app state was busy: try again
         }
