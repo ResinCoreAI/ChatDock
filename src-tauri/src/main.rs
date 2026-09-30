@@ -32,6 +32,12 @@ fn main() {
     let args = crate::core::Args::parse();
     log::init(&args.data_dir, args.debug);
     log!("start {:?}", std::env::args().skip(1).collect::<Vec<_>>());
+    if args.selftest && !args.profile {
+        // It switches settings around and logs out of apps: never on a real install's data.
+        log!("selftest refused: it needs --profile=<a test folder of its own>");
+        eprintln!("--selftest needs --profile=<a test folder of its own>: it changes settings and logs out of apps");
+        std::process::exit(2);
+    }
     // Nothing from outside switches on WebView2 remote debugging or other engine options.
     for var in [
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
