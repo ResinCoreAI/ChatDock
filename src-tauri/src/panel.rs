@@ -99,7 +99,7 @@ fn window(
         .focused(false)
         .focusable(focusable)
         .transparent(transparent)
-        .devtools(args.debug)
+        .devtools(args.dev_tools())
         .zoom_hotkeys_enabled(false)
         .data_directory(args.webview_dir())
         .additional_browser_args(&args.browser_args())
@@ -110,7 +110,7 @@ fn window(
     }
     let w = b.build()?;
     let hwnd = w.hwnd()?.0 as isize;
-    lock_down_page(&w, args.debug);
+    lock_down_page(&w, args.dev_tools());
     Ok(Win { w, hwnd })
 }
 
@@ -1228,10 +1228,19 @@ impl Core {
         self.chats.set_theme(&theme, dark);
     }
 
+    /// "Hide from screenshots & streams": every window of ChatDock's own (the tab shows the apps,
+    /// their unread numbers and calls). The call and sign-in windows a site opens belong to WebView2,
+    /// and Windows lets a program hide only its own windows.
     pub fn apply_capture_protection(&mut self) {
         let on = self.settings.bool("hideFromCapture");
-        win32::set_capture_excluded(self.panel.hwnd, on);
-        win32::set_capture_excluded(self.toastwin.hwnd, on);
+        let mut hwnds = vec![self.panel.hwnd, self.toastwin.hwnd, self.tab.hwnd, self.glow.hwnd, self.edgewin.hwnd];
+        hwnds.extend(self.update_win.as_ref().map(|w| w.hwnd));
+        hwnds.extend(self.whatsnew.win.as_ref().map(|w| w.hwnd));
+        hwnds.extend(self.identify_hwnds());
+        hwnds.extend(crate::popups::hwnds()); // the windows the chats open (a call, a sign-in)
+        for hwnd in hwnds {
+            win32::set_capture_excluded(hwnd, on);
+        }
     }
 
     // -----------------------------------------------------------------------------------------

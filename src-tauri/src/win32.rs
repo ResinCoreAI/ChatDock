@@ -442,19 +442,6 @@ pub fn system_dark() -> bool {
     status.is_ok() && value == 0
 }
 
-/// Programs a clicked link in a chat may start: e-mail and the chat apps' own desktop apps. Never
-/// anything else (ms-msdt:, search-ms:, file: and friends have been used to attack PCs).
-pub const PROGRAM_SCHEMES: &[&str] = &["mailto", "spotify", "discord", "tg", "whatsapp"];
-
-pub fn is_program_link(url: &str) -> bool {
-    // The address goes into the program's command line as "%1": a quote would end it and add
-    // arguments of its own, and without quotes a space would. (Web addresses arrive escaped.)
-    if url.chars().any(|c| c == '"' || c.is_whitespace() || c.is_control()) {
-        return false;
-    }
-    url.split_once(':').is_some_and(|(scheme, _)| PROGRAM_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()))
-}
-
 /// The taskbar or its notification area (where ChatDock's tray icon is).
 pub fn is_taskbar(hwnd: isize) -> bool {
     matches!(
@@ -463,8 +450,10 @@ pub fn is_taskbar(hwnd: isize) -> bool {
     )
 }
 
+/// A web page in the normal browser, or e-mail / one of the apps' own programs (apps::APP_SCHEMES);
+/// nothing else is handed to Windows.
 pub fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://") || is_program_link(url)) {
+    if !(url.starts_with("https://") || url.starts_with("http://") || crate::apps::app_scheme(url)) {
         return;
     }
     unsafe {

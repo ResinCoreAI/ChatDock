@@ -54,7 +54,7 @@ fn defaults() -> Map<String, Value> {
         "muted": false,             // mute sounds coming from the chat pages
         "opacity": 1,               // panel opacity (1 = solid)
         "theme": "system",          // 'system' | 'dark' | 'light'
-        "hideFromCapture": false,   // exclude the panel and pop-ups from screenshots / OBS / Discord streams
+        "hideFromCapture": false,   // exclude ChatDock's own windows from screenshots / OBS / Discord streams
         "zoom": {},                 // per-app zoom factor (missing = 100%)
         "seenCounts": {},           // per app: how much of the site's unread count the user has already seen
         "volumes": {},              // per app: its volume in ChatDock, 0-100 (100 when not set)

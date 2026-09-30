@@ -55,7 +55,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. Afterwards a *What's new* window plays a short animated demo of each change (*Settings → Updates → See what's new* shows it again). |
 | ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
-| 🎥 **Streaming-safe** | Optionally hide the panel and pop-ups from screenshots, OBS and Discord screen share. |
+| 🎥 **Streaming-safe** | Optionally hide the panel, the pop-ups and ChatDock's other windows (edge tab, glow, What's new, and the call and sign-in windows the chats open) from screenshots, OBS and Discord screen share. |
 
 <p align="center">
   <img src="docs/popups.png" width="430" alt="Two message pop-ups stacked in the corner of the screen">
@@ -82,8 +82,8 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 > signing key before they run.)
 
 To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins and settings stay in
-`%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller (or clear them first
-under Settings → Privacy & security → Clear all data).
+`%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller. (Settings → Privacy &
+security → Clear all data logs you out of every app beforehand; your settings stay.)
 
 Coming from Beta Build 1.4 or older (the Electron builds)? Just press **Update** as usual: the new
 installer replaces the old copy, and your logins, settings and "start with Windows" carry over.
@@ -156,16 +156,16 @@ server, sends nothing anywhere, and never sees your passwords.
 
 | | |
 |---|---|
-| **Encrypted cookies** | Logins and cookies are stored encrypted with your Windows account's key (DPAPI, by WebView2 — the Microsoft Edge engine). Copied to another PC or user, they are useless. |
+| **Encrypted cookies** | Cookies are stored encrypted with your Windows account's key (DPAPI, by WebView2 — the Microsoft Edge engine): copied to another PC or user, they are useless. Some apps also keep their login in the site's storage (Local Storage, IndexedDB), which isn't encrypted, so keep `%APPDATA%\ChatDock` to yourself. |
 | **Isolated logins** | Every app has its own WebView2 profile; one site can't read another's cookies or storage. |
-| **Sandboxed pages** | All pages run in WebView2's Chromium sandbox. The chat sites get nothing from ChatDock except the notification hand-off and the passkey guard below; ChatDock's own screens talk to the app only through a fixed list of messages. |
-| **No local access** | Chat pages can't reach programs on your PC (requests and WebSockets to `localhost` are blocked) and can't open ChatDock's own pages. |
+| **Sandboxed pages** | All pages run in WebView2's Chromium sandbox. ChatDock adds one script to the chat sites: it turns passkeys off, keeps WebSockets away from this PC, hands the sites' notifications to ChatDock's pop-ups, notices calls and screen shares (for the edge tab) and sets each app's volume. In Discord it also reads your server list from the sidebar and presses mute/deafen for the voice keys. The call, sign-in and blank windows a chat opens are ChatDock's own too, with the same script and rules (if ChatDock can't make one, WebView2 makes it as before). Nothing the script adds names ChatDock, and it passes the volume to the page and the frames in it only when it isn't 100%, under a random name each run. ChatDock's own screens talk to the app only through a fixed list of messages. |
+| **No local access** | Chat pages can't reach programs on your PC: their requests to it (`localhost`, `127.x`, `*.localhost`, however written, also from their workers) are refused, the WebSockets their pages open to it go nowhere (a WebSocket opened inside a site's worker isn't covered), and a link to it never opens. They can't open ChatDock's own pages either. |
 | **Private IP stays private** | WebRTC is limited to the default route and never lists your local addresses. |
-| **Only what's needed** | Permissions (notifications, mic/camera for calls, …) are granted only to the app's own domains. Links that leave the app open in your normal browser. |
+| **Only what's needed** | Notifications only for each app's own sites; the mic and camera only on the pages where its calls and voice messages run (not its CDNs or sandboxes, and never for Spotify). Links that leave the app open in your normal browser, only when you click them (a page can't open the browser or a program by itself), and never a link to this PC. |
 | **Small attack surface** | One native `ChatDock.exe` with its screens built in: no Node.js inside, nothing to inject scripts into, developer tools off in releases. |
 | **No surprise passkey dialogs** | Login pages that ask for passkeys on their own (Meta, Discord) would pop Windows' passkey dialog over your game. ChatDock turns passkeys off, so use a password or QR code to log in. |
 | **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away. It installs only when you press the button. |
-| **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text. |
+| **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text, and paths in it start with `%USERPROFILE%` instead of your Windows user name. A chat page can't flood it (the lines a page causes stop at 30 a minute per app), and past 1 MB it starts a new file, keeping the last one as `chatdock.log.old`. |
 
 Settings → Privacy & security also lets you hide ChatDock from screen capture and log out of every app
 (wipes cookies, storage and cache). Found a security problem? Please open an issue.
@@ -225,9 +225,11 @@ npm run dist
 # 1.4 and older Electron builds) to a GitHub release
 ```
 
-Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>] [--keep]`
-(automatic end-to-end check; add `--selftest-only=edge` for just the frame clock, edge tab, hold line
-and pop-up checks, which never take focus from a game) · `--no-occlusion` (test with the screen locked).
+Developer switches: `--profile=<dir>` (separate data folder) · `--debug` (log to the console; DevTools only
+in development builds) · `--selftest --profile=<test dir> [--shots=<dir>] [--keep]` (automatic end-to-end
+check; it changes settings and logs out of apps, so it refuses to run without a test folder of its own; add
+`--selftest-only=edge` for just the frame clock, edge tab, hold line and pop-up checks, which never take
+focus from a game) · `--no-occlusion` (test with the screen locked).
 `CHATDOCK_UPDATE_FEED=http://127.0.0.1:<port>/latest.json` points the updater at a local test feed.
 
 <details>
