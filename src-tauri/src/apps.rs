@@ -138,6 +138,26 @@ pub fn owns(id: &str, url: &str) -> bool {
     }
 }
 
+/// Hosts that only serve files (pictures, video, scripts) or run other people's content in a sandbox
+/// (fbsbx.com: Facebook's games and shared files). They stay inside the panel like the rest of the
+/// app, but never get the camera, the microphone or notifications.
+const CONTENT_ONLY: &[&str] = &[
+    "cdninstagram.com",
+    "fbcdn.net",
+    "facebook.net",
+    "fbsbx.com",
+    "twimg.com",
+    "discordapp.net",
+    "scdn.co",
+    "spotifycdn.com",
+    "whatsapp.net",
+];
+
+/// May this page of the app use the camera, the microphone or notifications (its own site only)?
+pub fn may_use_devices(id: &str, url: &str) -> bool {
+    owns(id, url) && https_host(url).is_some_and(|host| !host_matches(&host, CONTENT_ONLY))
+}
+
 pub fn is_auth_popup(id: &str, url: &str) -> bool {
     let (Some(a), Some(host)) = (get(id), https_host(url)) else { return false };
     if !host_matches(&host, a.auth_domains) {
@@ -214,14 +234,15 @@ pub fn plain_title(id: &str, title: &str) -> bool {
     }
 }
 
-/// Origins that may show notifications from the start (they are the app's own pages).
+/// Origins that may show notifications (and use the camera and microphone) from the start: the
+/// app's own pages, not its file and sandbox hosts.
 pub fn notification_origins(id: &str) -> Vec<String> {
     let Some(a) = get(id) else { return Vec::new() };
     let mut out = Vec::new();
     if let Ok(u) = Url::parse(a.home) {
         out.push(u.origin().ascii_serialization());
     }
-    for d in a.domains {
+    for d in a.domains.iter().filter(|d| !CONTENT_ONLY.contains(d)) {
         for o in [format!("https://{d}"), format!("https://www.{d}")] {
             if !out.contains(&o) {
                 out.push(o);
@@ -229,4 +250,39 @@ pub fn notification_origins(id: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// The file and sandbox hosts' origins that versions before 1.7.3 gave those permissions to.
+pub fn content_only_origins(id: &str) -> Vec<String> {
+    let Some(a) = get(id) else { return Vec::new() };
+    a.domains.iter().filter(|d| CONTENT_ONLY.contains(d)).flat_map(|d| [format!("https://{d}"), format!("https://www.{d}")]).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn devices_only_for_the_apps_own_pages() {
+        assert!(may_use_devices("instagram", "https://www.instagram.com/direct/inbox/"));
+        assert!(may_use_devices("facebook", "https://www.facebook.com/messages/"));
+        assert!(may_use_devices("discord", "https://discord.com/channels/@me"));
+        // file and sandbox hosts (Facebook runs other people's games and files on fbsbx.com)
+        assert!(!may_use_devices("facebook", "https://apps-123.apps.fbsbx.com/game"));
+        assert!(!may_use_devices("instagram", "https://scontent.cdninstagram.com/v/t51.jpg"));
+        assert!(!may_use_devices("discord", "https://media.discordapp.net/attachments/1.png"));
+        assert!(!may_use_devices("spotify", "https://i.scdn.co/image/1"));
+        // not the app's at all, or not https
+        assert!(!may_use_devices("discord", "https://discord.com.evil.example/"));
+        assert!(!may_use_devices("instagram", "http://www.instagram.com/"));
+    }
+
+    #[test]
+    fn content_hosts_get_no_standing_permissions() {
+        let granted = notification_origins("facebook");
+        assert!(granted.contains(&"https://www.facebook.com".to_string()));
+        assert!(!granted.iter().any(|o| o.contains("fbsbx.com") || o.contains("fbcdn.net")));
+        assert!(content_only_origins("facebook").contains(&"https://www.fbsbx.com".to_string()));
+        assert!(content_only_origins("x").iter().all(|o| o.contains("twimg.com")));
+    }
 }

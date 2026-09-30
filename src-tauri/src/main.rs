@@ -32,6 +32,12 @@ fn main() {
     let args = crate::core::Args::parse();
     log::init(&args.data_dir, args.debug);
     log!("start {:?}", std::env::args().skip(1).collect::<Vec<_>>());
+    // a crash (panic = "abort") leaves its reason in the log instead of just ending
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log!("panic: {info}");
+        default_hook(info);
+    }));
     // Nothing from outside switches on WebView2 remote debugging or other engine options.
     for var in [
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
@@ -67,6 +73,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![crate::core::ui_send])
         .setup(move |app| {
             // Here the single-instance lock is held and no WebView2 has started yet.
+            log::allow_rotation();
             migrate::electron_logins(&args.data_dir);
             migrate::electron_caches(&args.data_dir);
             if !args.profile && !cfg!(debug_assertions) {

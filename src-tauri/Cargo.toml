@@ -1,6 +1,6 @@
 [package]
 name = "chatdock"
-version = "1.7.2"
+version = "1.7.3"
 description = "Instagram, Facebook, X and Discord chats docked on the edge of your screen, always on top of your games."
 authors = ["ResinCore"]
 license = "MIT"

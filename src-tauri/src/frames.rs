@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Condvar, Mutex, OnceLock,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use windows::{
@@ -38,6 +38,8 @@ struct Shared {
     adapter: Option<(u32, u32)>, // (hAdapter, VidPnSourceId)
     hz: u32,
     device: String,
+    /// counts adapters opened: a new one gets its vertical blank tried again after failures
+    generation: u64,
 }
 
 static SHARED: OnceLock<(Mutex<Shared>, Condvar)> = OnceLock::new();
@@ -52,7 +54,8 @@ thread_local! {
 }
 
 fn shared() -> &'static (Mutex<Shared>, Condvar) {
-    SHARED.get_or_init(|| (Mutex::new(Shared { wanted: false, adapter: None, hz: 60, device: String::new() }), Condvar::new()))
+    SHARED
+        .get_or_init(|| (Mutex::new(Shared { wanted: false, adapter: None, hz: 60, device: String::new(), generation: 0 }), Condvar::new()))
 }
 
 pub fn init() {
@@ -85,10 +88,24 @@ pub fn set_display(device: &str, hz: u32) {
         let _ = DeleteDC(hdc);
         if status.is_ok() {
             s.adapter = Some((open.hAdapter, open.VidPnSourceId));
+            s.generation += 1;
         } else {
             log!("frame clock: no vertical blank for {device} ({:#x}), using a timer", status.0);
         }
     }
+}
+
+/// The monitors changed: the adapter is opened again by the next set_display (after a driver update
+/// or a switch between the laptop's two GPUs the old handle no longer works).
+pub fn forget_display() {
+    let (lock, _) = shared();
+    let mut s = lock.lock().unwrap();
+    if let Some((old, _)) = s.adapter.take() {
+        unsafe {
+            let _ = D3DKMTCloseAdapter(&D3DKMT_CLOSEADAPTER { hAdapter: old });
+        }
+    }
+    s.device.clear();
 }
 
 pub fn info() -> (u32, &'static str) {
@@ -159,20 +176,37 @@ fn precise_sleep(ms: f64) {
 fn vblank_thread() {
     let (lock, cv) = shared();
     let mut failures = 0;
+    let mut given_up_at: Option<Instant> = None;
+    let mut generation = 0;
+    let mut quick = 0;
     loop {
-        let (adapter, hz) = {
+        let (adapter, hz, gen) = {
             let mut s = lock.lock().unwrap();
             while !s.wanted {
                 s = cv.wait(s).unwrap();
             }
-            (s.adapter, s.hz)
+            (s.adapter, s.hz, s.generation)
         };
+        // After 3 failed waits the timer takes over; a newly opened adapter, or 10 s later, the
+        // vertical blank is tried again (a failure never lasts for the rest of the run).
+        if gen != generation || given_up_at.is_some_and(|t| t.elapsed() > Duration::from_secs(10)) {
+            generation = gen;
+            failures = 0;
+            given_up_at = None;
+        }
         let waited = match adapter {
             Some((h_adapter, source)) if failures < 3 => {
                 let wait = D3DKMT_WAITFORVERTICALBLANKEVENT { hAdapter: h_adapter, hDevice: 0, VidPnSourceId: source };
+                let started = Instant::now();
                 let ok = unsafe { D3DKMTWaitForVerticalBlankEvent(&wait) }.is_ok();
                 failures = if ok { 0 } else { failures + 1 };
-                ok
+                if failures == 3 {
+                    given_up_at = Some(Instant::now());
+                }
+                // A wait that returns at once twice in a row (the screen is off; some drivers) is no
+                // frame: the timer paces it, instead of two cores spinning while the tab is out.
+                quick = if ok && started.elapsed() < Duration::from_micros(500) { quick + 1 } else { 0 };
+                ok && quick < 2
             }
             _ => false,
         };

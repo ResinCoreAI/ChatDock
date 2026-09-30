@@ -112,7 +112,9 @@ function showDemo(i, byHand) {
     dots.children[j].classList.toggle('now', j === i);
   });
   if (byHand) rounds = 0; // a click starts the turns over
-  if (notes.scrollHeight > notes.clientHeight) d.li.scrollIntoView({ block: 'nearest' });
+  // only for a click: by itself it would open the list scrolled down (before the window has its
+  // size) and pull it away from what the user is reading every few seconds
+  if (byHand && notes.scrollHeight > notes.clientHeight) d.li.scrollIntoView({ block: 'nearest' });
   next();
 }
 

@@ -884,8 +884,9 @@ impl Core {
         log!("blur {}", self.snap());
         if self.panel_state == PanelState::Opening {
             // Only a real mouse click counts (some games grab focus back on their own); decided
-            // when the slide-in finishes.
-            self.blurred_while_opening = win32::mouse_button_down();
+            // when the slide-in finishes. The second press of a double click on ChatDock's own tray
+            // icon (which opened it) doesn't.
+            self.blurred_while_opening = win32::mouse_button_down() && !crate::tray::clicked_just_now();
             return;
         }
         if self.panel_state != PanelState::Open {
@@ -1191,6 +1192,7 @@ impl Core {
         self.stop_hold(false);
         let d = self.target_display();
         self.applied_scale = (d.scale, d.ui);
+        frames::forget_display(); // (its adapter is opened anew)
         frames::set_display(&d.id, d.hz);
         if self.panel_state == PanelState::Open {
             win32::set_bounds(self.panel.hwnd, self.panel_geometry(&d));
@@ -1280,8 +1282,15 @@ impl Core {
         let next = if dir == 0 {
             1.0
         } else {
-            let idx = core::ZOOM_STEPS.iter().position(|z| (z - current).abs() < 0.001).unwrap_or(4) as i32;
-            core::ZOOM_STEPS[(idx + dir).clamp(0, core::ZOOM_STEPS.len() as i32 - 1) as usize]
+            // the next step up or down from where it is (Ctrl+wheel can leave it between steps)
+            let steps = core::ZOOM_STEPS;
+            let up = steps.iter().copied().find(|z| *z > current + 0.001);
+            let down = steps.iter().copied().rev().find(|z| *z < current - 0.001);
+            if dir > 0 {
+                up.unwrap_or(steps[steps.len() - 1])
+            } else {
+                down.unwrap_or(steps[0])
+            }
         };
         self.settings.set_in("zoom", id, json!(next));
         self.save_soon();

@@ -60,6 +60,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("fixes173") {
+            wait(8000); // the pages load
+            fixes173_test();
         } else if only.as_deref() == Some("fixes172") {
             wait(8000); // the pages load
             fixes172_test();
@@ -1978,6 +1981,148 @@ fn review171_test() {
     );
 }
 
+/// 1.7.3's fixes from the code review, checked without taking the focus (the panel is shown off
+/// screen, like ui171_test): a window opened without a click, the tray menu's "Hide" once the chat
+/// already hid, switching off the app on screen, a page that keeps crashing, a pop-up made before
+/// its page was ready, a call while all chat pages are muted, the zoom keys after Ctrl+wheel, the
+/// update button in a crowded header, and What's new staying at the top while its demos play.
+fn fixes173_test() {
+    // 1. window.open() without a click: nothing opens (X's view on example.com). A script run by
+    // ExecuteScript counts as a click for 5 s (the page's "user activation"), so it opens later.
+    on(|c| c.chats.navigate("x", "https://example.com/"));
+    wait(4000);
+    view_js(
+        "x",
+        "window.__cdOpened = 'waiting'; setTimeout(() => { window.__cdOpened = String(window.open('about:blank') === null); }, 6000); 1",
+    );
+    wait(7000);
+    let blocked = view_js("x", "String(window.__cdOpened)");
+    // 2. the tray menu's "Hide" when the chat already hid by itself: it stays hidden
+    let hide = on(|c| {
+        c.on_menu("hide");
+        c.panel_state.as_str()
+    });
+    // 3. switching off the app on screen (Settings open): the next one wakes up
+    let woke = on(|c| {
+        c.sleep_app("facebook");
+        let slept = *c.asleep.get("facebook").unwrap_or(&false);
+        c.set_active("instagram", false);
+        let (state, settings) = (c.panel_state, c.settings_mode);
+        c.panel_state = PanelState::Open; // (nothing is shown: only the state)
+        c.settings_mode = true;
+        c.set_app_enabled("instagram", false);
+        let r = (slept, c.active(), *c.asleep.get("facebook").unwrap_or(&false));
+        c.set_app_enabled("instagram", true);
+        c.set_active("instagram", false);
+        c.panel_state = state;
+        c.settings_mode = settings;
+        r
+    });
+    // 4. a page that keeps crashing: the third time in 2 minutes it shows "Try again"
+    let crashes = on(|c| {
+        c.renderer_crashed("x");
+        c.renderer_crashed("x");
+        let before = c.load_state.get("x").copied();
+        c.renderer_crashed("x");
+        (before, c.load_state.get("x").copied(), c.retry_timers.contains_key("x"))
+    });
+    on(|c| c.reload_app("x", false)); // (back to its page)
+                                      // 5. a pop-up made before its page was ready: its time starts once the page is
+    let early = on(|c| {
+        c.ready.remove("toasts");
+        c.notice("ChatDock", "self-test");
+        let waiting = c.toasts_unstarted();
+        c.ready.insert("toasts".into());
+        c.toasts_ready();
+        let after = c.toasts_unstarted();
+        c.toasts_dismiss_all();
+        (waiting, after)
+    });
+    // 6. all chat pages muted, then a call on Discord: the call stays audible
+    on(|c| c.wake_app("discord"));
+    wait(3000);
+    let call = on(|c| {
+        let was = c.settings.bool("muted");
+        c.settings.set("muted", json!(true));
+        c.apply_audio("discord");
+        let muted = c.chats.is_muted("discord");
+        c.on_call("discord", true, true, false);
+        let in_call = c.chats.is_muted("discord");
+        c.on_call("discord", false, false, false);
+        let after = c.chats.is_muted("discord");
+        c.settings.set("muted", json!(was));
+        c.apply_audio("discord");
+        (muted, in_call, after)
+    });
+    // 7. the zoom keys after Ctrl+wheel left the zoom between steps (175 %, 50 %)
+    let zoom = on(|c| {
+        let was = c.zoom_of("x");
+        c.settings.set_in("zoom", "x", json!(1.75));
+        c.zoom_step("x", -1);
+        let down = c.zoom_of("x");
+        c.settings.set_in("zoom", "x", json!(0.5));
+        c.zoom_step("x", 1);
+        let up = c.zoom_of("x");
+        c.settings.set_in("zoom", "x", json!(was));
+        c.chats.set_zoom("x", was);
+        (down, up)
+    });
+    // 8. the update button in a crowded header (Instagram's width, four apps): one line in its
+    // pill; with the volume bar open its % and close button stay clickable
+    on(|c| {
+        c.upd.status = "available";
+        c.upd.version = "1.7.9".into();
+        c.set_active("instagram", false);
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.panel_state = PanelState::Open;
+        c.broadcast_state();
+    });
+    wait(1200);
+    let chip = page_js(
+        "panel",
+        "(() => { const c = document.getElementById('update'), l = c.querySelector('.label'); return JSON.stringify({ shown: !c.hidden, lines: l.getClientRects().length, fits: c.scrollHeight <= c.clientHeight + 1, width: Math.round(c.getBoundingClientRect().width), text: l.textContent }); })()",
+    );
+    shot("95-update-chip");
+    js_click("panel", "#vol");
+    wait(400);
+    let bar = page_js(
+        "panel",
+        "(() => { const hit = (id) => { const r = document.getElementById(id).getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && !!e.closest('#' + id); }; return JSON.stringify({ close: hit('vol-done'), percent: hit('vol-num') }); })()",
+    );
+    shot("96-update-chip-volume");
+    js_click("panel", "#vol-done");
+    on(|c| {
+        c.panel_state = PanelState::Hidden;
+        win32::hide(c.panel.hwnd);
+        c.upd.status = "idle";
+        c.upd.version.clear();
+        c.broadcast_state();
+    });
+    // 9. What's new from 1.6.2 (long, with demos): opens at the top and stays there while they play
+    let now = rt::version();
+    on(move |c| {
+        c.settings.set("whatsNew", json!({ "version": now, "from": "1.6.2", "notes": "", "at": rt::epoch_ms() }));
+        c.announce_updated();
+    });
+    // (a person at the PC may scroll it with the wheel: only the page's own scrolling counts)
+    wait(700);
+    let top = page_js(
+        "whatsnew",
+        "(() => { window.__cdScrolls = 0; const siv = Element.prototype.scrollIntoView; Element.prototype.scrollIntoView = function (...a) { window.__cdScrolls++; return siv.apply(this, a); }; return String(document.getElementById('notes').scrollTop); })()",
+    );
+    wait(7000); // the first demo turn comes after 6 s
+    let later = page_js("whatsnew", "String(window.__cdScrolls)");
+    shot("97-whats-new-top");
+    js_click("whatsnew", "#ok");
+    wait(800);
+    log!(
+        "1.7.3 fixes: window.open without a click gives null {blocked} | tray Hide while hidden -> {hide} | switch off the app on screen (facebook asleep, now active, asleep after) {woke:?} | crashes (before the 3rd, after, retry set) {crashes:?} | pop-up made before its page (unstarted, after ready) {early:?} | muted pages and a call (before, in the call, after) {call:?} | zoom keys from 175 % down, from 50 % up {zoom:?} | update chip {chip} | volume bar {bar} | What's new at the top {top}, scrolled by itself {later} times (expect true | hidden | (true, \"facebook\", false) | (Some(\"ready\"), Some(\"error\"), true) | (1, 0) | (true, false, true) | (1.5, 0.67) | shown, 1 line, fits | close + percent true | 0, 0)"
+    );
+}
+
 /// 1.7.2: clearing an app's data forgets what it had seen, the edge's watch goes on after an update
 /// install that didn't start (the real install_failed), and "the hotkey is taken" names the page
 /// the hotkey is on. GolfZzz's own checks are in counts_test, edge_test and review_fixes_test.
@@ -2930,7 +3075,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.7.2, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.7.3, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

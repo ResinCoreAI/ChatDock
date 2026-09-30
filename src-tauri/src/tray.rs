@@ -5,7 +5,7 @@
 //! Windows shows the tray menu itself, straight from the click, so the menu is built ahead of time
 //! and rebuilt when what it shows changes, never while it is open.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use tauri::{
     image::Image,
@@ -19,7 +19,10 @@ use windows::Win32::{
         SystemInformation::{GetLocalTime, GetSystemTime},
         Threading::GetCurrentThreadId,
     },
-    UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GUI_INMENUMODE},
+    UI::{
+        Input::KeyboardAndMouse::GetDoubleClickTime,
+        WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GUI_INMENUMODE},
+    },
 };
 
 use crate::{
@@ -39,6 +42,8 @@ struct Shown {
 thread_local! {
     static TRAY: RefCell<Option<TrayIcon<Wry>>> = const { RefCell::new(None) };
     static SHOWN: RefCell<Shown> = RefCell::new(Shown::default());
+    /// when the tray icon was last clicked (left button up, ms since 1970)
+    static LAST_CLICK: Cell<i64> = const { Cell::new(0) };
 }
 
 fn icon(unread: bool) -> Option<Image<'static>> {
@@ -59,6 +64,12 @@ pub fn set_shown(on: bool) {
 
 pub fn exists() -> bool {
     TRAY.with(|t| t.borrow().is_some())
+}
+
+/// The tray icon was clicked less than a double-click's time ago: the second press of a double
+/// click is coming or came (Windows sends both clicks' button-ups).
+pub fn clicked_just_now() -> bool {
+    rt::epoch_ms() - LAST_CLICK.with(Cell::get) < unsafe { GetDoubleClickTime() } as i64
 }
 
 /// Our own tray menu (or any menu of ours) is open right now.
@@ -110,6 +121,16 @@ impl Core {
     fn tray_click(&mut self) {
         let since = rt::epoch_ms() - self.last_auto_hide_at;
         log!("tray click sinceAutoHide={since} {}", self.snap());
+        if clicked_just_now() {
+            // the second click of a double click: the first one already opened (or hid) the chat;
+            // the press took the focus to the taskbar, so give it back to an opening chat
+            if self.panel_state.showing() {
+                self.blurred_while_opening = false;
+                self.focus_panel();
+            }
+            return;
+        }
+        LAST_CLICK.with(|c| c.set(rt::epoch_ms()));
         if since < 600 {
             return; // the click that just hid the panel
         }
@@ -175,12 +196,11 @@ impl Core {
         TRAY.with(|t| {
             let t = t.borrow();
             let Some(tray) = t.as_ref() else { return };
-            if icon_changed {
-                let _ = tray.set_icon(icon(unread));
+            // (remembered only when Windows took it: while Explorer restarts it fails, and is tried again)
+            if icon_changed && tray.set_icon(icon(unread)).is_ok() {
                 SHOWN.with(|s| s.borrow_mut().unread = Some(unread));
             }
-            if tip_changed {
-                let _ = tray.set_tooltip(Some(&tip));
+            if tip_changed && tray.set_tooltip(Some(&tip)).is_ok() {
                 SHOWN.with(|s| s.borrow_mut().tip = tip.clone());
             }
             if menu_changed && !menu_open() {
@@ -217,9 +237,12 @@ impl Core {
             items.push(item("update", self.tv("tray.updateNow", &[("version", self.build_name(&self.upd.version))]))?);
             items.push(sep()?);
         }
-        let toggle = self.t(if self.panel_state == crate::core::PanelState::Hidden { "tray.open" } else { "tray.hide" });
+        // Does what it says when it was built: opening the menu can hide the chat (a click elsewhere)
+        // while the menu still shows "Hide"
+        let hidden = self.panel_state == crate::core::PanelState::Hidden;
+        let (toggle_id, toggle) = if hidden { ("open", self.t("tray.open")) } else { ("hide", self.t("tray.hide")) };
         // the hotkey is shown the way Windows shows shortcuts in menus: right-aligned after a tab
-        items.push(item("toggle", if hotkey.is_empty() { toggle } else { format!("{toggle}\t{hotkey}") })?);
+        items.push(item(toggle_id, if hotkey.is_empty() { toggle } else { format!("{toggle}\t{hotkey}") })?);
         for id in self.enabled_apps() {
             let name = apps::get(id).unwrap().name;
             let n = self.shown_count(id);
@@ -258,7 +281,16 @@ impl Core {
         SHOWN.with(|s| s.borrow_mut().menu_key.clear()); // Windows ticked / unticked the item itself: rebuild
         match id {
             "update" => self.install_update(),
-            "toggle" => self.toggle_panel("menu"),
+            "open" => {
+                if !self.panel_state.showing() {
+                    self.toggle_panel("menu");
+                }
+            }
+            "hide" => {
+                if self.panel_state.showing() {
+                    self.toggle_panel("menu");
+                }
+            }
             "popups" => {
                 let on = !self.settings.bool("popups");
                 self.set_pref("popups", serde_json::json!(on));

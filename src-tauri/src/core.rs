@@ -959,7 +959,7 @@ impl Core {
             self.toasts_dismiss_app(id);
             if self.active() == id {
                 let first = self.enabled_apps()[0];
-                self.set_setting("active", json!(first));
+                self.set_active(first, false); // (wakes it if it sleeps, and fits the panel to it)
             }
         }
         log!("app {id} {} {:?}", if on { "on" } else { "off" }, self.enabled_apps());
@@ -1052,6 +1052,7 @@ impl Core {
             self.chats.set_in_call(id, live);
             self.last_used.insert(id.to_string(), rt::epoch_ms());
             log!("call {id} {}", if live { "started" } else { "ended" });
+            self.apply_audio(id); // "all chat sounds off" leaves a call audible
         }
         if self.chats.call_state(id) != (call, share) {
             self.chats.set_call_state(id, call, share);
@@ -1204,8 +1205,10 @@ impl Core {
     }
 
     pub fn apply_audio(&mut self, id: &str) {
-        // "all chat sounds off" is about the chats: music plays on
-        let muted = (self.settings.bool("muted") && id != "spotify") || !self.settings.app_pref(id, "sound");
+        // "all chat sounds off" is about the chats' alert sounds: music plays on, and a call the user
+        // joined stays audible (a Discord voice channel)
+        let all_off = self.settings.bool("muted") && id != "spotify" && !self.chats.page_call_live(id);
+        let muted = all_off || !self.settings.app_pref(id, "sound");
         self.chats.set_muted(id, muted);
     }
 
@@ -1233,8 +1236,10 @@ impl Core {
             // Titles flash ("Name sent you a message" <-> "(1) Facebook"), so only trust a zero that sticks.
             let app = id.to_string();
             let t = timer(3000, move |c| {
-                c.zero_timers.remove(&app);
-                c.set_site_count(&app, 0);
+                // (gone from the map: a number came meanwhile and cancelled it, but it had already fired)
+                if c.zero_timers.remove(&app).is_some() {
+                    c.set_site_count(&app, 0);
+                }
             });
             self.zero_timers.insert(id.to_string(), t);
         }
@@ -1344,6 +1349,14 @@ impl Core {
         let ms = (until - rt::epoch_ms()).max(0) as u64;
         self.dnd_timer = timer(ms, |c| {
             c.dnd_timer = 0;
+            let until = c.settings.i64("dndUntil");
+            if until <= 0 {
+                return; // switched off, or "until switched off" chosen meanwhile: not this timer's to end
+            }
+            if until > rt::epoch_ms() {
+                c.schedule_dnd_end(); // a later end was chosen meanwhile (or the clock moved)
+                return;
+            }
             c.set_setting("dndUntil", json!(0));
             c.broadcast_state();
             log!("do not disturb over");
@@ -1365,7 +1378,11 @@ impl Core {
 
     /// Is the user already looking at this app's chat?
     pub fn app_on_screen(&self, id: &str) -> bool {
-        self.panel_state == PanelState::Open && !self.settings_mode && self.active() == id && win32::foreground_window() == self.panel.hwnd
+        self.panel_state == PanelState::Open
+            && !self.settings_mode
+            && !self.help_mode
+            && self.active() == id
+            && win32::foreground_window() == self.panel.hwnd
     }
 
     /// A site raised a web notification (WebView2 NotificationReceived): who wrote, what, and their picture.

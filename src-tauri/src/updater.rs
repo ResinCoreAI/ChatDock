@@ -206,10 +206,8 @@ impl Core {
             return;
         }
         self.upd.first = timer(20_000, |c| c.check_update()); // let the chats load first
-        self.upd.recheck = timer(RECHECK_MS, |c| {
-            c.check_update();
-            c.schedule_update_checks();
-        });
+                                                              // and again every few hours: scheduling anew checks 20 s later (not twice)
+        self.upd.recheck = timer(RECHECK_MS, |c| c.schedule_update_checks());
     }
 
     pub fn update_state_json(&self) -> Value {
@@ -433,10 +431,14 @@ impl Core {
     /// "Updating ChatDock" window, shown for a moment before ChatDock quits for the installer.
     pub fn show_update_window(&mut self, version: &str) {
         let to = version.to_string();
+        self.ready.remove("update");
         own_window("update".into(), "update.html", (452.0, 196.0), true, self.args.clone(), move |c, made| match made {
             Ok(w) => {
                 c.update_win = Some(w);
                 c.pending_update_to = to;
+                if c.ready.contains("update") {
+                    c.update_window_ready(); // its page was quicker
+                }
             }
             Err(err) => log!("{err}"),
         });

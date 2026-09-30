@@ -442,8 +442,16 @@ pub fn system_dark() -> bool {
     status.is_ok() && value == 0
 }
 
+/// Programs a clicked link in a chat may start: e-mail and the chat apps' own desktop apps. Never
+/// anything else (ms-msdt:, search-ms:, file: and friends have been used to attack PCs).
+pub const PROGRAM_SCHEMES: &[&str] = &["mailto", "spotify", "discord", "tg", "whatsapp"];
+
+pub fn is_program_link(url: &str) -> bool {
+    url.split_once(':').is_some_and(|(scheme, _)| PROGRAM_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()))
+}
+
 pub fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
+    if !(url.starts_with("https://") || url.starts_with("http://") || is_program_link(url)) {
         return;
     }
     unsafe {

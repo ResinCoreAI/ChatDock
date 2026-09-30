@@ -345,8 +345,23 @@ thread_local! {
     static NOTE_SEQ: Cell<u64> = const { Cell::new(0) };
     /// The panel page's own WebView2 (Tauri's): gets the keyboard when no chat is on screen.
     static PANEL_CTRL: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
-    /// Apps with a navigation ChatDock started itself (their home page, a retry): allowed wherever it goes.
-    static OWN_NAV: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// Where a navigation ChatDock started itself goes (an app's home page, a retry): allowed even if
+    /// it isn't the app's own site. Only that address: a "Leave site?" answered "Stay" never uses it up
+    /// for some other page.
+    static OWN_NAV: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    /// When each app's page crashed lately (a page that crashes on every load mustn't reload forever)
+    static CRASHES: RefCell<HashMap<String, Vec<i64>>> = RefCell::new(HashMap::new());
+}
+
+/// Site notifications kept for their pop-up's click: pop-ups that went by themselves never report
+/// back, so only the newest are kept.
+const MAX_NOTES: usize = 64;
+
+fn same_url(a: &str, b: &str) -> bool {
+    match (tauri::Url::parse(a), tauri::Url::parse(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
 }
 
 /// Keyboard into the panel page itself (header, settings, welcome and error screens). Tauri's own
@@ -384,9 +399,9 @@ pub fn browser_version() -> String {
 
 /// A page leaving the app: other sites open in the browser; a link to a program (spotify:,
 /// discord://, mailto:) only when the user clicked it, so a site can't start one by itself (Spotify's
-/// page and the Spotify app).
+/// page and the Spotify app), and only the chat apps' own programs (see win32::PROGRAM_SCHEMES).
 pub fn opens_outside(uri: &str, clicked: bool) -> bool {
-    uri.starts_with("https://") || uri.starts_with("http://") || clicked
+    uri.starts_with("https://") || uri.starts_with("http://") || (clicked && win32::is_program_link(uri))
 }
 
 /// What kind of link it was, for the log (never the address).
@@ -398,6 +413,19 @@ fn outside_kind(uri: &str) -> String {
         format!("a {scheme}: link")
     } else {
         "a link".into()
+    }
+}
+
+/// A link leaving the app (never logged with its address): opened outside or not, see opens_outside.
+fn leave_app(app: String, what: String, uri: String, clicked: bool) {
+    if opens_outside(&uri, clicked) {
+        later(move |c| {
+            log!("{app}: {what} opens outside ChatDock");
+            c.open_external(&uri);
+        });
+    } else {
+        let why = if clicked { "not a program ChatDock starts" } else { "nobody clicked it" };
+        later(move |_| log!("{app}: {what} not opened ({why})"));
     }
 }
 
@@ -531,7 +559,7 @@ impl Chats {
 
     pub fn navigate(&self, id: &str, url: &str) {
         if let Some(v) = self.views.get(id) {
-            OWN_NAV.with(|n| n.borrow_mut().insert(id.to_string()));
+            OWN_NAV.with(|n| n.borrow_mut().insert(id.to_string(), url.to_string()));
             unsafe {
                 if v.webview.Navigate(&HSTRING::from(url)).is_err() {
                     OWN_NAV.with(|n| n.borrow_mut().remove(id));
@@ -697,6 +725,7 @@ impl Chats {
 
     fn close(&mut self, id: &str) {
         OWN_NAV.with(|n| n.borrow_mut().remove(id));
+        CRASHES.with(|m| m.borrow_mut().remove(id));
         if let Some(v) = self.views.remove(id) {
             unsafe {
                 let _ = v.controller.Close();
@@ -878,6 +907,7 @@ impl Core {
                                 later(move |c| {
                                     c.chats.creating.remove(&a);
                                     c.set_load(&a, "error");
+                                    c.retry_in(&a, AUTO_RETRY_MS); // (in the background too: its pop-ups)
                                 });
                             }
                         }
@@ -890,7 +920,54 @@ impl Core {
             log!("chat view {id}: {err}");
             self.chats.creating.remove(id);
             self.set_load(id, "error");
+            self.retry_in(id, AUTO_RETRY_MS);
         }
+    }
+
+    /// Try an app that failed again after a while ("Try again" by itself): its page loads anew, or
+    /// its view is made again if it couldn't be made.
+    fn retry_in(&mut self, id: &str, ms: u64) {
+        if let Some(t) = self.retry_timers.remove(id) {
+            rt::cancel(t);
+        }
+        let app = id.to_string();
+        let t = timer(ms, move |c| {
+            c.retry_timers.remove(&app);
+            if c.load_state.get(&app).copied() == Some("error") {
+                c.reload_app(&app, false);
+            }
+        });
+        self.retry_timers.insert(id.to_string(), t);
+    }
+
+    /// A page's renderer crashed: it loads again, later each time it keeps crashing; after 3 crashes
+    /// in 2 minutes (out of memory, blocked by an antivirus…) it shows "Try again" instead of
+    /// reloading over and over in the background, and is tried again every minute.
+    pub(crate) fn renderer_crashed(&mut self, id: &str) {
+        let now = rt::epoch_ms();
+        let recent = CRASHES.with(|m| {
+            let mut m = m.borrow_mut();
+            let list = m.entry(id.to_string()).or_default();
+            list.retain(|t| now - t < 120_000);
+            list.push(now);
+            list.len()
+        });
+        if recent >= 3 {
+            log!("page {id} crashed {recent} times in 2 minutes: shown as an error");
+            self.reload_pending.remove(id);
+            self.set_load(id, "error");
+            self.retry_in(id, 60_000);
+            return;
+        }
+        if !self.reload_pending.insert(id.to_string()) {
+            return; // already coming
+        }
+        let app = id.to_string();
+        timer(if recent == 1 { 1500 } else { 10_000 }, move |c| {
+            if c.reload_pending.remove(&app) {
+                c.chats.reload(&app);
+            }
+        });
     }
 
     pub fn view_created(&mut self, id: &str) {
@@ -900,17 +977,36 @@ impl Core {
             unsafe {
                 let _ = controller.Close(); // switched off or put to sleep meanwhile
             }
+            if self.chats.clear_when_made.remove(id) {
+                // "Clear data" was asked for while it was being made: done now, without a page
+                if let Err(err) = self.wipe_unloaded_profile(id) {
+                    log!("clear data failed {id}: {err}");
+                }
+            }
             return;
         }
         let webview = match unsafe { controller.CoreWebView2() } {
             Ok(wv) => wv,
             Err(err) => {
                 log!("chat view {id}: {err}");
+                unsafe {
+                    let _ = controller.Close();
+                }
+                self.set_load(id, "error");
+                self.retry_in(id, AUTO_RETRY_MS);
                 return;
             }
         };
         if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.debug) } {
+            // Without all of its handlers (links, new windows, permissions, crashes) a site mustn't
+            // run: it shows "Try again" and is tried again in a moment.
             log!("chat view {id} setup: {err}");
+            unsafe {
+                let _ = controller.Close();
+            }
+            self.set_load(id, "error");
+            self.retry_in(id, AUTO_RETRY_MS);
+            return;
         }
         let view = View {
             controller,
@@ -1045,17 +1141,7 @@ impl Core {
         }
         log!("load failed {id} status {status} http {http}");
         self.set_load(id, "error");
-        if let Some(t) = self.retry_timers.remove(id) {
-            rt::cancel(t);
-        }
-        let app = id.to_string();
-        let t = timer(AUTO_RETRY_MS, move |c| {
-            c.retry_timers.remove(&app);
-            if c.load_state.get(&app).copied() == Some("error") {
-                c.reload_app(&app, false);
-            }
-        });
-        self.retry_timers.insert(id.to_string(), t);
+        self.retry_in(id, AUTO_RETRY_MS);
     }
 
     fn on_dom_ready(&mut self, id: &str) {
@@ -1262,17 +1348,25 @@ unsafe fn clear_profile(wv: &ICoreWebView2, id: &str, temporary: Option<ICoreWeb
 
 unsafe fn grant_site_permissions(profile: &ICoreWebView2Profile, id: &str) {
     let Ok(p4) = profile.cast::<ICoreWebView2Profile4>() else { return };
-    for origin in apps::notification_origins(id) {
+    let set = |origin: &str, state: COREWEBVIEW2_PERMISSION_STATE| {
         for kind in
             [COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_CAMERA]
         {
             let _ = p4.SetPermissionState(
                 kind,
-                &HSTRING::from(origin.as_str()),
-                COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+                &HSTRING::from(origin),
+                state,
                 &SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(()))),
             );
         }
+    };
+    for origin in apps::notification_origins(id) {
+        set(&origin, COREWEBVIEW2_PERMISSION_STATE_ALLOW);
+    }
+    // given to the file and sandbox hosts before 1.7.3 (saved in the profile): back to asking,
+    // which PermissionRequested refuses
+    for origin in apps::content_only_origins(id) {
+        set(&origin, COREWEBVIEW2_PERMISSION_STATE_DEFAULT);
     }
 }
 
@@ -1345,7 +1439,14 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let mut p = PWSTR::null();
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
-            let own = OWN_NAV.with(|n| n.borrow_mut().remove(&app));
+            let own = OWN_NAV.with(|n| {
+                let mut n = n.borrow_mut();
+                let own = n.get(&app).is_some_and(|to| same_url(to, &uri));
+                if own {
+                    n.remove(&app);
+                }
+                own
+            });
             if own || uri.starts_with("about:") || apps::keep_inside(&app, &uri) {
                 let a = app.clone();
                 later(move |c| c.on_load_start(&a));
@@ -1354,19 +1455,32 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 let mut clicked = BOOL(0);
                 let _ = args.IsUserInitiated(&mut clicked);
                 let (a, what) = (app.clone(), outside_kind(&uri));
-                if opens_outside(&uri, clicked.as_bool()) {
-                    later(move |c| {
-                        log!("{a}: {what} opens outside ChatDock");
-                        c.open_external(&uri);
-                    });
-                } else {
-                    later(move |_| log!("{a}: {what} not opened (nobody clicked it)"));
-                }
+                leave_app(a, what, uri, clicked.as_bool());
             }
             Ok(())
         })),
         &mut token,
     )?;
+
+    // A link to a program from inside a frame (NavigationStarting only sees the page itself):
+    // never WebView2's own "Open …?" prompt, the same rule as above instead.
+    if let Ok(wv18) = wv.cast::<ICoreWebView2_18>() {
+        let app = id.to_string();
+        wv18.add_LaunchingExternalUriScheme(
+            &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                args.SetCancel(true)?;
+                let mut p = PWSTR::null();
+                args.Uri(&mut p)?;
+                let uri = take_pwstr(p);
+                let mut clicked = BOOL(0);
+                let _ = args.IsUserInitiated(&mut clicked);
+                leave_app(app.clone(), outside_kind(&uri), uri, clicked.as_bool());
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
 
     let app = id.to_string();
     wv.add_ContentLoading(
@@ -1431,6 +1545,17 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let mut p = PWSTR::null();
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
+            // Only for a click, like a browser's pop-up blocker (WebView2 has none): a script in any
+            // frame could otherwise open the browser, a mail app or a blank window of its own.
+            let mut clicked = BOOL(0);
+            let _ = args.IsUserInitiated(&mut clicked);
+            if !clicked.as_bool() {
+                args.SetHandled(true)?; // window.open() gives the page null
+                let a = app.clone();
+                let what = if uri == "about:blank" { "a blank page".to_string() } else { outside_kind(&uri) };
+                later(move |_| log!("{a}: a window for {what} not opened (nobody clicked it)"));
+                return Ok(());
+            }
             // Voice / video calls and "Sign in with Google/Apple" need their own small window
             let call = apps::is_call_url(&app, &uri);
             if uri == "about:blank" || call || apps::is_auth_popup(&app, &uri) {
@@ -1468,7 +1593,12 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let mut p = PWSTR::null();
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
-            let allow = allowed_permission(kind) && apps::owns(&app, &uri);
+            let device =
+                [COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_CAMERA]
+                    .contains(&kind);
+            // the camera, the microphone and notifications only for the app's own pages, never for
+            // its file and sandbox hosts (apps::may_use_devices)
+            let allow = allowed_permission(kind) && if device { apps::may_use_devices(&app, &uri) } else { apps::owns(&app, &uri) };
             args.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
             if !allow {
                 log!("permission {} refused for {app}", kind.0);
@@ -1514,7 +1644,21 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                     })),
                     &mut t,
                 );
-                NOTES.with(|m| m.borrow_mut().insert(key, (app.clone(), n)));
+                let gone: Vec<ICoreWebView2Notification> = NOTES.with(|m| {
+                    let mut m = m.borrow_mut();
+                    m.insert(key, (app.clone(), n));
+                    let mut gone = Vec::new();
+                    while m.len() > MAX_NOTES {
+                        let Some(&oldest) = m.keys().min() else { break };
+                        if let Some((_, old)) = m.remove(&oldest) {
+                            gone.push(old);
+                        }
+                    }
+                    gone
+                });
+                for old in gone {
+                    let _ = old.ReportClosed(); // (outside the borrow: the site may close it back)
+                }
                 let a = app.clone();
                 later(move |c| c.on_site_notification(&a, key, &title, &body, &icon, &tag));
                 Ok(())
@@ -1532,16 +1676,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             log!("renderer problem {app} kind {}", kind.0);
             if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
                 let a = app.clone();
-                later(move |c| {
-                    if !c.reload_pending.insert(a.clone()) {
-                        return; // already coming
-                    }
-                    let b = a.clone();
-                    timer(1500, move |c| {
-                        c.reload_pending.remove(&b);
-                        c.chats.reload(&b);
-                    });
-                });
+                later(move |c| c.renderer_crashed(&a));
             } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
                 later(|c| c.restart_after_crash("the WebView2 browser process stopped"));
             }
@@ -1659,5 +1794,32 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
             })),
             &mut token,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{opens_outside, same_url};
+
+    #[test]
+    fn links_leaving_a_chat() {
+        assert!(opens_outside("https://example.com/", false)); // web pages: the browser
+        assert!(!opens_outside("spotify:track:1", false)); // a program: only for a click
+        assert!(opens_outside("spotify:track:1", true));
+        assert!(opens_outside("discord://-/channels/1", true));
+        assert!(opens_outside("mailto:a@b.c", true));
+        assert!(opens_outside("TG://resolve?domain=x", true));
+        // never these, click or not
+        assert!(!opens_outside("ms-msdt:/id PCWDiagnostic", true));
+        assert!(!opens_outside("search-ms:query=x", true));
+        assert!(!opens_outside("file:///C:/Windows/System32/calc.exe", true));
+        assert!(!opens_outside("javascript:alert(1)", true));
+    }
+
+    #[test]
+    fn own_navigation_matches_only_its_address() {
+        assert!(same_url("https://www.instagram.com/direct/inbox/", "https://www.instagram.com/direct/inbox/"));
+        assert!(same_url("https://discord.com/channels/@me", "https://DISCORD.com/channels/@me"));
+        assert!(!same_url("https://x.com/messages", "https://evil.example/"));
     }
 }

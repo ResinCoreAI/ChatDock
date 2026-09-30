@@ -195,6 +195,7 @@ body.vol-open .apps { display: none; }
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap; /* one line in its pill, however crowded the header */
   cursor: pointer;
 }
 .chip:hover { color: var(--text); }
@@ -202,6 +203,7 @@ body.vol-open .apps { display: none; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  min-width: 0;
   padding: 0 9px 0 6px;
   border-color: transparent;
   background: linear-gradient(135deg, #8b5cf6, #0866ff);
@@ -209,7 +211,11 @@ body.vol-open .apps { display: none; }
   animation: chip-in .5s cubic-bezier(.2, .9, .25, 1.2);
 }
 .chip.update:hover { color: #fff; filter: brightness(1.1); }
-.chip.update svg { display: block; width: 14px; height: 14px; }
+.chip.update svg { display: block; flex: none; width: 14px; height: 14px; }
+.chip.update .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* while this app's volume is open: just the arrow, so the bar's % and ✕ stay clear */
+body.vol-open .chip.update { padding: 0 5px; }
+body.vol-open .chip.update .label { display: none; }
 @keyframes chip-in { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 
 #progress {

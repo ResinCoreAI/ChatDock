@@ -207,7 +207,8 @@ impl Core {
                 rt::cancel(old.timer);
             }
         }
-        if !self.toasts.hovered {
+        // its time runs once the pop-up page can show it (at start it may still be loading)
+        if !self.toasts.hovered && self.ready.contains("toasts") {
             self.toast_start(0);
         }
         self.toasts_render(true);
@@ -273,8 +274,19 @@ impl Core {
         }
     }
 
+    /// Pop-ups whose time hasn't started yet (the self-test).
+    pub(crate) fn toasts_unstarted(&self) -> usize {
+        self.toasts.items.iter().filter(|it| it.timer == 0).count()
+    }
+
     pub fn toasts_ready(&mut self) {
         if !self.toasts.items.is_empty() {
+            // pop-ups made before the page was ready: their time starts now
+            for i in 0..self.toasts.items.len() {
+                if self.toasts.items[i].timer == 0 && !self.toasts.hovered {
+                    self.toast_start(i);
+                }
+            }
             self.toasts_render(false);
         }
     }
@@ -444,13 +456,19 @@ impl Core {
         }
     }
 
-    /// Safety net: a click on the pop-ups that didn't open the chat must not leave the game unfocused.
+    /// Safety net: a click on the pop-ups that didn't open the chat (their see-through edge, a
+    /// ChatDock notice) must not leave the game unfocused, nor the chat: with the pop-ups in front,
+    /// a click elsewhere would never reach the chat, and it would stay over the game.
     pub fn on_toast_focus(&mut self) {
         timer(250, |c| {
-            if c.panel_state.showing() || win32::foreground_window() != c.toastwin.hwnd {
+            if win32::foreground_window() != c.toastwin.hwnd {
                 return;
             }
-            c.toasts_return_focus();
+            if c.panel_state == crate::core::PanelState::Open {
+                c.focus_panel();
+            } else if !c.panel_state.showing() {
+                c.toasts_return_focus();
+            }
         });
     }
 

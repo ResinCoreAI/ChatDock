@@ -207,6 +207,7 @@ impl Settings {
             .and_then(|_| std::fs::rename(&tmp, &self.file));
         if let Err(err) = result {
             log!("settings save failed: {err}");
+            self.dirty = true; // tried again with the next change, and at quit
         }
     }
 }
