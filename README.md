@@ -55,7 +55,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. Afterwards a *What's new* window plays a short animated demo of each change (*Settings → Updates → See what's new* shows it again). |
 | ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
-| 🎥 **Streaming-safe** | Optionally hide the panel and pop-ups from screenshots, OBS and Discord screen share. |
+| 🎥 **Streaming-safe** | Optionally hide the panel, the pop-ups and ChatDock's other windows (edge tab, glow, What's new) from screenshots, OBS and Discord screen share. Call and sign-in windows that a site opens itself still show. |
 
 <p align="center">
   <img src="docs/popups.png" width="430" alt="Two message pop-ups stacked in the corner of the screen">
