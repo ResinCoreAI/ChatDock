@@ -1087,7 +1087,11 @@ impl Core {
         // would hide the first new messages)
         self.site_counts.insert(id.to_string(), 0);
         self.settings.set_in("seenCounts", id, serde_json::json!(0));
+        if id == "discord" {
+            self.settings.set("discordServers", serde_json::json!({})); // the servers of the account that left
+        }
         self.save_soon();
+        self.forget_electron_login(id);
         // and the site's own settings go with the data (Discord's desktop notifications are off
         // again): its count pop-up says where to turn them on until a notification comes
         self.last_content_at.remove(id);
@@ -1109,6 +1113,29 @@ impl Core {
         if let Err(err) = self.wipe_unloaded_profile(&app) {
             log!("clear data failed {id}: {err}");
         }
+    }
+
+    /// The copy of an app's login that the Electron builds (1.4 and older) kept in
+    /// <data>\Partitions\<app>: still on disk after the move to WebView2, and still usable.
+    fn forget_electron_login(&self, id: &str) {
+        let old = self.args.data_dir.join("Partitions").join(id);
+        if old.exists() {
+            match std::fs::remove_dir_all(&old) {
+                Ok(()) => log!("old Electron login removed {id}"),
+                Err(err) => log!("old Electron login {id} could not be removed: {err}"),
+            }
+        }
+    }
+
+    /// Everything the Electron builds left of the logins: <data>\Partitions (apps since removed
+    /// too) and <data>\Local State, the key their cookies were encrypted with. (WebView2's own
+    /// Local State is in <data>\WebView2.)
+    pub fn forget_electron_logins(&self) {
+        let dir = &self.args.data_dir;
+        if dir.join("Partitions").exists() {
+            let _ = std::fs::remove_dir_all(dir.join("Partitions"));
+        }
+        let _ = std::fs::remove_file(dir.join("Local State"));
     }
 
     fn clear_now(&mut self, id: &str) {
