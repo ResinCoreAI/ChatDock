@@ -83,7 +83,7 @@ pub(crate) fn own_window(
             Ok(w) => {
                 let hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
                 win32::set_tool_window(hwnd);
-                crate::panel::lock_down_page(&w, args.debug);
+                crate::panel::lock_down_page(&w, args.dev_tools());
                 later(move |c| then(c, Ok(Win { w, hwnd })));
             }
             Err(err) => {

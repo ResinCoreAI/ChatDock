@@ -783,7 +783,7 @@ fn private_mb(pid: u32) -> u64 {
 // ---------------------------------------------------------------------------------------------
 impl Core {
     pub fn init_chats(&mut self) {
-        let debug = self.args.debug;
+        let debug = self.args.dev_tools();
         let _ = self.panel.w.with_webview(move |pw| {
             ENV.with(|e| *e.borrow_mut() = Some(pw.environment()));
             PANEL_CTRL.with(|p| *p.borrow_mut() = Some(pw.controller()));
@@ -909,7 +909,7 @@ impl Core {
                 return;
             }
         };
-        if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.debug) } {
+        if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.dev_tools()) } {
             log!("chat view {id} setup: {err}");
         }
         let view = View {

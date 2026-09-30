@@ -93,6 +93,13 @@ impl Args {
         self.data_dir.join("WebView2")
     }
 
+    /// Developer tools, browser keys and context menus in the pages: development builds only. In a
+    /// released ChatDock --debug (or --selftest) only echoes the log, so no switch puts DevTools on
+    /// the logged-in chats.
+    pub fn dev_tools(&self) -> bool {
+        self.debug && cfg!(debug_assertions)
+    }
+
     /// Chromium switches for every WebView2 in ChatDock (they must be the same for all of them):
     /// no Windows passkey dialog, no WebRTC mDNS (it trips a firewall prompt) and local addresses
     /// never offered to WebRTC, less RAM (one process per site, no spare renderer, no back/forward

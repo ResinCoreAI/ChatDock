@@ -225,9 +225,11 @@ npm run dist
 # 1.4 and older Electron builds) to a GitHub release
 ```
 
-Developer switches: `--profile=<dir>` (separate data folder) · `--debug` · `--selftest [--shots=<dir>] [--keep]`
-(automatic end-to-end check; add `--selftest-only=edge` for just the frame clock, edge tab, hold line
-and pop-up checks, which never take focus from a game) · `--no-occlusion` (test with the screen locked).
+Developer switches: `--profile=<dir>` (separate data folder) · `--debug` (log to the console; DevTools only
+in development builds) · `--selftest --profile=<test dir> [--shots=<dir>] [--keep]` (automatic end-to-end
+check; it changes settings and logs out of apps, so it refuses to run without a test folder of its own; add
+`--selftest-only=edge` for just the frame clock, edge tab, hold line and pop-up checks, which never take
+focus from a game) · `--no-occlusion` (test with the screen locked).
 `CHATDOCK_UPDATE_FEED=http://127.0.0.1:<port>/latest.json` points the updater at a local test feed.
 
 <details>
