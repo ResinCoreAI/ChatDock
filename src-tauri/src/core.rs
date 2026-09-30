@@ -8,7 +8,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use serde_json::{json, Map, Value};
@@ -46,7 +46,7 @@ pub const AUTO_RETRY_MS: u64 = 15_000;
 #[derive(Clone, Debug)]
 pub struct Args {
     pub data_dir: PathBuf,
-    pub profile: bool, // --profile=<dir>: a separate data folder (tests); never touches "start with Windows"
+    pub profile: bool, // --profile=<dir>: a separate data folder (tests); never touches "start with Windows" (see test_folder)
     pub selftest: bool,
     pub selftest_only: Option<String>,
     pub shots: Option<PathBuf>,
@@ -63,10 +63,11 @@ impl Args {
             argv.iter().find_map(|a| a.strip_prefix(&prefix).map(str::to_string))
         };
         let has = |name: &str| argv.iter().any(|a| a == &format!("--{name}"));
-        let profile = value("profile").map(PathBuf::from);
+        let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let own_dirs = ["ChatDock", "ChatDock-dev", TEST_PRODUCT].map(|n| base.join(n));
+        let profile = test_folder(value("profile").map(PathBuf::from), &own_dirs);
         let selftest = has("selftest");
         let data_dir = profile.clone().unwrap_or_else(|| {
-            let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
             // development builds and the test copy never touch a real install's data
             base.join(if test_product() {
                 TEST_PRODUCT
@@ -114,6 +115,23 @@ impl Args {
             off.join(",")
         )
     }
+}
+
+/// --profile=<dir> as a test folder of its own. ChatDock's own data folders (and an empty value)
+/// don't count: that is the real app, which keeps its one-instance lock, and never a place for the
+/// self-test (it switches settings around and logs out of apps).
+fn test_folder(profile: Option<PathBuf>, own_dirs: &[PathBuf]) -> Option<PathBuf> {
+    profile.filter(|p| !p.as_os_str().is_empty() && !own_dirs.iter().any(|d| same_folder(p, d)))
+}
+
+/// The same folder, however it is written ("C:/x/", "c:\X", a relative path).
+fn same_folder(a: &Path, b: &Path) -> bool {
+    let norm = |p: &Path| {
+        let full = std::fs::canonicalize(p).or_else(|_| std::path::absolute(p)).unwrap_or_else(|_| p.to_path_buf());
+        let s = full.to_string_lossy().replace('/', "\\").to_lowercase();
+        s.strip_prefix(r"\\?\").unwrap_or(&s).trim_end_matches('\\').to_string()
+    };
+    norm(a) == norm(b)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1991,7 +2009,31 @@ pub fn safe_icon(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::seen_after;
+    use std::path::{Path, PathBuf};
+
+    use super::{same_folder, seen_after, test_folder};
+
+    #[test]
+    fn a_folder_is_the_same_however_it_is_written() {
+        let tmp = std::env::temp_dir();
+        let shouted = PathBuf::from(tmp.to_string_lossy().to_uppercase().replace('\\', "/") + "/");
+        assert!(same_folder(&tmp, &shouted));
+        assert!(same_folder(Path::new("."), &std::env::current_dir().unwrap()));
+        assert!(!same_folder(&tmp, &tmp.join("chatdock-other")));
+    }
+
+    #[test]
+    fn the_self_test_never_gets_chatdocks_own_data_folder() {
+        let base = std::env::temp_dir().join("chatdock-appdata-test");
+        let own = ["ChatDock", "ChatDock-dev", "ChatDockUpdTest"].map(|n| base.join(n));
+        assert_eq!(test_folder(Some(base.join("ChatDock")), &own), None);
+        let written_otherwise = base.join("chatdock-dev").to_string_lossy().replace('\\', "/") + "/";
+        assert_eq!(test_folder(Some(PathBuf::from(written_otherwise)), &own), None);
+        assert_eq!(test_folder(Some(PathBuf::new()), &own), None); // "--profile="
+        assert_eq!(test_folder(None, &own), None);
+        let test_dir = base.join("selftest-profile");
+        assert_eq!(test_folder(Some(test_dir.clone()), &own), Some(test_dir));
+    }
 
     // seen_after(seen, site, in_view, counted)
 
