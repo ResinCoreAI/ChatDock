@@ -2027,7 +2027,10 @@ fn security_test() {
     });
     log!("security: hidden from capture: {hidden} | switched off: {shown} (expect every window 17 with at least one card, then every window 0)");
 
-    // 2. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
+    // 2. this PC (before Clear data reloads the chats)
+    this_pc_check();
+
+    // 3. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
     let dir = on(|c| c.args.data_dir.clone());
     for app in ["discord", "retired-app"] {
         let _ = std::fs::create_dir_all(dir.join("Partitions").join(app).join("Network"));
@@ -2045,7 +2048,7 @@ fn security_test() {
         "security: Clear data (Discord): its old login still there {discord_old}, another's still there {other_old}, servers {servers} | Clear all data: Partitions {partitions}, old key {old_key} (expect false, true, {{}} | false, false)"
     );
 
-    // 3. the log: a path under the Windows account, plain and as {:?} writes it
+    // 4. the log: a path under the Windows account, plain and as {:?} writes it
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     log!("security: paths {home}\\AppData and {:?}", format!("{home}\\AppData"));
     let tail = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -2053,6 +2056,53 @@ fn security_test() {
     let clean =
         !home.is_empty() && !last.to_ascii_lowercase().contains(&home.to_ascii_lowercase()) && last.matches("%USERPROFILE%").count() == 2;
     log!("security: the account name kept out of the log {clean} (expect true)");
+}
+
+/// This PC: the WebSockets a chat page opens to it go nowhere; its requests to it, however the
+/// address is written and from its workers too, are refused. The requests come from a page with no
+/// rules of its own (example.com), so nothing but ChatDock stops them.
+fn this_pc_check() {
+    let ws = view_js(
+        "discord",
+        "(() => { const urls = ['ws://127.1:6463/', 'ws://x.localhost:6463/', 'ws://[::1]:6463/'].map((u) => { const s = new WebSocket(u); s.close(); return s.url; }); \
+         const f = document.createElement('iframe'); document.documentElement.appendChild(f); \
+         const inFrame = String(f.contentWindow.WebSocket).includes('[native code]') ? 'native' : 'wrapped'; f.remove(); \
+         return urls.join(' ') + ' | in a new frame ' + inFrame; })()",
+    );
+    let refused = || crate::chats::LOCAL_BLOCKED.load(std::sync::atomic::Ordering::Relaxed);
+    let earlier = refused();
+    on(|c| c.chats.navigate("discord", "https://example.com/"));
+    let mut host = String::new();
+    for _ in 0..40 {
+        wait(250);
+        host = view_js("discord", "location.host");
+        if host == "\"example.com\"" {
+            break;
+        }
+    }
+    wait(500); // (its own scripts run)
+    let before = refused();
+    let page = view_js_async(
+        "discord",
+        "Promise.all(['https://127.0.0.2:8443/', 'https://x.localhost/', 'https://2130706433/', 'https://[::ffff:127.0.0.1]/', 'https://localhost./'] \
+         .map((u) => fetch(u, { mode: 'no-cors' }).then(() => 'answered', () => 'failed'))).then((r) => r.join(' '))",
+    );
+    let worker = view_js_async(
+        "discord",
+        "new Promise((ok) => { const src = URL.createObjectURL(new Blob([\"fetch('https://127.0.0.3/', { mode: 'no-cors' }).then(() => postMessage('answered'), () => postMessage('failed'))\"], { type: 'text/javascript' })); \
+         const w = new Worker(src); w.onmessage = (e) => ok(e.data); w.onerror = () => ok('no worker'); })",
+    );
+    let shared = view_js_async(
+        "discord",
+        "new Promise((ok) => { const src = URL.createObjectURL(new Blob([\"onconnect = (e) => { const port = e.ports[0]; fetch('https://127.0.0.4/', { mode: 'no-cors' }).then(() => port.postMessage('answered'), () => port.postMessage('failed')); }\"], { type: 'text/javascript' })); \
+         const w = new SharedWorker(src); w.port.onmessage = (e) => ok(e.data); w.onerror = () => ok('no worker'); w.port.start(); })",
+    );
+    wait(500);
+    let blocked = refused() - before;
+    on(|c| c.load_home("discord"));
+    log!(
+        "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.chatdock.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
+    );
 }
 
 fn fixes172_test() {

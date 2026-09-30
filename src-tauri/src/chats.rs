@@ -50,10 +50,16 @@ use crate::{
 const SITE_SCRIPT: &str = r#"(() => {
   if (window.WebSocket) {
     const Real = window.WebSocket;
-    const local = /^wss?:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:[\/?#]|$)/i;
+    // this PC however it is written: 127.x, localhost, *.localhost, ::1, ::, 0.0.0.0, IPv4 inside IPv6
+    const thisPc = (url) => {
+      try {
+        const h = new URL(String(url), location.href).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+        return h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '::' || h === '0.0.0.0' || /^127\./.test(h) || /^::ffff:(7f[0-9a-f]{2}:|0:0$)/.test(h);
+      } catch (e) { return false; }
+    };
     const WebSocket = function WebSocket(url, protocols) {
       if (!new.target) throw new TypeError("Failed to construct 'WebSocket': Please use the 'new' operator.");
-      const target = local.test(String(url)) ? 'wss://local-blocked.chatdock.invalid/' : url;
+      const target = thisPc(url) ? 'wss://local-blocked.chatdock.invalid/' : url;
       return protocols === undefined ? new Real(target) : new Real(target, protocols);
     };
     WebSocket.prototype = Real.prototype;
@@ -367,6 +373,8 @@ fn env() -> Option<ICoreWebView2Environment> {
 }
 
 static BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Requests the chat pages made to this PC and ChatDock refused (the self-test counts them).
+pub static LOCAL_BLOCKED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// The WebView2 browser process the chats run in (0 until the first one is up). Its own windows,
 /// like the "… is sharing your screen" bar, count as ChatDock's.
@@ -1386,16 +1394,30 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
         grant_site_permissions(&profile, id);
     }
     // Chat sites have no business talking to programs on this PC. (Discord's page probes the
-    // desktop app on localhost and then nags "Discord App Detected".)
-    for f in ["http://127.0.0.1*", "https://127.0.0.1*", "http://localhost*", "https://localhost*", "http://[::1]*", "https://[::1]*"] {
-        wv.AddWebResourceRequestedFilter(&HSTRING::from(f), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
+    // desktop app on localhost and then nags "Discord App Detected".) The filters catch every way
+    // this PC can be written, from the pages and from their workers; the handler decides by the
+    // parsed host (a filter also matches an address that merely mentions one).
+    let wv22 = wv.cast::<ICoreWebView2_22>().ok();
+    for f in ["*://127.*", "*://localhost*", "*://*.localhost*", "*://[::1]*", "*://[::]*", "*://0.0.0.0*", "*://[::ffff:*"] {
+        match &wv22 {
+            Some(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(
+                &HSTRING::from(f),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+            )?,
+            None => wv.AddWebResourceRequestedFilter(&HSTRING::from(f), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?,
+        }
     }
     let mut token = 0i64;
     wv.add_WebResourceRequested(
         &WebResourceRequestedEventHandler::create(Box::new(|_, args| {
-            if let (Some(args), Some(env)) = (args, env()) {
+            let (Some(args), Some(env)) = (args, env()) else { return Ok(()) };
+            let mut p = PWSTR::null();
+            args.Request()?.Uri(&mut p)?;
+            if apps::is_this_pc(&take_pwstr(p)) {
                 let resp = env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))?;
                 args.SetResponse(&resp)?;
+                LOCAL_BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             Ok(())
         })),

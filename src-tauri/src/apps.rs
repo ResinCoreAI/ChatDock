@@ -218,12 +218,12 @@ pub fn app_scheme(url: &str) -> bool {
     APP_SCHEMES.contains(&scheme.as_str())
 }
 
-/// An address on this PC (localhost, *.localhost, 127.x, ::1, 0.0.0.0, however it is written):
+/// An address on this PC (localhost, *.localhost, 127.x, ::1, ::, 0.0.0.0, however it is written):
 /// the chat sites have no business with programs listening here.
 pub fn is_this_pc(url: &str) -> bool {
     let Ok(u) = Url::parse(url) else { return false };
     let Some(host) = u.host_str() else { return false };
-    let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         let v4 = match ip {
             std::net::IpAddr::V4(v4) => Some(v4),
@@ -311,10 +311,19 @@ mod tests {
             "http://0.0.0.0:8000/",
             "http://2130706433/",
             "http://[::ffff:127.0.0.1]/",
+            "http://localhost./",
+            "https://127.1/",
+            "http://[::]/",
         ] {
             assert!(is_this_pc(url), "{url}");
         }
-        for url in ["https://example.com/?next=http://localhost", "http://192.168.1.1/", "https://localhost.example.com/", "mailto:a@b.c"] {
+        for url in [
+            "https://example.com/?next=http://localhost",
+            "http://192.168.1.1/",
+            "https://localhost.example.com/",
+            "https://127.example.com/",
+            "mailto:a@b.c",
+        ] {
             assert!(!is_this_pc(url), "{url}");
         }
     }
