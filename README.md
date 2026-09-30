@@ -82,8 +82,8 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 > signing key before they run.)
 
 To uninstall: *Settings → Apps → Installed apps → ChatDock → Uninstall*. Your logins and settings stay in
-`%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller (or clear them first
-under Settings → Privacy & security → Clear all data).
+`%APPDATA%\ChatDock` unless you tick *Delete the application data* in the uninstaller. (Settings → Privacy &
+security → Clear all data logs you out of every app beforehand; your settings stay.)
 
 Coming from Beta Build 1.4 or older (the Electron builds)? Just press **Update** as usual: the new
 installer replaces the old copy, and your logins, settings and "start with Windows" carry over.
@@ -156,9 +156,9 @@ server, sends nothing anywhere, and never sees your passwords.
 
 | | |
 |---|---|
-| **Encrypted cookies** | Logins and cookies are stored encrypted with your Windows account's key (DPAPI, by WebView2 — the Microsoft Edge engine). Copied to another PC or user, they are useless. |
+| **Encrypted cookies** | Cookies are stored encrypted with your Windows account's key (DPAPI, by WebView2 — the Microsoft Edge engine): copied to another PC or user, they are useless. Some apps also keep their login in the site's storage (Local Storage, IndexedDB), which isn't encrypted, so keep `%APPDATA%\ChatDock` to yourself. |
 | **Isolated logins** | Every app has its own WebView2 profile; one site can't read another's cookies or storage. |
-| **Sandboxed pages** | All pages run in WebView2's Chromium sandbox. The chat sites get nothing from ChatDock except the notification hand-off and the passkey guard below; ChatDock's own screens talk to the app only through a fixed list of messages. |
+| **Sandboxed pages** | All pages run in WebView2's Chromium sandbox. ChatDock adds one script to the chat sites: it turns passkeys off, keeps WebSockets away from this PC, hands the sites' notifications to ChatDock's pop-ups, notices calls and screen shares (for the edge tab) and sets each app's volume. In Discord it also reads your server list from the sidebar and presses mute/deafen for the voice keys. ChatDock's own screens talk to the app only through a fixed list of messages. |
 | **No local access** | Chat pages can't reach programs on your PC (requests and WebSockets to `localhost` are blocked) and can't open ChatDock's own pages. |
 | **Private IP stays private** | WebRTC is limited to the default route and never lists your local addresses. |
 | **Only what's needed** | Permissions (notifications, mic/camera for calls, …) are granted only to the app's own domains. Links that leave the app open in your normal browser. |
