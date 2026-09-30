@@ -922,6 +922,7 @@ impl Core {
                 for id in apps::ids() {
                     self.clear_app_data(id);
                 }
+                self.forget_electron_logins();
             }
             "reset-widths" => {
                 self.set_setting("widths", json!({}));
