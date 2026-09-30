@@ -178,23 +178,26 @@ pub fn is_auth_popup(id: &str, url: &str) -> bool {
     true
 }
 
-/// l.facebook.com/l.php?u=<real link> and friends: the sites' "you are leaving" redirects.
+/// l.facebook.com/l.php?u=<real link> and friends: Meta's "you are leaving" redirects. Only on
+/// Meta's own hosts: any other site's /l.php is just a page.
 pub fn is_link_shim(url: &str) -> bool {
     let Ok(u) = Url::parse(url) else { return false };
     let host = u.host_str().unwrap_or("").to_ascii_lowercase();
-    let shim_host = ["l.", "lm."]
-        .iter()
-        .any(|p| host.strip_prefix(p).is_some_and(|rest| ["facebook.com", "instagram.com", "messenger.com"].contains(&rest)));
-    shim_host || u.path() == "/l.php"
+    let meta = ["facebook.com", "instagram.com", "messenger.com"];
+    let shim_host = ["l.", "lm."].iter().any(|p| host.strip_prefix(p).is_some_and(|rest| meta.contains(&rest)));
+    shim_host || (u.path() == "/l.php" && host_matches(&host, &meta))
 }
 
-/// The real link inside a link shim, else the URL itself.
+/// The real link inside a link shim (read as an address and written back in its standard form, so
+/// no raw quotes or spaces reach Windows), else the URL itself.
 pub fn unshim(url: &str) -> String {
     if is_link_shim(url) {
         if let Ok(u) = Url::parse(url) {
             if let Some((_, inner)) = u.query_pairs().find(|(k, _)| k == "u") {
-                if inner.starts_with("http://") || inner.starts_with("https://") {
-                    return inner.into_owned();
+                if let Ok(real) = Url::parse(&inner) {
+                    if real.scheme() == "http" || real.scheme() == "https" {
+                        return real.to_string();
+                    }
                 }
             }
         }
@@ -281,7 +284,21 @@ pub fn notification_origins(id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_scheme, is_this_pc, may_use_media, media_origins};
+    use super::{app_scheme, is_link_shim, is_this_pc, may_use_media, media_origins, unshim};
+
+    #[test]
+    fn link_shims_only_on_metas_hosts_and_in_standard_form() {
+        let fb = "https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fa%20b%22c&h=x";
+        assert!(is_link_shim(fb));
+        assert_eq!(unshim(fb), "https://example.com/a%20b%22c");
+        assert!(is_link_shim("https://www.facebook.com/l.php?u=https%3A%2F%2Fexample.com"));
+        assert!(!is_link_shim("https://evil.example/l.php?u=https%3A%2F%2Fx.com")); // not Meta's
+        assert_eq!(unshim("https://evil.example/l.php?u=https%3A%2F%2Fx.com"), "https://evil.example/l.php?u=https%3A%2F%2Fx.com");
+        assert_eq!(
+            unshim("https://l.facebook.com/l.php?u=file%3A%2F%2F%2FC%3A%2Fx"),
+            "https://l.facebook.com/l.php?u=file%3A%2F%2F%2FC%3A%2Fx"
+        );
+    }
 
     #[test]
     fn addresses_on_this_pc_however_they_are_written() {
