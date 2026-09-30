@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "ChatDock's own pages: listen for their messages and send 'ui_send'. The chat sites never get the IPC bridge.",
+  "description": "ChatDock's own pages: listen for their messages (ui/bridge.js) and send 'ui_send' (an app command, allowed without a permission). Nothing else of Tauri's (emitting to other windows, windows, menus, the tray, paths). The chat sites never get the IPC bridge.",
   "windows": ["panel", "tab", "glow", "edge", "toasts", "update", "whatsnew", "ident-*"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }
