@@ -2,6 +2,8 @@
 //!   domains       pages that stay inside the panel (anything else opens in the normal browser)
 //!   auth_domains  sign-in pages of other sites: as a small window ("Sign in with Google" on X) or
 //!                 in the panel itself (Spotify's "Continue with Google" goes there and comes back)
+//!   media         sites that may use the mic and camera (calls, voice messages): the app's own
+//!                 pages, never its CDNs or sandboxes (fbsbx.com runs other people's code)
 //!   plain_title   the site's normal tab title, so other titles can be read as "someone messaged you"
 //!   colors        gradient for the unread glow on the screen edge
 //!   width         starting panel width for sites that need more room (Discord's sidebars)
@@ -18,6 +20,7 @@ pub struct App {
     pub colors: &'static [&'static str],
     pub domains: &'static [&'static str],
     pub auth_domains: &'static [&'static str],
+    pub media: &'static [&'static str],
     pub width: Option<u32>,
     pub enabled_by_default: bool,
 }
@@ -32,6 +35,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#feda75", "#fa7e1e", "#d62976", "#962fbf"],
         domains: &["instagram.com", "cdninstagram.com", "facebook.com", "fb.com", "fbcdn.net", "facebook.net", "fbsbx.com", "meta.com"],
         auth_domains: &[],
+        media: &["instagram.com"],
         width: None,
         enabled_by_default: true,
     },
@@ -45,6 +49,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#4d9bff", "#0866ff"],
         domains: &["facebook.com", "messenger.com", "fb.com", "fbcdn.net", "facebook.net", "fbsbx.com", "meta.com"],
         auth_domains: &[],
+        media: &["facebook.com", "messenger.com"],
         width: None,
         enabled_by_default: true,
     },
@@ -57,6 +62,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#ffffff", "#a1a1aa"],
         domains: &["x.com", "twitter.com", "twimg.com"],
         auth_domains: &["accounts.google.com", "appleid.apple.com"],
+        media: &["x.com", "twitter.com"],
         width: None,
         enabled_by_default: true,
     },
@@ -69,6 +75,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#8b93ff", "#5865f2"],
         domains: &["discord.com", "discordapp.com", "discordapp.net", "discord.gg", "discord.media"],
         auth_domains: &[],
+        media: &["discord.com"],
         width: Some(800), // server list + channel list + chat don't fit in less
         enabled_by_default: true,
     },
@@ -81,6 +88,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#6fcbf7", "#2aabee"],
         domains: &["web.telegram.org", "telegram.org", "t.me"],
         auth_domains: &[],
+        media: &["web.telegram.org"],
         width: None,
         enabled_by_default: false,
     },
@@ -93,6 +101,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#6ee89b", "#25d366"],
         domains: &["web.whatsapp.com", "whatsapp.com", "whatsapp.net"],
         auth_domains: &[],
+        media: &["web.whatsapp.com"],
         width: Some(700), // chat list + conversation side by side
         enabled_by_default: false,
     },
@@ -105,6 +114,7 @@ pub const CATALOG: &[App] = &[
         colors: &["#5ee38a", "#1db954"],
         domains: &["spotify.com", "scdn.co", "spotifycdn.com", "spotify.link"],
         auth_domains: &["accounts.google.com", "appleid.apple.com", "facebook.com"],
+        media: &[],       // no calls or voice messages
         width: Some(760), // the library on the side, and the player's controls
         enabled_by_default: false,
     },
@@ -136,6 +146,19 @@ pub fn owns(id: &str, url: &str) -> bool {
         (Some(a), Some(host)) => host_matches(&host, a.domains),
         _ => false,
     }
+}
+
+/// May this https page use the mic and camera (the app's calls and voice messages)?
+pub fn may_use_media(id: &str, url: &str) -> bool {
+    match (get(id), https_host(url)) {
+        (Some(a), Some(host)) => host_matches(&host, a.media),
+        _ => false,
+    }
+}
+
+/// The origins of `media`, for granting (and taking back) the mic and camera in the app's profile.
+pub fn media_origins(id: &str) -> Vec<String> {
+    get(id).map(|a| a.media.iter().flat_map(|d| [format!("https://{d}"), format!("https://www.{d}")]).collect()).unwrap_or_default()
 }
 
 pub fn is_auth_popup(id: &str, url: &str) -> bool {
@@ -229,4 +252,23 @@ pub fn notification_origins(id: &str) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{may_use_media, media_origins};
+
+    #[test]
+    fn mic_and_camera_only_on_the_apps_own_call_pages() {
+        assert!(may_use_media("facebook", "https://www.facebook.com/groupcall/ROOM"));
+        assert!(may_use_media("instagram", "https://www.instagram.com/direct/t/1/"));
+        assert!(may_use_media("discord", "https://discord.com/channels/@me"));
+        assert!(!may_use_media("facebook", "https://www.fbsbx.com/x")); // other people's code
+        assert!(!may_use_media("instagram", "https://scontent.cdninstagram.com/v.mp4"));
+        assert!(!may_use_media("discord", "https://cdn.discordapp.com/x"));
+        assert!(!may_use_media("spotify", "https://open.spotify.com/"));
+        assert!(!may_use_media("facebook", "http://www.facebook.com/")); // https only
+        assert!(media_origins("spotify").is_empty());
+        assert!(media_origins("facebook").contains(&"https://www.facebook.com".to_string()));
+    }
 }

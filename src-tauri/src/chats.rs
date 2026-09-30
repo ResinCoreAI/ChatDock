@@ -1287,31 +1287,41 @@ unsafe fn clear_profile(wv: &ICoreWebView2, id: &str, temporary: Option<ICoreWeb
     })))
 }
 
+/// What an app's sites may do from the start, like sites you allowed in a browser (this also
+/// covers the call windows WebView2 opens itself): notifications on its own pages; the mic and
+/// camera only where its calls and voice messages run (apps::media). 1.5.2–1.7.2 gave the mic and
+/// camera to every listed domain (CDNs and sandboxes too): those go back to the default.
 unsafe fn grant_site_permissions(profile: &ICoreWebView2Profile, id: &str) {
     let Ok(p4) = profile.cast::<ICoreWebView2Profile4>() else { return };
-    for origin in apps::notification_origins(id) {
-        for kind in
-            [COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_CAMERA]
-        {
-            let _ = p4.SetPermissionState(
-                kind,
-                &HSTRING::from(origin.as_str()),
-                COREWEBVIEW2_PERMISSION_STATE_ALLOW,
-                &SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(()))),
-            );
-        }
+    let set = |kind, origin: &str, state| {
+        let _ =
+            p4.SetPermissionState(kind, &HSTRING::from(origin), state, &SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(()))));
+    };
+    let media = apps::media_origins(id);
+    let mut origins = apps::notification_origins(id);
+    origins.extend(media.iter().filter(|o| !origins.contains(o)).cloned().collect::<Vec<_>>());
+    for origin in &origins {
+        set(COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, origin, COREWEBVIEW2_PERMISSION_STATE_ALLOW);
+        let av = if media.contains(origin) { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DEFAULT };
+        set(COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, origin, av);
+        set(COREWEBVIEW2_PERMISSION_KIND_CAMERA, origin, av);
     }
 }
 
-fn allowed_permission(kind: COREWEBVIEW2_PERMISSION_KIND) -> bool {
-    [
-        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
-        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
-        COREWEBVIEW2_PERMISSION_KIND_CAMERA,
-        COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY,
-        COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS,
-    ]
-    .contains(&kind)
+/// A permission a page of the app asks for: the mic and camera only on its call and voice-message
+/// pages; notifications, sound without a click and several downloads on any of its pages.
+fn permission_allowed(app: &str, kind: COREWEBVIEW2_PERMISSION_KIND, uri: &str) -> bool {
+    if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA {
+        apps::may_use_media(app, uri)
+    } else {
+        [
+            COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+            COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY,
+            COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS,
+        ]
+        .contains(&kind)
+            && apps::owns(app, uri)
+    }
 }
 
 unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id: &str, debug: bool) -> windows::core::Result<()> {
@@ -1343,8 +1353,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
         &HSTRING::from(SITE_SCRIPT),
         &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(()))),
     )?;
-    // The app's own sites may show notifications from the start (like a site you allowed in a
-    // browser), and use the mic and camera for calls (also in their call windows)
+    // What the app's own sites may do from the start (grant_site_permissions)
     if let Ok(profile) = wv.cast::<ICoreWebView2_13>().and_then(|w| w.Profile()) {
         grant_site_permissions(&profile, id);
     }
@@ -1495,7 +1504,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let mut p = PWSTR::null();
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
-            let allow = allowed_permission(kind) && apps::owns(&app, &uri);
+            let allow = permission_allowed(&app, kind, &uri);
             args.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
             if !allow {
                 log!("permission {} refused for {app}", kind.0);
@@ -1686,5 +1695,22 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
             })),
             &mut token,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+
+    use super::permission_allowed;
+
+    #[test]
+    fn permissions_follow_the_catalog() {
+        assert!(permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, "https://www.facebook.com/groupcall/1"));
+        assert!(!permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_CAMERA, "https://www.fbsbx.com/"));
+        assert!(!permission_allowed("spotify", COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, "https://open.spotify.com/"));
+        assert!(permission_allowed("spotify", COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY, "https://open.spotify.com/"));
+        assert!(permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, "https://www.facebook.com/"));
+        assert!(!permission_allowed("discord", COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, "https://discord.com/"));
     }
 }
