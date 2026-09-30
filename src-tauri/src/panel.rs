@@ -810,6 +810,7 @@ impl Core {
         self.broadcast_state();
         self.update_glow(false);
         self.toasts_reposition();
+        self.schedule_back_to_list();
         log!("closed {}", self.snap());
     }
 

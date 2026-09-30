@@ -14,7 +14,7 @@ use std::{
 use serde_json::{json, Map, Value};
 use tauri::{Emitter, WebviewWindow};
 
-use crate::{apps, autostart, chats, edge, i18n, identify, log, rt, settings::Settings, site_log, toasts, tray, updater, win32};
+use crate::{apps, autostart, chats, edge, i18n, identify, inbox, log, rt, settings::Settings, site_log, toasts, tray, updater, win32};
 
 pub const REPO_URL: &str = "https://github.com/ResinCoreAI/ChatDock";
 /// A throw-away copy of ChatDock for testing installs and updates ("ChatDockUpdTest.exe"): its own
@@ -1486,6 +1486,7 @@ impl Core {
             source: key,
             meta,
             hint: String::new(),
+            target: None,
         };
         self.popup(id, fields);
     }
@@ -1565,37 +1566,84 @@ impl Core {
         let app = id.to_string();
         let t = timer(2500, move |c| {
             c.fallback_timers.remove(&app);
-            let count = *c.counts.get(&app).unwrap_or(&0);
-            if !c.popup_allowed(Some(&app)) || c.app_on_screen(&app) || count == 0 {
+            if !c.count_popup_due(&app) {
                 return;
             }
-            let now = rt::epoch_ms();
-            if now - c.last_content_at.get(&app).copied().unwrap_or(0) < 8000 {
-                return; // already shown with name + text
-            }
-            if now - c.load_started_at.get(&app).copied().unwrap_or(0) < COUNT_POPUP_GRACE_MS {
-                return; // page just (re)loaded: old unread counts are not new messages
-            }
-            let flash = c.last_flash.get(&app).filter(|(_, at)| now - at < 15_000).map(|(t, _)| clean_text(t, 120)).unwrap_or_default();
-            // Discord says who wrote only with its own desktop notifications on (a setting of each
-            // browser, ChatDock's too): none from it yet, so the card says where to turn them on
-            let hint = if app == "discord" && c.last_content_at.get(&app).copied().unwrap_or(0) == 0 {
-                c.t("toast.discordWho")
+            if inbox::reads_list(&app) {
+                // who wrote, from the page's chat list (these sites never say it in a notification)
+                let a = app.clone();
+                c.read_latest(
+                    &app,
+                    Box::new(move |c, latest| {
+                        if c.count_popup_due(&a) {
+                            c.count_popup(&a, latest);
+                        }
+                    }),
+                );
             } else {
-                String::new()
-            };
-            let fields = toasts::Fields {
-                title: if flash.is_empty() { c.t("toast.newMessage") } else { flash },
-                body: c.tv("toast.unread", &[("n", count.to_string())]),
-                icon: String::new(),
-                tag: format!("{app}:count"), // one "new messages" card per app, updated in place
-                source: 0,
-                meta: String::new(),
-                hint,
-            };
-            c.popup(&app, fields);
+                c.count_popup(&app, None);
+            }
         });
         self.fallback_timers.insert(id.to_string(), t);
+    }
+
+    /// Is a pop-up for `app`'s unread number still wanted (checked again after its list was read)?
+    fn count_popup_due(&self, app: &str) -> bool {
+        let count = *self.counts.get(app).unwrap_or(&0);
+        if !self.popup_allowed(Some(app)) || self.app_on_screen(app) || count == 0 {
+            return false;
+        }
+        let now = rt::epoch_ms();
+        if now - self.last_content_at.get(app).copied().unwrap_or(0) < 8000 {
+            return false; // already shown with name + text
+        }
+        // page just (re)loaded: old unread counts are not new messages
+        now - self.load_started_at.get(app).copied().unwrap_or(0) >= COUNT_POPUP_GRACE_MS
+    }
+
+    /// The pop-up for `app`'s unread number: who wrote and what when its chat list said so (a click
+    /// opens that conversation), else "new message · N unread".
+    pub(crate) fn count_popup(&mut self, app: &str, latest: Option<inbox::Latest>) {
+        let count = *self.counts.get(app).unwrap_or(&0);
+        let tag = format!("{app}:count"); // one card per app, updated in place
+        let fields = match latest {
+            Some(l) => {
+                let show_text = self.settings.bool("popupText") && self.settings.app_pref(app, "preview");
+                toasts::Fields {
+                    title: clean_text(&l.name, 90),
+                    body: if show_text { clean_text(&l.text, 300) } else { self.t("toast.sentYou") },
+                    icon: if self.settings.bool("popupAvatar") { safe_icon(&l.avatar) } else { String::new() },
+                    tag,
+                    source: 0,
+                    meta: if count > 1 { self.tv("toast.unread", &[("n", count.to_string())]) } else { String::new() },
+                    hint: String::new(),
+                    target: Some(l),
+                }
+            }
+            None => {
+                let now = rt::epoch_ms();
+                let flash =
+                    self.last_flash.get(app).filter(|(_, at)| now - at < 15_000).map(|(t, _)| clean_text(t, 120)).unwrap_or_default();
+                // Discord says who wrote only with its own desktop notifications on (a setting of each
+                // browser, ChatDock's too): none from it yet, so the card says where to turn them on
+                let hint = if app == "discord" && self.last_content_at.get(app).copied().unwrap_or(0) == 0 {
+                    self.t("toast.discordWho")
+                } else {
+                    String::new()
+                };
+                toasts::Fields {
+                    title: if flash.is_empty() { self.t("toast.newMessage") } else { flash },
+                    body: self.tv("toast.unread", &[("n", count.to_string())]),
+                    icon: String::new(),
+                    tag,
+                    source: 0,
+                    meta: String::new(),
+                    hint,
+                    target: None,
+                }
+            }
+        };
+        self.popup(app, fields);
     }
 
     pub fn test_popup(&mut self) {
@@ -1609,6 +1657,7 @@ impl Core {
             source: 0,
             meta: String::new(),
             hint: String::new(),
+            target: None,
         };
         self.popup(&id, fields);
     }

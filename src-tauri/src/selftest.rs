@@ -60,6 +60,9 @@ pub fn start() {
             wait(7000); // the pages load
             call_test();
             call_window_test();
+        } else if only.as_deref() == Some("inbox") {
+            wait(8000); // the pages load
+            inbox_test();
         } else if only.as_deref() == Some("fixes173") {
             wait(8000); // the pages load
             fixes173_test();
@@ -1982,6 +1985,104 @@ fn review171_test() {
     log!(
         "1.7.1 review: frame {frame}, a later frame {late_frame} | source only {state} | all sounds off: discord muted {discord_muted}, spotify muted {spotify_muted} (spotify was on {muted}) | tab from a sign-in page: {away} -> {back} | facebook (dialog, login, a page, stays inside) {facebook:?} | header {header} | bar closed with the chat {bar_closed} (expect 0.4, 0.4, real 0.4, true, false, accounts.google.com -> open.spotify.com, [true, true, false, false], clear, true)"
     );
+}
+
+/// Who wrote, read from the chat list (inbox.rs), on stand-in lists put into the test profile's
+/// Facebook view (rows that link to their conversation, the newest unread one bold) and Instagram
+/// view (rows that are buttons with a picture): what the pop-up says, the conversation a click on it
+/// opens, the newest unread one the edge tab opens, and the way back to the list (not while typing).
+/// Nothing takes the focus; the pop-ups show for a moment.
+fn inbox_test() {
+    // A list: rows [name, last message, bold], each a link or a button; a click is only noted.
+    let list = |links: bool| {
+        format!(
+            "(() => {{ document.getElementById('cd-list')?.remove(); const box = document.createElement('div'); box.id = 'cd-list'; box.style.cssText = 'position:fixed;left:0;top:0;width:320px;z-index:2147483647;background:#fff;font:14px sans-serif'; \
+             const rows = [['Somchai Jaidee', 'You: ok see you', 400], ['Nok', 'ไปเล่นกันป่าว คืนนี้', 700], ['Beam', 'haha', 700], ['Old friend', 'long ago', 400]]; \
+             rows.forEach(([name, text, w], i) => {{ const r = document.createElement({tag}); {attrs} r.style.cssText = 'display:flex;gap:8px;height:64px;align-items:center'; \
+               const img = document.createElement('img'); img.src = 'https://example.com/p' + i + '.jpg'; img.width = 44; img.height = 44; \
+               const col = document.createElement('div'); const n = document.createElement('span'); n.textContent = name; const t = document.createElement('span'); t.textContent = text; t.style.fontWeight = w; t.style.display = 'block'; \
+               col.append(n, t); r.append(img, col); r.addEventListener('click', (e) => {{ e.preventDefault(); window.__cdOpened = name; }}); box.append(r); }}); \
+             const home = document.createElement('a'); home.href = '/messages/'; home.textContent = 'Chats'; home.style.cssText = 'display:block;height:20px'; home.addEventListener('click', (e) => {{ e.preventDefault(); window.__cdBack = true; }}); box.prepend(home); \
+             document.body.append(box); window.__cdOpened = ''; window.__cdBack = false; return 1; }})()",
+            tag = if links { "'a'" } else { "'div'" },
+            attrs = if links { "r.href = '/messages/t/' + (i + 1) + '/';" } else { "r.setAttribute('role', 'button');" },
+        )
+    };
+    let read = |app: &'static str| {
+        let (tx, rx) = mpsc::channel();
+        on(move |c| {
+            c.read_latest(
+                app,
+                Box::new(move |_, latest| {
+                    let _ = tx.send(latest);
+                }),
+            )
+        });
+        rx.recv_timeout(Duration::from_secs(5)).ok().flatten()
+    };
+    let popups_were = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(true));
+        was
+    });
+
+    // Facebook: rows that link to their conversation
+    view_js("facebook", &list(true));
+    let fb = read("facebook");
+    // the pop-up it makes, and its click
+    let card = fb.clone().map(|l| {
+        on(move |c| {
+            c.counts.insert("facebook".into(), 2);
+            c.count_popup_for_test("facebook", Some(l));
+        });
+        wait(1200);
+        page_js("toasts", "JSON.stringify([...document.querySelectorAll('.card:not(.leaving)')].map((c) => [c.querySelector('.title')?.textContent, c.querySelector('.body')?.textContent, !!c.querySelector('img')]))")
+    });
+    on(|c| c.open_conversation("facebook", c.test_popup_target("facebook")));
+    wait(600);
+    let fb_opened = view_js("facebook", "String(window.__cdOpened)");
+    // the edge tab on it with something unread: the newest unread conversation
+    view_js("facebook", "window.__cdOpened = ''; 1");
+    on(|c| c.open_conversation("facebook", None));
+    wait(600);
+    let fb_newest = view_js("facebook", "String(window.__cdOpened)");
+    on(|c| {
+        c.toasts_dismiss_all();
+        c.counts.insert("facebook".into(), 0);
+    });
+
+    // Instagram: rows that are buttons with a picture (no links)
+    view_js("instagram", &list(false));
+    let ig = read("instagram");
+    on(move |c| {
+        let target = Some(crate::inbox::Latest { name: "Beam".into(), ..Default::default() });
+        c.open_conversation("instagram", target);
+    });
+    wait(600);
+    let ig_by_name = view_js("instagram", "String(window.__cdOpened)");
+
+    // the way back to the list: on a conversation, then while something is being typed
+    view_js("facebook", "history.pushState({}, '', '/messages/t/2/'); window.__cdBack = false; 1");
+    let back = run_back("facebook");
+    view_js(
+        "facebook",
+        "history.pushState({}, '', '/messages/t/3/'); window.__cdBack = false; const b = document.createElement('div'); b.contentEditable = 'true'; b.textContent = 'half a message'; document.getElementById('cd-list').append(b); 1",
+    );
+    let typing = run_back("facebook");
+    on(move |c| c.settings.set("popups", popups_were));
+    log!(
+        "inbox: Facebook's list read {:?} | pop-up {} | its click opened {fb_opened} | the tab opened {fb_newest} | Instagram's read {:?} | opened by name {ig_by_name} | back to the list {back}, while typing {typing} (expect Nok + her text + link /messages/t/2/ | [Nok, her text, picture] | Nok | Nok | Nok, no link | Beam | back true, typing false)",
+        fb.map(|l| (l.name, l.text, l.href)),
+        card.unwrap_or_default(),
+        ig.map(|l| (l.name, l.text, l.href)),
+    );
+}
+
+/// inbox.rs's way back to the list, on its own (it normally waits until the chat has been hidden a while).
+fn run_back(app: &'static str) -> String {
+    on(move |c| c.back_to_list_now(app));
+    wait(600);
+    format!("{}, {}", view_js(app, "String(window.__cdBack)"), view_js(app, "location.pathname"))
 }
 
 /// 1.7.3's fixes from the code review, checked without taking the focus (the panel is shown off

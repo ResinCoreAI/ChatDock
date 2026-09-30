@@ -441,7 +441,11 @@ impl Core {
             return;
         }
         let target = if self.is_enabled(id) { id.to_string() } else { self.preferred_app() };
+        let unread = self.shown_count(&target) > 0; // (opening marks it seen)
         self.open_panel(Some(&target), "tab");
+        if unread {
+            self.open_conversation(&target, None); // straight into the newest unread one
+        }
     }
 
     /// A call icon of an app whose call has a window of its own (Messenger, Instagram): that window.

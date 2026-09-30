@@ -13,6 +13,7 @@ mod edge;
 mod frames;
 mod i18n;
 mod identify;
+mod inbox;
 mod log;
 mod migrate;
 mod panel;

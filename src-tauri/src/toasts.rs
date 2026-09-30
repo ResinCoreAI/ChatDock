@@ -27,6 +27,8 @@ pub struct Fields {
     pub meta: String,
     /// the last line; "" = "Click to open this chat"
     pub hint: String,
+    /// the conversation a click opens (read from the app's chat list)
+    pub target: Option<crate::inbox::Latest>,
 }
 
 #[derive(Clone)]
@@ -45,6 +47,7 @@ pub struct Item {
     pub source: u64,
     pub chime: bool,
     pub action: String,
+    pub target: Option<crate::inbox::Latest>,
     remaining: i64,
     timer: u64,
     started_at: i64,
@@ -79,6 +82,7 @@ impl Item {
             source: 0,
             chime: false,
             action: action.into(),
+            target: None,
             remaining: 0,
             timer: 0,
             started_at: 0,
@@ -143,6 +147,7 @@ impl Core {
         );
         item.icon = f.icon;
         item.source = f.source;
+        item.target = f.target;
         item.chime = self.settings.bool("popupSound") && self.settings.app_pref(id, "chime");
         self.toasts_push(item);
     }
@@ -272,6 +277,11 @@ impl Core {
         } else if win32::is_visible(self.toastwin.hwnd) {
             win32::raise(self.toastwin.hwnd);
         }
+    }
+
+    /// The conversation the newest pop-up of `app` opens (the self-test).
+    pub(crate) fn toasts_target(&self, app: &str) -> Option<crate::inbox::Latest> {
+        self.toasts.items.iter().find(|it| it.app_id == app).and_then(|it| it.target.clone())
     }
 
     /// Pop-ups whose time hasn't started yet (the self-test).
@@ -573,6 +583,9 @@ impl Core {
         }
         log!("pop-up clicked {}", it.app_id);
         self.open_panel(Some(&it.app_id), "toast");
+        if it.target.is_some() {
+            self.open_conversation(&it.app_id, it.target); // straight into who wrote
+        }
     }
 }
 
