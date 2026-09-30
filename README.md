@@ -165,7 +165,7 @@ server, sends nothing anywhere, and never sees your passwords.
 | **Small attack surface** | One native `ChatDock.exe` with its screens built in: no Node.js inside, nothing to inject scripts into, developer tools off in releases. |
 | **No surprise passkey dialogs** | Login pages that ask for passkeys on their own (Meta, Discord) would pop Windows' passkey dialog over your game. ChatDock turns passkeys off, so use a password or QR code to log in. |
 | **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away. It installs only when you press the button. |
-| **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text. |
+| **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text, and paths in it start with `%USERPROFILE%` instead of your Windows user name. |
 
 Settings → Privacy & security also lets you hide ChatDock from screen capture and log out of every app
 (wipes cookies, storage and cache). Found a security problem? Please open an issue.
