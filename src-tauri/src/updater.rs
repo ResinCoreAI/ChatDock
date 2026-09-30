@@ -305,8 +305,9 @@ impl Core {
         if !self.upd.enabled || !self.settings.bool("updateAutoCheck") {
             return;
         }
-        self.upd.first = timer(20_000, |c| c.check_update()); // let the chats load first
-                                                              // and again every few hours: scheduling anew checks 20 s later (not twice)
+        // the first check once the chats have loaded, then every few hours (scheduling anew checks
+        // 20 s later: not twice)
+        self.upd.first = timer(20_000, |c| c.check_update());
         self.upd.recheck = timer(RECHECK_MS, |c| c.schedule_update_checks());
     }
 
