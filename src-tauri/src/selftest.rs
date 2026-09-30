@@ -1767,7 +1767,7 @@ fn spotify_test() {
         on(|c| c.set_app_enabled("spotify", false));
     }
     log!(
-        "spotify: stays inside (its login, Google sign-in, Google search, X's Google sign-in, Discord to Google) {inside:?} | a song title's number {} | page {info:?} {title} | {drm} | two loads at once: {replaced} | outside (a web page, a spotify: link by itself, clicked, a clicked mailto:) {links:?} (expect [true, true, false, true, false], 0, loaded open.spotify.com, widevine, ready, [true, false, true, true])",
+        "spotify: stays inside (its login, Google sign-in, Google search, X's Google sign-in, Discord to Google) {inside:?} | a song title's number {} | page {info:?} {title} | {drm} | two loads at once: {replaced} | outside (a web page nobody clicked, a spotify: link by itself, clicked, a clicked mailto:) {links:?} (expect [true, true, false, true, false], 0, loaded open.spotify.com, widevine, ready, [false, false, true, true])",
         was.1
     );
 }

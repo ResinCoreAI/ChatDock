@@ -206,6 +206,31 @@ pub fn keep_inside(id: &str, url: &str) -> bool {
     (owns(id, url) || is_auth_popup(id, url)) && !is_link_shim(url)
 }
 
+/// Programs a clicked link may open: e-mail and the apps' own desktop apps. Nothing else, so a
+/// link can never start one of Windows' riskier handlers (ms-msdt:, search-ms:, …).
+pub const APP_SCHEMES: [&str; 5] = ["mailto", "spotify", "discord", "tg", "whatsapp"];
+
+pub fn app_scheme(url: &str) -> bool {
+    let scheme = url.split(':').next().unwrap_or("").to_ascii_lowercase();
+    APP_SCHEMES.contains(&scheme.as_str())
+}
+
+/// An address on this PC (localhost, *.localhost, 127.x, ::1, 0.0.0.0, however it is written):
+/// the chat sites have no business with programs listening here.
+pub fn is_this_pc(url: &str) -> bool {
+    let Ok(u) = Url::parse(url) else { return false };
+    let Some(host) = u.host_str() else { return false };
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        let v4 = match ip {
+            std::net::IpAddr::V4(v4) => Some(v4),
+            std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped(),
+        };
+        return ip.is_loopback() || ip.is_unspecified() || v4.is_some_and(|v| v.is_loopback() || v.is_unspecified());
+    }
+    host == "localhost" || host.ends_with(".localhost")
+}
+
 /// Voice / video call pages open in their own small window.
 pub fn is_call_url(id: &str, url: &str) -> bool {
     if !owns(id, url) {
@@ -256,7 +281,42 @@ pub fn notification_origins(id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{may_use_media, media_origins};
+    use super::{app_scheme, is_this_pc, may_use_media, media_origins};
+
+    #[test]
+    fn addresses_on_this_pc_however_they_are_written() {
+        for url in [
+            "http://127.0.0.1:6463/rpc",
+            "http://127.0.0.2:8080/",
+            "https://localhost/",
+            "http://evil.localhost:3000/",
+            "http://[::1]/",
+            "http://0.0.0.0:8000/",
+            "http://2130706433/",
+            "http://[::ffff:127.0.0.1]/",
+        ] {
+            assert!(is_this_pc(url), "{url}");
+        }
+        for url in ["https://example.com/?next=http://localhost", "http://192.168.1.1/", "https://localhost.example.com/", "mailto:a@b.c"] {
+            assert!(!is_this_pc(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn only_email_and_the_apps_own_programs() {
+        assert!(
+            app_scheme("mailto:a@b.c")
+                && app_scheme("spotify:track:1")
+                && app_scheme("discord://-/channels/1")
+                && app_scheme("TG://resolve")
+        );
+        assert!(
+            !app_scheme("ms-msdt:/id PCWDiagnostic")
+                && !app_scheme("search-ms:query=x")
+                && !app_scheme("file:///C:/x")
+                && !app_scheme("https://x.com")
+        );
+    }
 
     #[test]
     fn mic_and_camera_only_on_the_apps_own_call_pages() {
