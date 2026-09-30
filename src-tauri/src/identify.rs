@@ -45,6 +45,11 @@ impl Core {
         self.identify_update();
     }
 
+    /// The monitor cards that exist right now ("Hide from screenshots & streams" covers them too).
+    pub fn identify_hwnds(&self) -> Vec<isize> {
+        self.identify.wins.values().map(|w| w.hwnd).collect()
+    }
+
     /// The mouse is on this monitor in the map ("" = on none of them).
     pub fn identify_hover(&mut self, key: &str) {
         if self.identify.hover == key {

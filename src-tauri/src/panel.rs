@@ -1224,10 +1224,18 @@ impl Core {
         self.chats.set_theme(&theme, dark);
     }
 
+    /// "Hide from screenshots & streams": every window of ChatDock's own (the tab shows the apps,
+    /// their unread numbers and calls). The call and sign-in windows a site opens belong to WebView2,
+    /// and Windows lets a program hide only its own windows.
     pub fn apply_capture_protection(&mut self) {
         let on = self.settings.bool("hideFromCapture");
-        win32::set_capture_excluded(self.panel.hwnd, on);
-        win32::set_capture_excluded(self.toastwin.hwnd, on);
+        let mut hwnds = vec![self.panel.hwnd, self.toastwin.hwnd, self.tab.hwnd, self.glow.hwnd, self.edgewin.hwnd];
+        hwnds.extend(self.update_win.as_ref().map(|w| w.hwnd));
+        hwnds.extend(self.whatsnew.win.as_ref().map(|w| w.hwnd));
+        hwnds.extend(self.identify_hwnds());
+        for hwnd in hwnds {
+            win32::set_capture_excluded(hwnd, on);
+        }
     }
 
     // -----------------------------------------------------------------------------------------
