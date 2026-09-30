@@ -1101,6 +1101,7 @@ impl Core {
     }
 
     fn on_load_start(&mut self, id: &str) {
+        self.reload_pending.remove(id); // (a crash's reload still waiting: this load does it)
         self.load_started_at.insert(id.to_string(), rt::epoch_ms());
         self.set_load(id, "loading");
     }
@@ -1388,23 +1389,24 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     }
     let s = wv.Settings()?;
     s.SetAreDevToolsEnabled(debug)?;
-    s.SetIsStatusBarEnabled(false)?;
-    s.SetIsZoomControlEnabled(true)?;
+    // (the looks and comfort settings below: a runtime or a policy refusing one doesn't stop the app)
+    let _ = s.SetIsStatusBarEnabled(false);
+    let _ = s.SetIsZoomControlEnabled(true);
     if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
         // no find bar / print / save-as on Ctrl+F, Ctrl+P, Ctrl+S (1.4 had none); ChatDock's own
         // keys still arrive through AcceleratorKeyPressed
-        s3.SetAreBrowserAcceleratorKeysEnabled(debug)?;
+        let _ = s3.SetAreBrowserAcceleratorKeysEnabled(debug);
     }
-    s.SetIsBuiltInErrorPageEnabled(false)?; // a failed load shows ChatDock's own "can't connect" screen
+    let _ = s.SetIsBuiltInErrorPageEnabled(false); // a failed load shows ChatDock's own "can't connect" screen
     if let Ok(s4) = s.cast::<ICoreWebView2Settings4>() {
-        s4.SetIsPasswordAutosaveEnabled(false)?;
-        s4.SetIsGeneralAutofillEnabled(false)?;
+        let _ = s4.SetIsPasswordAutosaveEnabled(false);
+        let _ = s4.SetIsGeneralAutofillEnabled(false);
     }
     if let Ok(s6) = s.cast::<ICoreWebView2Settings6>() {
-        s6.SetIsSwipeNavigationEnabled(false)?;
+        let _ = s6.SetIsSwipeNavigationEnabled(false);
     }
     if let Ok(s8) = s.cast::<ICoreWebView2Settings8>() {
-        s8.SetIsReputationCheckingRequired(false)?;
+        let _ = s8.SetIsReputationCheckingRequired(false);
     }
     wv.AddScriptToExecuteOnDocumentCreated(
         &HSTRING::from(SITE_SCRIPT),
@@ -1814,6 +1816,10 @@ mod tests {
         assert!(!opens_outside("search-ms:query=x", true));
         assert!(!opens_outside("file:///C:/Windows/System32/calc.exe", true));
         assert!(!opens_outside("javascript:alert(1)", true));
+        // a quote or a space would add arguments to the program's command line
+        assert!(!opens_outside("spotify:x\" --gpu-launcher=\"calc", true));
+        assert!(!opens_outside("discord://x y", true));
+        assert!(!opens_outside("tg://x	y", true));
     }
 
     #[test]

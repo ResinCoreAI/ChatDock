@@ -886,7 +886,8 @@ impl Core {
             // Only a real mouse click counts (some games grab focus back on their own); decided
             // when the slide-in finishes. The second press of a double click on ChatDock's own tray
             // icon (which opened it) doesn't.
-            self.blurred_while_opening = win32::mouse_button_down() && !crate::tray::clicked_just_now();
+            let tray_again = crate::tray::clicked_just_now() && win32::is_taskbar(win32::foreground_window());
+            self.blurred_while_opening = win32::mouse_button_down() && !tray_again;
             return;
         }
         if self.panel_state != PanelState::Open {
@@ -999,6 +1000,7 @@ impl Core {
         self.identify_close();
         self.counts_seen_in_view(); // back on the chat
         self.stop_settings_timer();
+        self.fit_panel_to_app(); // (the app on screen may have changed while Settings was open)
         self.layout_views();
         self.focus_panel();
         self.broadcast_state();

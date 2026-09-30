@@ -447,7 +447,20 @@ pub fn system_dark() -> bool {
 pub const PROGRAM_SCHEMES: &[&str] = &["mailto", "spotify", "discord", "tg", "whatsapp"];
 
 pub fn is_program_link(url: &str) -> bool {
+    // The address goes into the program's command line as "%1": a quote would end it and add
+    // arguments of its own, and without quotes a space would. (Web addresses arrive escaped.)
+    if url.chars().any(|c| c == '"' || c.is_whitespace() || c.is_control()) {
+        return false;
+    }
     url.split_once(':').is_some_and(|(scheme, _)| PROGRAM_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()))
+}
+
+/// The taskbar or its notification area (where ChatDock's tray icon is).
+pub fn is_taskbar(hwnd: isize) -> bool {
+    matches!(
+        class_name(hwnd).as_str(),
+        "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "NotifyIconOverflowWindow" | "TopLevelWindowForOverflowXamlIsland"
+    )
 }
 
 pub fn open_url(url: &str) {

@@ -959,7 +959,14 @@ impl Core {
             self.toasts_dismiss_app(id);
             if self.active() == id {
                 let first = self.enabled_apps()[0];
-                self.set_active(first, false); // (wakes it if it sleeps, and fits the panel to it)
+                if self.settings_mode {
+                    // Settings stays as it is (its width, the next app's pop-ups): the next app
+                    // wakes up, and the panel fits it when Settings closes
+                    self.set_setting("active", json!(first));
+                    self.wake_app(first);
+                } else {
+                    self.set_active(first, false); // (wakes it if it sleeps, and fits the panel to it)
+                }
             }
         }
         log!("app {id} {} {:?}", if on { "on" } else { "off" }, self.enabled_apps());

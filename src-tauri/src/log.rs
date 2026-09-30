@@ -22,6 +22,8 @@ static ECHO: AtomicBool = AtomicBool::new(false);
 static SIZE: AtomicU64 = AtomicU64::new(0);
 /// this is the only ChatDock running: it may move a full log to chatdock.log.old
 static ROTATE: AtomicBool = AtomicBool::new(false);
+/// the size at which the log moves (after a move that failed: a while later)
+static NEXT_TRY: AtomicU64 = AtomicU64::new(MAX_BYTES);
 
 pub fn init(dir: &Path, echo: bool) {
     ECHO.store(echo, Ordering::Relaxed);
@@ -46,14 +48,21 @@ pub fn allow_rotation() {
 }
 
 fn rotate_if_full(file: &mut Option<File>) {
-    if !ROTATE.load(Ordering::Relaxed) || SIZE.load(Ordering::Relaxed) <= MAX_BYTES {
+    if !ROTATE.load(Ordering::Relaxed) || SIZE.load(Ordering::Relaxed) <= NEXT_TRY.load(Ordering::Relaxed) {
         return;
     }
     let Some(path) = PATH.get() else { return };
-    *file = None; // closed before it moves
-    let _ = std::fs::rename(path, path.with_extension("log.old"));
-    *file = OpenOptions::new().create(true).append(true).open(path).ok();
-    SIZE.store(file.as_ref().and_then(|f| f.metadata().ok()).map(|m| m.len()).unwrap_or(0), Ordering::Relaxed);
+    // Moved while still open (ChatDock's own handle allows that). A scanner or a viewer holding the
+    // file may not: then it's tried again 256 KB later, and the log carries on meanwhile.
+    if std::fs::rename(path, path.with_extension("log.old")).is_err() {
+        NEXT_TRY.store(SIZE.load(Ordering::Relaxed) + 256 * 1024, Ordering::Relaxed);
+        return;
+    }
+    if let Ok(new) = OpenOptions::new().create(true).append(true).open(path) {
+        *file = Some(new); // (else it goes on in chatdock.log.old)
+        SIZE.store(0, Ordering::Relaxed);
+    }
+    NEXT_TRY.store(MAX_BYTES, Ordering::Relaxed);
 }
 
 pub fn path() -> Option<&'static PathBuf> {
