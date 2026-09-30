@@ -16,6 +16,7 @@ mod identify;
 mod log;
 mod migrate;
 mod panel;
+mod popups;
 mod rt;
 mod selftest;
 mod settings;
