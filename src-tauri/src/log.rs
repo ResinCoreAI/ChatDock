@@ -2,6 +2,7 @@
 //! Only discrete events are logged (open/close/clicks/focus), never page content.
 
 use std::{
+    collections::HashMap,
     fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -9,13 +10,22 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Mutex, OnceLock,
     },
+    time::{Duration, Instant},
 };
 
 use windows::Win32::System::SystemInformation::GetLocalTime;
 
 const MAX_BYTES: u64 = 1024 * 1024;
+/// Lines one app's pages may cause in a minute (their notifications, messages, permission asks,
+/// links); the rest are counted and not written.
+const SITE_LINES: u32 = 30;
 
-static FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
+struct Out {
+    file: Option<File>,
+    size: u64,
+}
+
+static OUT: OnceLock<Mutex<Out>> = OnceLock::new();
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 static ECHO: AtomicBool = AtomicBool::new(false);
 
@@ -27,8 +37,9 @@ pub fn init(dir: &Path, echo: bool) {
         let _ = std::fs::rename(&path, dir.join("chatdock.log.old"));
     }
     let file = OpenOptions::new().create(true).append(true).open(&path).ok();
+    let size = file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
     PATH.set(path).ok();
-    FILE.set(Mutex::new(file)).ok();
+    OUT.set(Mutex::new(Out { file, size })).ok();
 }
 
 pub fn path() -> Option<&'static PathBuf> {
@@ -101,13 +112,48 @@ pub fn write(msg: &str) {
     if ECHO.load(Ordering::Relaxed) {
         eprint!("{line}");
     }
-    if let Some(lock) = FILE.get() {
-        if let Ok(mut f) = lock.lock() {
-            if let Some(f) = f.as_mut() {
-                let _ = f.write_all(line.as_bytes());
+    if let Some(lock) = OUT.get() {
+        if let Ok(mut out) = lock.lock() {
+            // a long session starts a new file too (the last one stays as chatdock.log.old)
+            if out.size + line.len() as u64 > MAX_BYTES {
+                if let Some(path) = PATH.get() {
+                    out.file = None; // (closed before it's renamed)
+                    let _ = std::fs::rename(path, path.with_extension("log.old"));
+                    out.file = OpenOptions::new().create(true).append(true).open(path).ok();
+                }
+                out.size = 0;
+            }
+            if let Some(f) = out.file.as_mut() {
+                if f.write_all(line.as_bytes()).is_ok() {
+                    out.size += line.len() as u64;
+                }
             }
         }
     }
+}
+
+/// Whether a line one of an app's pages caused goes in the log: SITE_LINES a minute at most, so a
+/// page can't flood it. The first line after a busy minute says how many were left out.
+pub fn site_line_ok(app: &str) -> bool {
+    static MINUTES: OnceLock<Mutex<HashMap<String, (Instant, u32)>>> = OnceLock::new();
+    let Ok(mut minutes) = MINUTES.get_or_init(Default::default).lock() else { return true };
+    let (ok, left_out) = site_minute(minutes.entry(app.to_string()).or_insert((Instant::now(), 0)), Instant::now());
+    if left_out > 0 {
+        write(&format!("{app}: {left_out} more lines its pages caused were left out of the log"));
+    }
+    ok
+}
+
+/// One app's minute (when it began, the lines in it): whether this line goes in, and how many the
+/// minute that just ended left out.
+fn site_minute(minute: &mut (Instant, u32), now: Instant) -> (bool, u32) {
+    let mut left_out = 0;
+    if now.duration_since(minute.0) >= Duration::from_secs(60) {
+        left_out = minute.1.saturating_sub(SITE_LINES);
+        *minute = (now, 0);
+    }
+    minute.1 += 1;
+    (minute.1 <= SITE_LINES, left_out)
 }
 
 /// log!("opened {}", x): one line in chatdock.log
@@ -116,9 +162,35 @@ macro_rules! log {
     ($($arg:tt)*) => { $crate::log::write(&format!($($arg)*)) };
 }
 
+/// site_log!(app, "…"): a line one of the app's pages caused (see site_line_ok)
+#[macro_export]
+macro_rules! site_log {
+    ($app:expr, $($arg:tt)*) => {
+        if $crate::log::site_line_ok($app) {
+            $crate::log::write(&format!($($arg)*))
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
-    use super::redact;
+    use std::time::{Duration, Instant};
+
+    use super::{redact, site_minute, SITE_LINES};
+
+    #[test]
+    fn a_page_cant_flood_the_log() {
+        let start = Instant::now();
+        let mut minute = (start, 0);
+        for _ in 0..SITE_LINES {
+            assert_eq!(site_minute(&mut minute, start), (true, 0));
+        }
+        assert_eq!(site_minute(&mut minute, start + Duration::from_secs(30)), (false, 0));
+        assert_eq!(site_minute(&mut minute, start + Duration::from_secs(59)), (false, 0));
+        // the next minute: in again, and the two left out are said
+        assert_eq!(site_minute(&mut minute, start + Duration::from_secs(61)), (true, 2));
+        assert_eq!(site_minute(&mut minute, start + Duration::from_secs(62)), (true, 0));
+    }
 
     #[test]
     fn the_account_name_stays_out_of_the_log() {

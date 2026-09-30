@@ -1675,7 +1675,7 @@ fn volume_test() {
     let state = || {
         on(|c| {
             c.volume_states.remove("discord");
-            c.chats.post_json("discord", &json!({ "type": "chatdock-volume-check" }));
+            c.chats.post_json("discord", &json!({ "type": format!("{}Check", crate::chats::volume_key()) }));
         });
         wait(400);
         on(|c| c.volume_states.get("discord").cloned().unwrap_or_default())
@@ -1904,7 +1904,7 @@ fn review171_test() {
     let state = {
         on(|c| {
             c.volume_states.remove("discord");
-            c.chats.post_json("discord", &json!({ "type": "chatdock-volume-check" }));
+            c.chats.post_json("discord", &json!({ "type": format!("{}Check", crate::chats::volume_key()) }));
         });
         wait(400);
         on(|c| c.volume_states.get("discord").cloned().unwrap_or_default())
@@ -1989,6 +1989,28 @@ fn review171_test() {
 /// window of ChatDock's own, including one made later (the monitor cards); Clear data taking the old
 /// Electron logins and Discord's server list along; the account name kept out of the log.
 fn security_test() {
+    // 0. a long session's log: past 1 MB it starts a new file and keeps the last one (first, so
+    // the lines below land in the new file)
+    let path = log::path().cloned().unwrap_or_default();
+    let size = |p: &std::path::Path| std::fs::metadata(p).map_or(0, |m| m.len());
+    let filler = "x".repeat(100);
+    let mut lines = 0;
+    while lines < 20_000 {
+        let before = size(&path);
+        log!("security: filler {lines} {filler}");
+        lines += 1;
+        if size(&path) < before {
+            break; // a new file
+        }
+    }
+    let (old_size, new_size) = (size(&path.with_extension("log.old")), size(&path));
+    log!(
+        "security: the log past 1 MB: after {lines} lines the last one kept {} ({} KB), the new one {} KB (expect true (at most 1024 KB), under 10 KB)",
+        old_size > 0,
+        old_size / 1024,
+        new_size / 1024
+    );
+
     // 1. capture: the setting on before the cards exist, so they get it as they are made
     let affinities = || {
         on(|c| {
@@ -2027,10 +2049,24 @@ fn security_test() {
     });
     log!("security: hidden from capture: {hidden} | switched off: {shown} (expect every window 17 with at least one card, then every window 0)");
 
-    // 2. this PC (before Clear data reloads the chats)
+    // 2. a page's flood: 40 passkey reports (half with text of the page's own in them) and one
+    // too long to read: some lines but at most 30, no page text, nothing of the long one
+    view_js(
+        "discord",
+        "(() => { for (let i = 0; i < 40; i++) window.chrome.webview.postMessage(JSON.stringify({ type: 'passkey', kind: i % 2 ? 'get' : 'INJECTED\\nline', origin: location.origin, mediation: i % 2 ? 'conditional' : 'x INJECTED' })); \
+         window.chrome.webview.postMessage(JSON.stringify({ type: 'passkey', kind: 'create', origin: 'https://big.example/', pad: 'y'.repeat(5000) })); return 1; })()",
+    );
+    wait(1500);
+    let text = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let lines = text.lines().filter(|l| l.contains("passkey request blocked discord")).count();
+    let page_text = text.lines().any(|l| l.contains("INJECTED"));
+    let long_one = text.contains("big.example");
+    log!("security: a page's flood: {lines} passkey lines, page text in the log {page_text}, the long one read {long_one} (expect 1 to 30, false, false)");
+
+    // 3. this PC (before Clear data reloads the chats)
     this_pc_check();
 
-    // 3. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
+    // 4. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
     let dir = on(|c| c.args.data_dir.clone());
     for app in ["discord", "retired-app"] {
         let _ = std::fs::create_dir_all(dir.join("Partitions").join(app).join("Network"));
@@ -2048,7 +2084,7 @@ fn security_test() {
         "security: Clear data (Discord): its old login still there {discord_old}, another's still there {other_old}, servers {servers} | Clear all data: Partitions {partitions}, old key {old_key} (expect false, true, {{}} | false, false)"
     );
 
-    // 4. the log: a path under the Windows account, plain and as {:?} writes it
+    // 5. the log: a path under the Windows account, plain and as {:?} writes it
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     log!("security: paths {home}\\AppData and {:?}", format!("{home}\\AppData"));
     let tail = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -2101,7 +2137,7 @@ fn this_pc_check() {
     let blocked = refused() - before;
     on(|c| c.load_home("discord"));
     log!(
-        "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.chatdock.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
+        "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
     );
 }
 

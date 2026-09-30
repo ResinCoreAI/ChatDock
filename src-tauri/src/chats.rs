@@ -26,7 +26,7 @@ use windows::{
 use crate::{
     apps,
     core::{later, timer, Core, AUTO_RETRY_MS},
-    log, rt,
+    log, rt, site_log,
     win32::{self, Rect},
 };
 
@@ -59,7 +59,7 @@ const SITE_SCRIPT: &str = r#"(() => {
     };
     const WebSocket = function WebSocket(url, protocols) {
       if (!new.target) throw new TypeError("Failed to construct 'WebSocket': Please use the 'new' operator.");
-      const target = thisPc(url) ? 'wss://local-blocked.chatdock.invalid/' : url;
+      const target = thisPc(url) ? 'wss://local-blocked.invalid/' : url;
       return protocols === undefined ? new Real(target) : new Real(target, protocols);
     };
     WebSocket.prototype = Real.prototype;
@@ -267,9 +267,14 @@ const SITE_SCRIPT: &str = r#"(() => {
       };
     }
     // Frames (a YouTube player in a chat, a Discord activity): the page passes its level down to
-    // each frame, and a new frame asks its parent. Handled before the site's own listeners.
-    const KEY = '__chatdockVolume';
+    // each frame, and a new frame asks its parent. Handled before the site's own listeners, under
+    // this run's own random key, and only once the level has been other than full, so neither the
+    // site nor a frame in it can tell who is listening.
+    const KEY = '%KEY%';
+    let told = false;
     const passDown = () => {
+      if (level !== 1) told = true;
+      if (!told) return;
       for (let i = 0; i < window.frames.length; i++) {
         try { window.frames[i].postMessage({ [KEY]: level }, '*'); } catch (e) {}
       }
@@ -289,18 +294,18 @@ const SITE_SCRIPT: &str = r#"(() => {
         setLevel(d[KEY]);
       } else if ((KEY + 'Ask') in d && isChild(e.source)) {
         e.stopImmediatePropagation();
-        try { e.source.postMessage({ [KEY]: level }, '*'); } catch (err) {}
+        if (told) try { e.source.postMessage({ [KEY]: level }, '*'); } catch (err) {}
       }
     }, true);
     if (window.parent !== window) {
       try { window.parent.postMessage({ [KEY + 'Ask']: 1 }, '*'); } catch (e) {}
     }
-    try { Object.defineProperty(window, Symbol.for('chatdock.volume'), { get: () => level }); } catch (e) {} // (self-test)
+    /*SELFTEST*/
     try {
       window.chrome.webview.addEventListener('message', (e) => {
         const d = e.data;
-        if (d && d.type === 'chatdock-volume') setLevel(d.level);
-        else if (d && d.type === 'chatdock-volume-check') {
+        if (d && d.type === KEY) setLevel(d.level);
+        else if (d && d.type === KEY + 'Check') {
           const last = elements.length ? elements[elements.length - 1].deref() : null;
           const g = gains.length ? gains[gains.length - 1].deref() : null;
           window.chrome.webview.postMessage(JSON.stringify({ type: 'volume-state', level, elements: elements.length,
@@ -310,6 +315,25 @@ const SITE_SCRIPT: &str = r#"(() => {
     } catch (e) {}
   })();
 })();"#;
+
+/// SITE_SCRIPT as this run injects it: the volume messages under this run's key, and only in a
+/// self-test run the mark its checks read (Symbol.for('chatdock.volume')).
+fn site_script(selftest: bool) -> String {
+    let mark = "try { Object.defineProperty(window, Symbol.for('chatdock.volume'), { get: () => level }); } catch (e) {}";
+    SITE_SCRIPT.replace("%KEY%", volume_key()).replace("/*SELFTEST*/", if selftest { mark } else { "" })
+}
+
+/// This run's name for the volume messages between ChatDock and the pages (and between the frames
+/// in them): random, so no page can know it or tell what it is.
+pub fn volume_key() -> &'static str {
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        use std::hash::{BuildHasher, Hasher};
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher(); // (seeded by Windows)
+        h.write_u64(crate::rt::epoch_ms() as u64);
+        format!("_{:016x}", h.finish())
+    })
+}
 
 pub struct View {
     controller: ICoreWebView2Controller,
@@ -373,6 +397,8 @@ fn env() -> Option<ICoreWebView2Environment> {
 }
 
 static BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// The longest message the page script sends (its volume state is the longest, ~200 bytes).
+const MESSAGE_MAX: usize = 1024;
 /// Requests the chat pages made to this PC and ChatDock refused (the self-test counts them).
 pub static LOCAL_BLOCKED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -934,7 +960,7 @@ impl Core {
                 return;
             }
         };
-        if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.dev_tools()) } {
+        if let Err(err) = unsafe { configure(&controller, &webview, id, self.args.dev_tools(), self.args.selftest) } {
             log!("chat view {id} setup: {err}");
         }
         let view = View {
@@ -1086,7 +1112,11 @@ impl Core {
     fn on_dom_ready(&mut self, id: &str) {
         let z = self.zoom_of(id);
         self.chats.set_zoom(id, z);
-        self.send_volume(id); // a new page starts at full volume
+        // a new page starts at full volume: it only hears of a lower one (a message at every load
+        // would tell the site ChatDock is there)
+        if self.app_volume(id) != 100 {
+            self.send_volume(id);
+        }
         if id == "discord" {
             // its sidebar fills in a moment after the page itself
             for ms in [15_000u64, 60_000] {
@@ -1105,11 +1135,11 @@ impl Core {
     pub fn open_external(&self, app: &str, url: &str) {
         let url = apps::unshim(url);
         if apps::is_this_pc(&url) {
-            log!("{app}: a link to this PC not opened");
+            site_log!(app, "{app}: a link to this PC not opened");
             return;
         }
         if !OUTSIDE.with(|o| rate_ok(o.borrow_mut().entry(app.to_string()).or_default(), rt::epoch_ms(), OUTSIDE_MAX, OUTSIDE_WINDOW_MS)) {
-            log!("{app}: too many links at once, this one not opened");
+            site_log!(app, "{app}: too many links at once, this one not opened");
             return;
         }
         win32::open_url(&url);
@@ -1360,7 +1390,13 @@ fn permission_allowed(app: &str, kind: COREWEBVIEW2_PERMISSION_KIND, uri: &str) 
     }
 }
 
-unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id: &str, debug: bool) -> windows::core::Result<()> {
+unsafe fn configure(
+    controller: &ICoreWebView2Controller,
+    wv: &ICoreWebView2,
+    id: &str,
+    debug: bool,
+    selftest: bool,
+) -> windows::core::Result<()> {
     let mut pid = 0u32;
     if wv.BrowserProcessId(&mut pid).is_ok() && pid != 0 {
         BROWSER_PID.store(pid, std::sync::atomic::Ordering::Relaxed); // (a new one after a crash)
@@ -1386,7 +1422,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
         s8.SetIsReputationCheckingRequired(false)?;
     }
     wv.AddScriptToExecuteOnDocumentCreated(
-        &HSTRING::from(SITE_SCRIPT),
+        &HSTRING::from(site_script(selftest)),
         &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(()))),
     )?;
     // What the app's own sites may do from the start (grant_site_permissions)
@@ -1442,11 +1478,11 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 let (a, what) = (app.clone(), outside_kind(&uri));
                 if opens_outside(&uri, clicked.as_bool()) {
                     later(move |c| {
-                        log!("{a}: {what} opens outside ChatDock");
+                        site_log!(&a, "{a}: {what} opens outside ChatDock");
                         c.open_external(&a, &uri);
                     });
                 } else {
-                    later(move |_| log!("{a}: {what} not opened (nobody clicked it)"));
+                    later(move |_| site_log!(&a, "{a}: {what} not opened (nobody clicked it)"));
                 }
             }
             Ok(())
@@ -1531,7 +1567,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                     },
                 );
                 later(move |c| {
-                    log!("{a} opens a window of its own: {kind}");
+                    site_log!(&a, "{a} opens a window of its own: {kind}");
                     if call {
                         c.call_window_opening(&a);
                     }
@@ -1544,11 +1580,11 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let (a, what) = (app.clone(), outside_kind(&uri));
             if opens_outside(&uri, clicked.as_bool()) {
                 later(move |c| {
-                    log!("{a}: {what} opens outside ChatDock (a new window)");
+                    site_log!(&a, "{a}: {what} opens outside ChatDock (a new window)");
                     c.open_external(&a, &uri);
                 });
             } else {
-                later(move |_| log!("{a}: {what} not opened (a new window nobody clicked)"));
+                later(move |_| site_log!(&a, "{a}: {what} not opened (a new window nobody clicked)"));
             }
             Ok(())
         })),
@@ -1571,7 +1607,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri);
                 args.SetCancel(!open)?;
                 let (a, what) = (app.clone(), outside_kind(&uri));
-                later(move |_| log!("{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
+                later(move |_| site_log!(&a, "{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
                 Ok(())
             })),
             &mut token,
@@ -1590,7 +1626,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             let allow = permission_allowed(&app, kind, &uri);
             args.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
             if !allow {
-                log!("permission {} refused for {app}", kind.0);
+                site_log!(&app, "permission {} refused for {app}", kind.0);
             }
             Ok(())
         })),
@@ -1700,10 +1736,14 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 let mut p = PWSTR::null();
                 if args.TryGetWebMessageAsString(&mut p).is_ok() {
                     let msg = take_pwstr(p);
-                    if msg.contains("\"passkey\"") {
-                        log!("passkey request blocked {app} {}", crate::core::clean_text(&msg, 200));
-                    } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg) {
-                        if v["type"] == "volume-state" {
+                    // the page script's messages are short: anything longer is a page's own, not read
+                    if msg.len() > MESSAGE_MAX {
+                        return Ok(());
+                    }
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg) {
+                        if v["type"] == "passkey" {
+                            site_log!(&app, "passkey request blocked {app}: {}", passkey_line(&v));
+                        } else if v["type"] == "volume-state" {
                             let (a, m) = (app.clone(), msg.clone());
                             later(move |c| {
                                 c.volume_states.insert(a, m);
@@ -1737,6 +1777,20 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
 
     hook_keys(controller, Some(id));
     Ok(())
+}
+
+/// A passkey request the page script refused, as the log says it: only fields ChatDock knows (what
+/// was asked, the site's name, how), never text of the page's own.
+fn passkey_line(v: &serde_json::Value) -> String {
+    let kind = v["kind"].as_str().filter(|k| ["get", "create"].contains(k)).unwrap_or("?");
+    let site = v["origin"].as_str().and_then(|o| tauri::Url::parse(o).ok()).and_then(|u| u.host_str().map(str::to_string));
+    let site = site.filter(|h| h.len() <= 100).unwrap_or_else(|| "?".into());
+    let how = match v["mediation"].as_str() {
+        Some("") | None => String::new(),
+        Some(m @ ("silent" | "optional" | "conditional" | "required")) => format!(" ({m})"),
+        Some(_) => " (?)".into(),
+    };
+    format!("{kind} on {site}{how}")
 }
 
 /// ChatDock's keyboard shortcuts inside a page (a chat, or the panel's own page when app is None).
@@ -1785,7 +1839,26 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
 mod tests {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use super::{opens_outside, permission_allowed, rate_ok};
+    use super::{opens_outside, passkey_line, permission_allowed, rate_ok, site_script, volume_key};
+
+    #[test]
+    fn the_page_script_never_names_chatdock() {
+        let plain = site_script(false);
+        assert!(!plain.to_lowercase().contains("chatdock"), "a page could tell ChatDock is there");
+        assert!(plain.contains(volume_key()) && volume_key().len() == 17);
+        assert!(!plain.contains("%KEY%") && !plain.contains("/*SELFTEST*/"));
+        assert!(site_script(true).contains("Symbol.for('chatdock.volume')")); // what the self-test reads
+    }
+
+    #[test]
+    fn a_passkey_line_holds_no_page_text() {
+        let v = serde_json::json!({ "type": "passkey", "kind": "get", "origin": "https://www.instagram.com", "mediation": "conditional" });
+        assert_eq!(passkey_line(&v), "get on www.instagram.com (conditional)");
+        let v = serde_json::json!({ "type": "passkey", "kind": "steal\nthe log", "origin": "not a url", "mediation": "x\ny" });
+        assert_eq!(passkey_line(&v), "? on ? (?)");
+        let v = serde_json::json!({ "type": "passkey", "kind": "create", "origin": "https://x.com" });
+        assert_eq!(passkey_line(&v), "create on x.com");
+    }
 
     #[test]
     fn nothing_opens_outside_without_a_click() {
