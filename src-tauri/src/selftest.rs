@@ -23,7 +23,7 @@ use windows::{
         System::Com::{STGM_CREATE, STGM_WRITE},
         UI::{
             Shell::SHCreateStreamOnFileEx,
-            WindowsAndMessaging::{SendMessageW, WM_ENDSESSION, WM_QUERYENDSESSION},
+            WindowsAndMessaging::{GetWindowDisplayAffinity, SendMessageW, WM_ENDSESSION, WM_QUERYENDSESSION},
         },
     },
 };
@@ -63,6 +63,9 @@ pub fn start() {
         } else if only.as_deref() == Some("fixes172") {
             wait(8000); // the pages load
             fixes172_test();
+        } else if only.as_deref() == Some("security") {
+            wait(8000); // the pages load
+            security_test();
         } else if only.as_deref() == Some("review171") {
             wait(8000); // the pages load
             review171_test();
@@ -1982,6 +1985,76 @@ fn review171_test() {
 /// install that didn't start (the real install_failed), and "the hotkey is taken" names the page
 /// the hotkey is on. GolfZzz's own checks are in counts_test, edge_test and review_fixes_test.
 /// Nothing shows on the screen.
+/// Privacy and safety fixes (nothing takes focus): "Hide from screenshots & streams" on every
+/// window of ChatDock's own, including one made later (the monitor cards); Clear data taking the old
+/// Electron logins and Discord's server list along; the account name kept out of the log.
+fn security_test() {
+    // 1. capture: the setting on before the cards exist, so they get it as they are made
+    let affinities = || {
+        on(|c| {
+            let mut all = vec![
+                ("panel", c.panel.hwnd),
+                ("toasts", c.toastwin.hwnd),
+                ("tab", c.tab.hwnd),
+                ("glow", c.glow.hwnd),
+                ("edge", c.edgewin.hwnd),
+            ];
+            all.extend(c.identify_hwnds().into_iter().map(|h| ("card", h)));
+            all.iter()
+                .map(|(name, h)| {
+                    let mut a = 0u32;
+                    let _ = unsafe { GetWindowDisplayAffinity(win32::h(*h), &mut a) };
+                    format!("{name} {a}")
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+    };
+    on(|c| {
+        c.set_pref("hideFromCapture", json!(true));
+        c.settings_mode = true; // (the cards live while Settings is open)
+        c.identify_all();
+    });
+    wait(2500); // the cards' windows are made off the main thread
+    let hidden = affinities();
+    on(|c| {
+        c.set_pref("hideFromCapture", json!(false));
+    });
+    let shown = affinities();
+    on(|c| {
+        c.identify_close();
+        c.settings_mode = false;
+    });
+    log!("security: hidden from capture: {hidden} | switched off: {shown} (expect every window 17 with at least one card, then every window 0)");
+
+    // 2. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
+    let dir = on(|c| c.args.data_dir.clone());
+    for app in ["discord", "retired-app"] {
+        let _ = std::fs::create_dir_all(dir.join("Partitions").join(app).join("Network"));
+    }
+    let _ = std::fs::write(dir.join("Local State"), "{}");
+    let servers = on(|c| {
+        c.settings.set("discordServers", json!({ "Test Server": true }));
+        c.clear_app_data("discord");
+        c.settings.get("discordServers").to_string()
+    });
+    let (discord_old, other_old) = (dir.join("Partitions").join("discord").exists(), dir.join("Partitions").join("retired-app").exists());
+    on(|c| c.settings_action_test("clear-all", serde_json::Value::Null));
+    let (partitions, old_key) = (dir.join("Partitions").exists(), dir.join("Local State").exists());
+    log!(
+        "security: Clear data (Discord): its old login still there {discord_old}, another's still there {other_old}, servers {servers} | Clear all data: Partitions {partitions}, old key {old_key} (expect false, true, {{}} | false, false)"
+    );
+
+    // 3. the log: a path under the Windows account, plain and as {:?} writes it
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    log!("security: paths {home}\\AppData and {:?}", format!("{home}\\AppData"));
+    let tail = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let last = tail.lines().rev().find(|l| l.contains("security: paths")).unwrap_or("").to_string();
+    let clean =
+        !home.is_empty() && !last.to_ascii_lowercase().contains(&home.to_ascii_lowercase()) && last.matches("%USERPROFILE%").count() == 2;
+    log!("security: the account name kept out of the log {clean} (expect true)");
+}
+
 fn fixes172_test() {
     // 1. seen counts: a new login starts with nothing seen (and no notification from it yet)
     let cleared = on(|c| {
