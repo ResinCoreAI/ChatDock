@@ -442,8 +442,10 @@ pub fn system_dark() -> bool {
     status.is_ok() && value == 0
 }
 
+/// A web page in the normal browser, or e-mail / one of the apps' own programs (apps::APP_SCHEMES);
+/// nothing else is handed to Windows.
 pub fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
+    if !(url.starts_with("https://") || url.starts_with("http://") || crate::apps::app_scheme(url)) {
         return;
     }
     unsafe {

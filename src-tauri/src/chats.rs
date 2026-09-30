@@ -347,6 +347,8 @@ thread_local! {
     static PANEL_CTRL: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
     /// Apps with a navigation ChatDock started itself (their home page, a retry): allowed wherever it goes.
     static OWN_NAV: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// When each app last opened links outside (rate_ok)
+    static OUTSIDE: RefCell<HashMap<String, Vec<i64>>> = RefCell::new(HashMap::new());
 }
 
 /// Keyboard into the panel page itself (header, settings, welcome and error screens). Tauri's own
@@ -382,11 +384,26 @@ pub fn browser_version() -> String {
         .unwrap_or_default()
 }
 
-/// A page leaving the app: other sites open in the browser; a link to a program (spotify:,
-/// discord://, mailto:) only when the user clicked it, so a site can't start one by itself (Spotify's
-/// page and the Spotify app).
+/// A page leaving the app opens outside only when the user clicked the link: a web page in the
+/// normal browser, e-mail or one of the apps' own programs (apps::APP_SCHEMES). A page can't open
+/// either by itself, over and over while a game is in front.
 pub fn opens_outside(uri: &str, clicked: bool) -> bool {
-    uri.starts_with("https://") || uri.starts_with("http://") || clicked
+    clicked && (uri.starts_with("https://") || uri.starts_with("http://") || apps::app_scheme(uri))
+}
+
+/// At most this many links an app opens outside within OUTSIDE_WINDOW_MS (the rest are dropped).
+const OUTSIDE_MAX: usize = 5;
+const OUTSIDE_WINDOW_MS: i64 = 10_000;
+
+/// Keeps the times of recent events within `window_ms`; false (and this one not kept) when one
+/// more would be over `max`.
+fn rate_ok(times: &mut Vec<i64>, now: i64, max: usize, window_ms: i64) -> bool {
+    times.retain(|t| now - t < window_ms);
+    if times.len() >= max {
+        return false;
+    }
+    times.push(now);
+    true
 }
 
 /// What kind of link it was, for the log (never the address).
@@ -1075,8 +1092,19 @@ impl Core {
         }
     }
 
-    pub fn open_external(&self, url: &str) {
-        win32::open_url(&apps::unshim(url));
+    /// A link a page opens outside (its caller checked it was clicked): through link shims to the
+    /// real address, never an address on this PC, and only a few per app in a row.
+    pub fn open_external(&self, app: &str, url: &str) {
+        let url = apps::unshim(url);
+        if apps::is_this_pc(&url) {
+            log!("{app}: a link to this PC not opened");
+            return;
+        }
+        if !OUTSIDE.with(|o| rate_ok(o.borrow_mut().entry(app.to_string()).or_default(), rt::epoch_ms(), OUTSIDE_MAX, OUTSIDE_WINDOW_MS)) {
+            log!("{app}: too many links at once, this one not opened");
+            return;
+        }
+        win32::open_url(&url);
     }
 
     /// Wipe everything an app stored on this PC (login, cookies, cache) and start it fresh.
@@ -1393,7 +1421,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 if opens_outside(&uri, clicked.as_bool()) {
                     later(move |c| {
                         log!("{a}: {what} opens outside ChatDock");
-                        c.open_external(&uri);
+                        c.open_external(&a, &uri);
                     });
                 } else {
                     later(move |_| log!("{a}: {what} not opened (nobody clicked it)"));
@@ -1488,12 +1516,45 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
                 });
                 return Ok(());
             }
-            args.SetHandled(true)?;
-            later(move |c| c.open_external(&uri));
+            args.SetHandled(true)?; // no window of WebView2's own for it
+            let mut clicked = BOOL(0);
+            let _ = args.IsUserInitiated(&mut clicked);
+            let (a, what) = (app.clone(), outside_kind(&uri));
+            if opens_outside(&uri, clicked.as_bool()) {
+                later(move |c| {
+                    log!("{a}: {what} opens outside ChatDock (a new window)");
+                    c.open_external(&a, &uri);
+                });
+            } else {
+                later(move |_| log!("{a}: {what} not opened (a new window nobody clicked)"));
+            }
             Ok(())
         })),
         &mut token,
     )?;
+
+    // A frame (an ad, an embed) heading for a program's link (ms-msdt:, discord://, …): only a
+    // clicked link to e-mail or one of the apps' own programs (top-level pages go through
+    // NavigationStarting above). Handling it also stops WebView2's own "open this app?" dialog.
+    if let Ok(wv18) = wv.cast::<ICoreWebView2_18>() {
+        let app = id.to_string();
+        let _ = wv18.add_LaunchingExternalUriScheme(
+            &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut p = PWSTR::null();
+                args.Uri(&mut p)?;
+                let uri = take_pwstr(p);
+                let mut clicked = BOOL(0);
+                let _ = args.IsUserInitiated(&mut clicked);
+                let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri);
+                args.SetCancel(!open)?;
+                let (a, what) = (app.clone(), outside_kind(&uri));
+                later(move |_| log!("{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
+                Ok(())
+            })),
+            &mut token,
+        );
+    }
 
     let app = id.to_string();
     wv.add_PermissionRequested(
@@ -1702,7 +1763,26 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
 mod tests {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use super::permission_allowed;
+    use super::{opens_outside, permission_allowed, rate_ok};
+
+    #[test]
+    fn nothing_opens_outside_without_a_click() {
+        assert!(!opens_outside("https://example.com/", false));
+        assert!(!opens_outside("mailto:a@b.c", false));
+        assert!(opens_outside("https://example.com/", true));
+        assert!(opens_outside("spotify:track:1", true));
+        assert!(!opens_outside("ms-msdt:/id x", true)); // a program outside the allowlist, clicked or not
+    }
+
+    #[test]
+    fn a_few_links_in_a_row_then_no_more() {
+        let mut times = Vec::new();
+        for i in 0..5 {
+            assert!(rate_ok(&mut times, 1000 + i, 5, 10_000));
+        }
+        assert!(!rate_ok(&mut times, 2000, 5, 10_000));
+        assert!(rate_ok(&mut times, 12_000, 5, 10_000)); // the window has moved on
+    }
 
     #[test]
     fn permissions_follow_the_catalog() {
