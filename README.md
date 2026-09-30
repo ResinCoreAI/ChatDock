@@ -164,7 +164,7 @@ server, sends nothing anywhere, and never sees your passwords.
 | **Only what's needed** | Notifications only for each app's own sites; the mic and camera only on the pages where its calls and voice messages run (not its CDNs or sandboxes, and never for Spotify). Links that leave the app open in your normal browser, only when you click them (a page can't open the browser or a program by itself), and never a link to this PC. |
 | **Small attack surface** | One native `ChatDock.exe` with its screens built in: no Node.js inside, nothing to inject scripts into, developer tools off in releases. Its screens may only listen for their own messages and send them (nothing else of Tauri's), and each runs only its own scripts (its own Content-Security-Policy). |
 | **No surprise passkey dialogs** | Login pages that ask for passkeys on their own (Meta, Discord) would pop Windows' passkey dialog over your game. ChatDock turns passkeys off, so use a password or QR code to log in. |
-| **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away. It installs only when you press the button. |
+| **Safe updates** | Updates come over HTTPS from this repository's releases and are signed with ChatDock's update key; a download whose signature doesn't match is thrown away, and so is one signed for another version (an older installer can't come back as a new one). A check or download that stalls gives up (after 30 s, 10 min) instead of holding updates up, and the installer runs from a new folder of its own that nothing can change meanwhile. It installs only when you press the button. |
 | **Minimal log** | `chatdock.log` records events (opened, closed, pop-up from *which app*). It never records names or message text, and paths in it start with `%USERPROFILE%` instead of your Windows user name. A chat page can't flood it (the lines a page causes stop at 30 a minute per app), and past 1 MB it starts a new file, keeping the last one as `chatdock.log.old`. |
 
 Settings → Privacy & security also lets you hide ChatDock from screen capture and log out of every app
@@ -230,7 +230,7 @@ in development builds) · `--selftest --profile=<test dir> [--shots=<dir>] [--ke
 check; it changes settings and logs out of apps, so it refuses to run without a test folder of its own; add
 `--selftest-only=edge` for just the frame clock, edge tab, hold line and pop-up checks, which never take
 focus from a game) · `--no-occlusion` (test with the screen locked).
-`CHATDOCK_UPDATE_FEED=http://127.0.0.1:<port>/latest.json` points the updater at a local test feed.
+`CHATDOCK_UPDATE_FEED=http://127.0.0.1:<port>/latest.json` points the updater at a local test feed (an address on this PC; development builds and the ChatDockUpdTest.exe test copy only, where plain http works too; a real copy only takes updates from GitHub).
 
 <details>
 <summary>Project layout</summary>

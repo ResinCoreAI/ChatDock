@@ -3,9 +3,10 @@
 //! can fetch the installer in the background, and installs only when the user presses the button:
 //! the "Updating ChatDock" window, then the installer's own progress window (passive mode), and
 //! ChatDock starts again by itself with a "What's new" window ("now on Beta Build 1.x ✓").
-//! CHATDOCK_UPDATE_FEED=http://127.0.0.1:8765/latest.json (localhost only) points it at a test feed.
+//! CHATDOCK_UPDATE_FEED=http://127.0.0.1:8765/latest.json (an address on this PC; development builds
+//! and the ChatDockUpdTest copy only) points it at a test feed.
 
-use std::sync::Mutex;
+use std::{io::Write, path::PathBuf, sync::Mutex, time::Duration};
 
 use serde_json::{json, Value};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -18,6 +19,14 @@ use crate::{
 };
 
 const RECHECK_MS: u64 = 6 * 60 * 60 * 1000;
+/// A check and a download that haven't finished by then have failed: a feed that stops answering
+/// would otherwise hold updates up until ChatDock restarts.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// The installer is a few MB, and a download is kept in memory: far past that, it isn't one.
+const DOWNLOAD_MAX: u64 = 256 * 1024 * 1024;
+/// The watchdog's margin over those limits (for a stall the requests' own timeouts don't cover).
+const WATCHDOG_EXTRA_MS: u64 = 15_000;
 const SHOW_MS: u64 = 1800;
 /// the What's new window's width, CSS px (its card is 448 px wide, the rest is room for the shadow)
 const NEWS_WIDTH: f64 = 480.0;
@@ -108,6 +117,18 @@ pub struct UpdState {
     pub enabled: bool,
     first: u64,
     recheck: u64,
+    /// the current check or download (a late answer from an earlier one is ignored)
+    attempt: u64,
+    task: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
+/// How long a check and a download may take and how big a download may get (a self-test waits less).
+fn limits(selftest: bool) -> (Duration, Duration, u64) {
+    if selftest {
+        (Duration::from_secs(3), Duration::from_secs(4), 4 * 1024 * 1024)
+    } else {
+        (CHECK_TIMEOUT, DOWNLOAD_TIMEOUT, DOWNLOAD_MAX)
+    }
 }
 
 /// Start the downloaded installer the way Tauri's updater would (progress bar only, restart
@@ -123,13 +144,7 @@ fn launch_installer(version: &str, bytes: &[u8]) -> Result<(), String> {
             },
         },
     };
-    if !bytes.starts_with(b"MZ") {
-        return Err("the download is not an installer".into());
-    }
-    let dir = std::env::temp_dir().join(format!("ChatDock-{version}-update"));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(format!("ChatDock_{version}_x64-setup.exe"));
-    std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    let (file, lock) = stage_installer(version, bytes)?;
     let mut params = String::from("/P /R /UPDATE");
     let keep: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("--selftest") && a != "--keep").collect();
     if !keep.is_empty() {
@@ -155,8 +170,79 @@ fn launch_installer(version: &str, bytes: &[u8]) -> Result<(), String> {
             let _ = CloseHandle(info.hProcess);
         }
     }
+    drop(lock); // (it runs: Windows has it open itself)
     log!("updater: installer started ({})", file.display());
     Ok(())
+}
+
+/// The installer on disk where only ChatDock put it: a new folder with a random name (made here,
+/// so not one someone prepared in a temp folder others can write to), the file made new, and kept
+/// open until it runs so nothing can change or swap it meanwhile (reading it stays allowed: Windows
+/// reads it to start it).
+pub(crate) fn stage_installer(version: &str, bytes: &[u8]) -> Result<(PathBuf, std::fs::File), String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 1;
+    if !bytes.starts_with(b"MZ") {
+        return Err("the download is not an installer".into());
+    }
+    let mut why = String::new();
+    for _ in 0..4 {
+        let dir = std::env::temp_dir().join(format!("ChatDock-update-{}", random_hex()));
+        if let Err(e) = std::fs::create_dir(&dir) {
+            why = e.to_string(); // (there already: another name)
+            continue;
+        }
+        let file = dir.join(format!("ChatDock_{version}_x64-setup.exe"));
+        let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&file).map_err(|e| e.to_string())?;
+        out.write_all(bytes).map_err(|e| e.to_string())?;
+        drop(out);
+        let lock = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(&file).map_err(|e| e.to_string())?;
+        return Ok((file, lock));
+    }
+    Err(format!("no folder for the installer ({why})"))
+}
+
+fn random_hex() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher(); // (seeded by Windows)
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    format!("{:016x}", h.finish())
+}
+
+/// D60: the feed's version and address aren't signed, only the installer, with the name it was
+/// signed as in minisign's trusted comment ("file:ChatDock_1.7.2_x64-setup.exe", covered by the
+/// signature too). That name must carry the version offered: else a feed could offer "9.9.9" and
+/// hand over an older signed installer (a downgrade to a version with known holes).
+pub(crate) fn signed_for(signature: &str, version: &str) -> bool {
+    let Some(text) = base64_decode(signature).and_then(|b| String::from_utf8(b).ok()) else { return false };
+    let Some(comment) = text.lines().find_map(|l| l.strip_prefix("trusted comment: ")) else { return false };
+    let Some(file) = comment.split('\t').find_map(|f| f.strip_prefix("file:")) else { return false };
+    !version.is_empty() && file.to_ascii_lowercase().ends_with(".exe") && file.split('_').any(|part| part == version)
+}
+
+/// Standard base64 (the feed's signatures); None when it isn't.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in text.trim().bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        };
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
 }
 
 /// Update errors as the settings screen understands them: no connection shows its translated
@@ -178,14 +264,25 @@ fn describe(err: &tauri_plugin_updater::Error) -> String {
     text
 }
 
-/// A local test feed: the folder (like the Electron builds took it) or its latest.json.
-fn test_feed() -> Option<String> {
-    let feed = std::env::var("CHATDOCK_UPDATE_FEED").ok()?;
-    let ok = feed.starts_with("http://127.0.0.1:") || feed.starts_with("http://localhost:");
-    if !ok {
+/// A local test feed (development builds and the ChatDockUpdTest copy only: a real copy takes its
+/// updates from GitHub, whatever is set): the folder (like the Electron builds took it) or its
+/// latest.json.
+pub(crate) fn test_feed() -> Option<String> {
+    if !cfg!(debug_assertions) && !crate::core::test_product() {
         return None;
     }
-    Some(if feed.ends_with(".json") { feed } else { format!("{}/latest.json", feed.trim_end_matches('/')) })
+    local_feed(&std::env::var("CHATDOCK_UPDATE_FEED").ok()?)
+}
+
+/// The feed's address if it is on this PC, read as an address: "http://127.0.0.1:1@example.com/"
+/// is example.com (the text only starts like this PC).
+fn local_feed(feed: &str) -> Option<String> {
+    let u = tauri::Url::parse(feed).ok()?;
+    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() || !crate::apps::is_this_pc(feed) {
+        return None;
+    }
+    let feed = u.to_string();
+    Some(if u.path().ends_with(".json") { feed } else { format!("{}/latest.json", feed.trim_end_matches('/')) })
 }
 
 fn auto_install() -> bool {
@@ -237,9 +334,12 @@ impl Core {
         }
         self.upd.error.clear();
         self.set_update("checking");
-        tauri::async_runtime::spawn(async move {
+        let attempt = self.next_update_attempt();
+        let (limit, _, _) = limits(self.args.selftest);
+        timer(limit.as_millis() as u64 + WATCHDOG_EXTRA_MS, move |c| c.update_stuck(attempt, "checking"));
+        let task = tauri::async_runtime::spawn(async move {
             let result: Result<Option<Update>, String> = async {
-                let mut b = rt::app().updater_builder();
+                let mut b = rt::app().updater_builder().timeout(limit);
                 if let Some(feed) = test_feed() {
                     let url = tauri::Url::parse(&feed).map_err(|e| e.to_string())?;
                     b = b.endpoints(vec![url]).map_err(|e| e.to_string())?;
@@ -251,26 +351,79 @@ impl Core {
                 Ok(Some(update)) => {
                     let version = update.version.clone();
                     let notes = update.body.clone().unwrap_or_default();
+                    let signature = update.signature.clone();
                     *PENDING.lock().unwrap() = Some((update, None));
-                    later(move |c| c.update_found(version, notes));
+                    later(move |c| {
+                        if c.update_current(attempt, "checking") {
+                            c.update_found(version, notes, &signature);
+                        }
+                    });
                 }
-                Ok(None) => later(|c| {
-                    c.upd.checked_at = rt::epoch_ms();
-                    c.upd.version.clear();
-                    log!("updater: on the latest version");
-                    c.set_update("latest");
+                Ok(None) => later(move |c| {
+                    if c.update_current(attempt, "checking") {
+                        c.upd.checked_at = rt::epoch_ms();
+                        c.upd.version.clear();
+                        log!("updater: on the latest version");
+                        c.set_update("latest");
+                    }
                 }),
                 Err(err) => later(move |c| {
-                    log!("updater error: {err}");
-                    c.upd.error = crate::core::clean_text(&err, 300);
-                    c.set_update("error");
+                    if c.update_current(attempt, "checking") {
+                        c.update_error(&err);
+                    }
                 }),
             }
         });
+        self.upd.task = Some(task);
     }
 
-    fn update_found(&mut self, version: String, notes: String) {
+    pub(crate) fn next_update_attempt(&mut self) -> u64 {
+        self.upd.attempt += 1;
+        self.upd.attempt
+    }
+
+    /// Still the check or download under way, in that state (not one the watchdog ended)?
+    fn update_current(&self, attempt: u64, status: &str) -> bool {
+        self.upd.attempt == attempt && self.upd.status == status
+    }
+
+    fn update_error(&mut self, err: &str) {
+        log!("updater error: {err}");
+        self.upd.error = crate::core::clean_text(err, 300);
+        self.set_update("error");
+    }
+
+    /// The watchdog: a check or download still going past its time is stopped and said as an
+    /// error, so the next check (or "Check now") can run.
+    pub(crate) fn update_stuck(&mut self, attempt: u64, status: &'static str) {
+        if !self.update_current(attempt, status) {
+            return;
+        }
+        if let Some(task) = self.upd.task.take() {
+            task.abort();
+        }
+        self.update_error(&format!("net::ERR_TIMED_OUT (the {status} took too long)"));
+    }
+
+    fn update_too_big(&mut self, attempt: u64) {
+        if !self.update_current(attempt, "downloading") {
+            return;
+        }
+        if let Some(task) = self.upd.task.take() {
+            task.abort();
+        }
+        self.update_error("the download is far bigger than an installer: stopped");
+    }
+
+    fn update_found(&mut self, version: String, notes: String, signature: &str) {
         log!("updater: found version {version}");
+        // (checked for real when the download is in: its signature covers the name; this only
+        // saves downloading one that can't pass)
+        if !signed_for(signature, &version) {
+            *PENDING.lock().unwrap() = None;
+            self.update_error(&format!("the update offered as {version} is signed as another version's installer"));
+            return;
+        }
         self.upd.version = version;
         self.upd.notes = notes.trim().chars().take(1500).collect();
         self.upd.percent = 0;
@@ -288,16 +441,25 @@ impl Core {
         if self.upd.status != "available" {
             return;
         }
-        let Some((update, _)) = PENDING.lock().unwrap().clone() else { return };
+        let Some((mut update, _)) = PENDING.lock().unwrap().clone() else { return };
+        let (_, limit, max) = limits(self.args.selftest);
+        update.timeout = Some(limit);
         self.upd.percent = 0;
         self.set_update("downloading");
-        tauri::async_runtime::spawn(async move {
+        let attempt = self.next_update_attempt();
+        timer(limit.as_millis() as u64 + WATCHDOG_EXTRA_MS, move |c| c.update_stuck(attempt, "downloading"));
+        let task = tauri::async_runtime::spawn(async move {
             let mut got: u64 = 0;
             let mut last = 0u32;
+            let mut too_big = false;
             let result = update
                 .download(
                     |chunk, total| {
                         got += chunk as u64;
+                        if got > max && !too_big {
+                            too_big = true;
+                            later(move |c| c.update_too_big(attempt));
+                        }
                         if let Some(total) = total.filter(|t| *t > 0) {
                             let pct = ((got * 100) / total).min(100) as u32;
                             if pct >= last + 5 {
@@ -313,22 +475,37 @@ impl Core {
                 )
                 .await;
             match result {
+                // the signature checked out, and with it the name it was made for: this version's
+                // installer, not an older one offered as this version
+                Ok(_) if !signed_for(&update.signature, &update.version) => {
+                    let why = format!("the installer offered as {} is signed as another version's", update.version);
+                    later(move |c| {
+                        if c.update_current(attempt, "downloading") {
+                            c.update_error(&why);
+                        }
+                    });
+                }
                 Ok(bytes) => {
                     if let Some(p) = PENDING.lock().unwrap().as_mut() {
                         p.1 = Some(bytes);
                     }
-                    later(|c| c.update_ready());
+                    later(move |c| {
+                        if c.update_current(attempt, "downloading") {
+                            c.update_ready();
+                        }
+                    });
                 }
                 Err(err) => {
                     let err = describe(&err);
                     later(move |c| {
-                        log!("updater error: {err}");
-                        c.upd.error = crate::core::clean_text(&err, 300);
-                        c.set_update("error");
+                        if c.update_current(attempt, "downloading") {
+                            c.update_error(&err);
+                        }
                     });
                 }
             }
         });
+        self.upd.task = Some(task);
     }
 
     fn update_ready(&mut self) {
@@ -593,5 +770,50 @@ impl Core {
             win32::restore_foreground(self.whatsnew.fg_before);
         }
         log!("what's new closed{}", if releases { " (releases page)" } else { "" });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{base64_decode, local_feed, signed_for};
+
+    /// ChatDock 1.7.2's own signature, from its release's latest.json
+    const SIGNED_172: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUR3FQNWFVOTMzR1I0cEJLYkJlV1FxUHlYTy9aQmgxSlZUM3hJTXl3R3ZkQWp4ck5FTDBpOFA5M3NmRXdiZXdDVlNDZmxQdmJVdWdPUTZ1N1IzWnl3amxrQ2xUVnlRVWdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNjU5MTc1CWZpbGU6Q2hhdERvY2tfMS43LjJfeDY0LXNldHVwLmV4ZQpBb3NHT2ZKaVJlRE9CdkNZSlk1bGllc2t3aXhYRVpQaFV4SjIwSlkyOFNmTVFwMXFYSEtESThuUjJVNXREVXJTUmlDclRxQ2M1NERnbDUzeGdXcktCUT09Cg==";
+
+    #[test]
+    fn an_installer_is_signed_for_its_own_version_only() {
+        assert!(signed_for(SIGNED_172, "1.7.2"));
+        assert!(!signed_for(SIGNED_172, "9.9.9")); // an old installer offered as a new version
+        assert!(!signed_for(SIGNED_172, "1.7")); // (a part of it isn't the version)
+        assert!(!signed_for(SIGNED_172, ""));
+        assert!(!signed_for("not base64!", "1.7.2"));
+        assert!(!signed_for("dW50cnVzdGVkIGNvbW1lbnQ6IG5vIHRydXN0ZWQgb25l", "1.7.2"));
+        // no trusted comment
+    }
+
+    #[test]
+    fn base64_as_the_standard_has_it() {
+        assert_eq!(base64_decode("aGVsbG8="), Some(b"hello".to_vec()));
+        assert_eq!(base64_decode("aGVsbG8gd29ybGQ="), Some(b"hello world".to_vec()));
+        assert_eq!(base64_decode("TQ=="), Some(b"M".to_vec()));
+        assert_eq!(base64_decode(""), Some(Vec::new()));
+        assert_eq!(base64_decode("a b"), None);
+    }
+
+    #[test]
+    fn a_test_feed_only_on_this_pc() {
+        assert_eq!(local_feed("http://127.0.0.1:8765/latest.json").as_deref(), Some("http://127.0.0.1:8765/latest.json"));
+        assert_eq!(local_feed("http://localhost:8765").as_deref(), Some("http://localhost:8765/latest.json"));
+        assert_eq!(local_feed("http://127.0.0.1:8765/feed/").as_deref(), Some("http://127.0.0.1:8765/feed/latest.json"));
+        for elsewhere in [
+            "http://127.0.0.1:8765@example.com/latest.json",
+            "http://localhost:1@example.com/",
+            "http://127.0.0.1.example.com:80/latest.json",
+            "https://example.com/?next=http://127.0.0.1:1/",
+            "ftp://127.0.0.1/latest.json",
+            "file:///C:/feed/latest.json",
+        ] {
+            assert_eq!(local_feed(elsewhere), None, "{elsewhere}");
+        }
     }
 }
