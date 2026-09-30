@@ -14,7 +14,7 @@ use std::{
 use serde_json::{json, Map, Value};
 use tauri::{Emitter, WebviewWindow};
 
-use crate::{apps, autostart, chats, edge, i18n, identify, log, rt, settings::Settings, toasts, tray, updater, win32};
+use crate::{apps, autostart, chats, edge, i18n, identify, log, rt, settings::Settings, site_log, toasts, tray, updater, win32};
 
 pub const REPO_URL: &str = "https://github.com/ResinCoreAI/ChatDock";
 /// A throw-away copy of ChatDock for testing installs and updates ("ChatDockUpdTest.exe"): its own
@@ -1226,7 +1226,7 @@ impl Core {
 
     /// Tell the app's page its volume (its script scales everything it plays).
     pub fn send_volume(&self, id: &str) {
-        self.chats.post_json(id, &json!({ "type": "chatdock-volume", "level": self.app_volume(id) as f64 / 100.0 }));
+        self.chats.post_json(id, &json!({ "type": crate::chats::volume_key(), "level": self.app_volume(id) as f64 / 100.0 }));
     }
 
     pub fn apply_audio(&mut self, id: &str) {
@@ -1315,7 +1315,7 @@ impl Core {
             return;
         }
         self.counts.insert(id.to_string(), n);
-        log!("unread {id} {before} -> {n} (the site counts {})", self.site_counts.get(id).copied().unwrap_or(0));
+        site_log!(id, "unread {id} {before} -> {n} (the site counts {})", self.site_counts.get(id).copied().unwrap_or(0));
         self.broadcast_state();
         let badge = self.settings.app_pref(id, "badge");
         self.update_glow(n > before && badge);
@@ -1404,7 +1404,8 @@ impl Core {
         let place = if id == "discord" { discord_place(&clean_text(title, 400)) } else { None };
         let mut title = clean_text(title, 90);
         let mut meta = String::new();
-        log!(
+        site_log!(
+            id,
             "site notification {id} {{\"title\":{},\"body\":{}{}}}",
             title.chars().count(),
             body.chars().count(),
