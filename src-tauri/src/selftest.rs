@@ -2073,10 +2073,8 @@ fn security_test() {
         log::path().and_then(|p| std::fs::read_to_string(p).ok()).map_or(0, |l| l.matches("discord: (a self-test opens nothing").count())
     };
     let before = taken();
-    on(|c| {
-        c.load_home("discord");
-        c.chats.navigate("discord", "https://example.com/");
-    });
+    on(|c| c.load_home("discord"));
+    on(|c| c.chats.navigate("discord", "https://example.com/")); // (a moment later, as two steps do)
     let mut host = String::new();
     for _ in 0..40 {
         wait(250);
