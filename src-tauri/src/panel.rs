@@ -99,7 +99,7 @@ fn window(
         .focused(false)
         .focusable(focusable)
         .transparent(transparent)
-        .devtools(args.debug)
+        .devtools(args.dev_tools())
         .zoom_hotkeys_enabled(false)
         .data_directory(args.webview_dir())
         .additional_browser_args(&args.browser_args())
@@ -110,7 +110,7 @@ fn window(
     }
     let w = b.build()?;
     let hwnd = w.hwnd()?.0 as isize;
-    lock_down_page(&w, args.debug);
+    lock_down_page(&w, args.dev_tools());
     Ok(Win { w, hwnd })
 }
 
