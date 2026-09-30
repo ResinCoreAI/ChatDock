@@ -66,6 +66,9 @@ pub fn start() {
         } else if only.as_deref() == Some("security") {
             wait(8000); // the pages load
             security_test();
+        } else if only.as_deref() == Some("updater") {
+            wait(4000); // ChatDock's own pages load
+            updater_test();
         } else if only.as_deref() == Some("review171") {
             wait(8000); // the pages load
             review171_test();
@@ -3158,4 +3161,198 @@ fn full_test() {
     );
     shot("32-whats-new");
     close_panel();
+}
+
+/// The update chain and ChatDock's own pages, against a feed on this PC that misbehaves on purpose:
+/// a check or a download that stalls ends in an error in time (instead of a status stuck until a
+/// restart), a download far bigger than an installer is stopped, an installer signed as another
+/// version's is refused before it downloads, and a feed only counts when it really is on this PC.
+/// The installer lands in a new random folder, locked against changes until it runs. No WEBVIEW2_*
+/// variable is left (run it with WEBVIEW2_CHATDOCK_SELFTEST=1 set). ChatDock's own pages may listen
+/// (and send ui_send) but not emit to other windows; their own CSP (a <meta> in each page) refuses a
+/// script from elsewhere.
+fn updater_test() {
+    // WEBVIEW2_*
+    let left: Vec<String> = std::env::vars_os()
+        .map(|(n, _)| n.to_string_lossy().to_string())
+        .filter(|n| n.to_ascii_uppercase().starts_with("WEBVIEW2_"))
+        .collect();
+
+    // ChatDock's own pages: what their IPC and their CSP allow
+    let ask = |expr: &str| -> String {
+        page_js(
+            "panel",
+            &format!("window.__cdAsk = 'pending'; Promise.resolve().then(() => {expr}).then(() => {{ window.__cdAsk = 'allowed'; }}, (e) => {{ window.__cdAsk = 'refused: ' + String(e).slice(0, 60); }}); true"),
+        );
+        for _ in 0..30 {
+            wait(100);
+            let r = page_js("panel", "window.__cdAsk");
+            if r != "\"pending\"" {
+                return r;
+            }
+        }
+        "timeout".into()
+    };
+    let listen = ask("window.__TAURI__.event.listen('selftest-listen', () => {})");
+    let emit = ask("window.__TAURI__.event.emit('selftest-emit', 1)");
+    // a script from elsewhere put into the page: what the browser says about it (its CSP refuses it
+    // before any request; .invalid never resolves anyway)
+    page_js(
+        "panel",
+        "window.__cdCsp = 'none'; document.addEventListener('securitypolicyviolation', (e) => { window.__cdCsp = 'refused by ' + e.violatedDirective; }, { once: true });          const s = document.createElement('script'); s.src = 'https://selftest.invalid/x.js'; document.head.appendChild(s); true",
+    );
+    wait(800);
+    let inline = page_js("panel", "window.__cdCsp");
+    log!(
+        "updater: WEBVIEW2_ variables left {left:?} | a ChatDock page: listen {listen}, emit to other windows {emit}, a script from elsewhere put in it {inline} (expect [], \"allowed\", \"refused: ...\", \"refused by script-src-elem\" (the page's own CSP, from before))"
+    );
+
+    // the installer on disk
+    let random = |name: &str| name.starts_with("ChatDock-update-") && name.len() == "ChatDock-update-".len() + 16;
+    let staged = match crate::updater::stage_installer("0.0.0", b"MZ selftest") {
+        Ok((file, lock)) => {
+            let dir = file.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let unchangeable = std::fs::OpenOptions::new().write(true).open(&file).is_err();
+            let undeletable = std::fs::remove_file(&file).is_err();
+            let again = crate::updater::stage_installer("0.0.0", b"MZ selftest").ok();
+            let own_folder = again.as_ref().is_some_and(|(f2, _)| f2.parent() != Some(dir.as_path()));
+            drop(lock);
+            if let Some((f2, l2)) = again {
+                drop(l2);
+                if let Some(d2) = f2.parent() {
+                    let _ = std::fs::remove_dir_all(d2);
+                }
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+            format!("folder random {}, another gets its own {own_folder} | while it waits: can't be changed {unchangeable}, deleted {undeletable}", random(&name))
+        }
+        Err(e) => format!("err {e}"),
+    };
+    log!("updater: the installer: {staged} (expect folder random true, another gets its own true | can't be changed true, deleted true)");
+
+    // the feed
+    let (port, sent_big, old_asked) = bad_feed();
+    std::env::set_var("CHATDOCK_UPDATE_FEED", "http://127.0.0.1:1@example.com/latest.json");
+    let tricked = crate::updater::test_feed();
+    let run = |path: &str| -> (String, String, u128) {
+        std::env::set_var("CHATDOCK_UPDATE_FEED", format!("http://127.0.0.1:{port}{path}"));
+        on(|c| {
+            c.upd.enabled = true;
+            c.upd.status = "idle";
+            c.settings.set("updateAutoDownload", json!(true));
+            c.check_update();
+        });
+        let start = std::time::Instant::now();
+        while start.elapsed().as_millis() < 12_000 {
+            wait(200);
+            if ["error", "ready", "latest", "available"].contains(&on(|c| c.upd.status)) {
+                break;
+            }
+        }
+        let (status, error) = on(|c| (c.upd.status.to_string(), crate::core::clean_text(&c.upd.error, 70)));
+        (status, error, start.elapsed().as_millis())
+    };
+    let stall = run("/stall.json");
+    let old = run("/old.json");
+    let big = run("/big.json");
+    let slow = run("/slow.json");
+    let watchdog = on(|c| {
+        c.upd.status = "checking";
+        let attempt = c.next_update_attempt();
+        c.update_stuck(attempt, "checking");
+        c.upd.status
+    });
+    std::env::remove_var("CHATDOCK_UPDATE_FEED");
+    on(|c| {
+        c.upd.enabled = false;
+        c.upd.status = "dev";
+    });
+    let mb = sent_big.load(Ordering::Relaxed) / (1024 * 1024);
+    log!(
+        "updater: a feed that only starts like this PC {tricked:?} | one that never answers: {} after {} ms ({}) | an installer signed as another version's: {} ({}), asked for {} times | a download far bigger than an installer: {} ({}), {mb} MB sent | one that stalls: {} after {} ms ({}) | the watchdog: {watchdog} (expect None | error after 3-5 s (net::ERR...) | error (signed as another version's), 0 | error (far bigger), under 32 | error after 4-6 s (net::ERR...) | error)",
+        stall.0, stall.2, stall.1, old.0, old.1, old_asked.load(Ordering::Relaxed), big.0, big.1, slow.0, slow.2, slow.1
+    );
+}
+
+/// A feed on this PC that misbehaves on purpose (updater_test), by path. Counts what it sent of
+/// the big download and how often the older installer was asked for.
+fn bad_feed() -> (u16, std::sync::Arc<std::sync::atomic::AtomicU64>, std::sync::Arc<std::sync::atomic::AtomicU64>) {
+    use std::{
+        io::{Read, Write},
+        sync::{atomic::AtomicU64, Arc},
+    };
+    let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else { return (0, Arc::default(), Arc::default()) };
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let (sent_big, old_asked) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+    let (sent, asked) = (sent_big.clone(), old_asked.clone());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let (sent, asked) = (sent.clone(), asked.clone());
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let feed = |signed_as: &str, file: &str| {
+                    format!(
+                        r#"{{"version":"99.0.0","notes":"self-test","pub_date":"2026-01-01T00:00:00Z","platforms":{{"windows-x86_64":{{"signature":"{}","url":"http://127.0.0.1:{port}/{file}"}}}}}}"#,
+                        fake_signature(signed_as)
+                    )
+                };
+                let answer = |body: String| {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                };
+                let _ = match path.as_str() {
+                    "/stall.json" => {
+                        std::thread::sleep(Duration::from_secs(60)); // (answers nothing)
+                        Ok(())
+                    }
+                    "/old.json" => stream.write_all(answer(feed("1.5.0", "old.exe")).as_bytes()),
+                    "/big.json" => stream.write_all(answer(feed("99.0.0", "big.exe")).as_bytes()),
+                    "/slow.json" => stream.write_all(answer(feed("99.0.0", "slow.exe")).as_bytes()),
+                    "/old.exe" => {
+                        asked.fetch_add(1, Ordering::Relaxed);
+                        stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    }
+                    "/big.exe" => {
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 1073741824\r\nConnection: close\r\n\r\n");
+                        let chunk = vec![b'M'; 64 * 1024];
+                        // up to 48 MB (an unlimited download keeps it all in memory)
+                        while sent.load(Ordering::Relaxed) < 48 * 1024 * 1024 && stream.write_all(&chunk).is_ok() {
+                            sent.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                        }
+                        Ok(())
+                    }
+                    "/slow.exe" => {
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 5000000\r\nConnection: close\r\n\r\nMZ");
+                        std::thread::sleep(Duration::from_secs(60));
+                        Ok(())
+                    }
+                    _ => stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+                };
+            });
+        }
+    });
+    (port, sent_big, old_asked)
+}
+
+/// A minisign signature's text (not a valid signature) naming the installer it was "made" for.
+fn fake_signature(version: &str) -> String {
+    let text = format!(
+        "untrusted comment: self-test\nRWQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\ntrusted comment: timestamp:0\tfile:ChatDock_{version}_x64-setup.exe\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==\n"
+    );
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in text.as_bytes().chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        for i in 0..4 {
+            out.push(if i <= chunk.len() { ABC[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
 }
