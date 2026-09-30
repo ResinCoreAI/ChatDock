@@ -2050,15 +2050,16 @@ fn security_test() {
     log!("security: hidden from capture: {hidden} | switched off: {shown} (expect every window 17 with at least one card, then every window 0)");
 
     // 2. a page's flood: 40 passkey reports (half with text of the page's own in them) and one
-    // too long to read: some lines but at most 30, no page text, nothing of the long one
+    // too long to read: some lines but at most 30, no page text, nothing of the long one (X's page:
+    // Discord's lines are counted below)
     view_js(
-        "discord",
+        "x",
         "(() => { for (let i = 0; i < 40; i++) window.chrome.webview.postMessage(JSON.stringify({ type: 'passkey', kind: i % 2 ? 'get' : 'INJECTED\\nline', origin: location.origin, mediation: i % 2 ? 'conditional' : 'x INJECTED' })); \
          window.chrome.webview.postMessage(JSON.stringify({ type: 'passkey', kind: 'create', origin: 'https://big.example/', pad: 'y'.repeat(5000) })); return 1; })()",
     );
     wait(1500);
     let text = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-    let lines = text.lines().filter(|l| l.contains("passkey request blocked discord")).count();
+    let lines = text.lines().filter(|l| l.contains("passkey request blocked x")).count();
     let page_text = text.lines().any(|l| l.contains("INJECTED"));
     let long_one = text.contains("big.example");
     log!("security: a page's flood: {lines} passkey lines, page text in the log {page_text}, the long one read {long_one} (expect 1 to 30, false, false)");
@@ -2066,7 +2067,30 @@ fn security_test() {
     // 3. this PC (before Clear data reloads the chats)
     this_pc_check();
 
-    // 4. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
+    // 4. two navigations of ChatDock's own at once (its home, then another page): the chat shows the
+    // last, and neither is taken for a link (WebView2 says both were the user's)
+    let taken = || {
+        log::path().and_then(|p| std::fs::read_to_string(p).ok()).map_or(0, |l| l.matches("discord: (a self-test opens nothing").count())
+    };
+    let before = taken();
+    on(|c| {
+        c.load_home("discord");
+        c.chats.navigate("discord", "https://example.com/");
+    });
+    let mut host = String::new();
+    for _ in 0..40 {
+        wait(250);
+        host = view_js("discord", "location.host");
+        if host == "\"example.com\"" {
+            break;
+        }
+    }
+    let taken_for_links = taken() - before;
+    on(|c| c.load_home("discord"));
+    wait(1500);
+    log!("security: two navigations of ChatDock's own at once: the chat shows {host}, taken for links {taken_for_links} (expect \"example.com\", 0)");
+
+    // 5. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
     let dir = on(|c| c.args.data_dir.clone());
     for app in ["discord", "retired-app"] {
         let _ = std::fs::create_dir_all(dir.join("Partitions").join(app).join("Network"));
@@ -2084,7 +2108,7 @@ fn security_test() {
         "security: Clear data (Discord): its old login still there {discord_old}, another's still there {other_old}, servers {servers} | Clear all data: Partitions {partitions}, old key {old_key} (expect false, true, {{}} | false, false)"
     );
 
-    // 5. the log: a path under the Windows account, plain and as {:?} writes it
+    // 6. the log: a path under the Windows account, plain and as {:?} writes it
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     log!("security: paths {home}\\AppData and {:?}", format!("{home}\\AppData"));
     let tail = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();

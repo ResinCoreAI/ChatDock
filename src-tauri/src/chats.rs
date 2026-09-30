@@ -375,8 +375,10 @@ thread_local! {
     static NOTE_SEQ: Cell<u64> = const { Cell::new(0) };
     /// The panel page's own WebView2 (Tauri's): gets the keyboard when no chat is on screen.
     static PANEL_CTRL: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
-    /// Apps with a navigation ChatDock started itself (their home page, a retry): allowed wherever it goes.
-    static OWN_NAV: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// Navigations ChatDock started itself (their home page, a retry), by address: allowed wherever
+    /// they go. By address, because two can be under way at once; WebView2 calls them all "user
+    /// initiated", so one taken for a page's own would count as a clicked link.
+    static OWN_NAV: RefCell<HashMap<String, Vec<String>>> = RefCell::new(HashMap::new());
     /// When each app last opened links outside (rate_ok)
     static OUTSIDE: RefCell<HashMap<String, Vec<i64>>> = RefCell::new(HashMap::new());
 }
@@ -438,6 +440,25 @@ fn rate_ok(times: &mut Vec<i64>, now: i64, max: usize, window_ms: i64) -> bool {
     }
     times.push(now);
     true
+}
+
+/// Is this navigation one ChatDock started (navigate)? Each counts once.
+fn own_navigation(app: &str, uri: &str) -> bool {
+    OWN_NAV.with(|n| {
+        let mut n = n.borrow_mut();
+        let Some(list) = n.get_mut(app) else { return false };
+        let Some(i) = list.iter().position(|u| same_address(u, uri)) else { return false };
+        list.remove(i);
+        true
+    })
+}
+
+/// The same address however it is written back ("https://example.com" is "https://example.com/").
+fn same_address(a: &str, b: &str) -> bool {
+    match (tauri::Url::parse(a), tauri::Url::parse(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// What kind of link it was, for the log (never the address).
@@ -582,10 +603,17 @@ impl Chats {
 
     pub fn navigate(&self, id: &str, url: &str) {
         if let Some(v) = self.views.get(id) {
-            OWN_NAV.with(|n| n.borrow_mut().insert(id.to_string()));
+            OWN_NAV.with(|n| {
+                let mut n = n.borrow_mut();
+                let list = n.entry(id.to_string()).or_default();
+                list.push(url.to_string());
+                if list.len() > 8 {
+                    list.remove(0); // (ones that never started)
+                }
+            });
             unsafe {
                 if v.webview.Navigate(&HSTRING::from(url)).is_err() {
-                    OWN_NAV.with(|n| n.borrow_mut().remove(id));
+                    own_navigation(id, url);
                 }
             }
         }
@@ -1142,6 +1170,10 @@ impl Core {
             site_log!(app, "{app}: too many links at once, this one not opened");
             return;
         }
+        if self.args.selftest {
+            log!("{app}: (a self-test opens nothing outside ChatDock)");
+            return;
+        }
         win32::open_url(&url);
     }
 
@@ -1467,7 +1499,7 @@ unsafe fn configure(
             let mut p = PWSTR::null();
             args.Uri(&mut p)?;
             let uri = take_pwstr(p);
-            let own = OWN_NAV.with(|n| n.borrow_mut().remove(&app));
+            let own = own_navigation(&app, &uri);
             if own || uri.starts_with("about:") || apps::keep_inside(&app, &uri) {
                 let a = app.clone();
                 later(move |c| c.on_load_start(&a));
@@ -1604,7 +1636,7 @@ unsafe fn configure(
                 let uri = take_pwstr(p);
                 let mut clicked = BOOL(0);
                 let _ = args.IsUserInitiated(&mut clicked);
-                let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri);
+                let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri) && !selftest;
                 args.SetCancel(!open)?;
                 let (a, what) = (app.clone(), outside_kind(&uri));
                 later(move |_| site_log!(&a, "{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
@@ -1839,7 +1871,16 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
 mod tests {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use super::{opens_outside, passkey_line, permission_allowed, rate_ok, site_script, volume_key};
+    use super::{opens_outside, own_navigation, passkey_line, permission_allowed, rate_ok, site_script, volume_key, OWN_NAV};
+
+    #[test]
+    fn two_navigations_of_chatdocks_own_at_once() {
+        OWN_NAV.with(|n| n.borrow_mut().insert("x".into(), vec!["https://x.com/home".into(), "https://example.com".into()]));
+        assert!(own_navigation("x", "https://example.com/")); // (written back with its slash)
+        assert!(own_navigation("x", "https://x.com/home"));
+        assert!(!own_navigation("x", "https://x.com/home")); // each counts once
+        assert!(!own_navigation("discord", "https://example.com/"));
+    }
 
     #[test]
     fn the_page_script_never_names_chatdock() {
