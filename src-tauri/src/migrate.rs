@@ -175,7 +175,8 @@ pub fn electron_leftovers() {
     if let Ok(list) = fs::read_dir(std::env::temp_dir()) {
         for e in list.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with("ChatDock-") && name.ends_with("-update") {
+            // ChatDock-update-<random> (and ChatDock-<version>-update, before 1.7.3)
+            if name.starts_with("ChatDock-update-") || (name.starts_with("ChatDock-") && name.ends_with("-update")) {
                 let _ = fs::remove_dir_all(e.path());
             }
         }

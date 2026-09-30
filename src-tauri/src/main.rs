@@ -38,14 +38,13 @@ fn main() {
         eprintln!("--selftest needs --profile=<a test folder of its own>: it changes settings and logs out of apps");
         std::process::exit(2);
     }
-    // Nothing from outside switches on WebView2 remote debugging or other engine options.
-    for var in [
-        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
-        "WEBVIEW2_USER_DATA_FOLDER",
-        "WEBVIEW2_RELEASE_CHANNEL_PREFERENCE",
-    ] {
-        std::env::remove_var(var);
+    // Nothing from outside moves ChatDock onto another WebView2 engine or channel, switches on
+    // remote debugging or a script debugger, or sets other engine options: every WEBVIEW2_* variable
+    // goes, before any WebView2 exists (the loader reads seven, and more may come).
+    for (name, _) in std::env::vars_os() {
+        if webview2_variable(&name) {
+            std::env::remove_var(&name);
+        }
     }
 
     let mut builder = tauri::Builder::default();
@@ -82,7 +81,7 @@ fn main() {
             panel::init(app, args)?;
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("ChatDock could not start");
 
     app.run(|handle, event| match event {
@@ -98,4 +97,37 @@ fn main() {
         }
         _ => {}
     });
+}
+
+/// Windows keeps variable names in any case (WebView2_... is the same variable).
+fn webview2_variable(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().to_ascii_uppercase().starts_with("WEBVIEW2_")
+}
+
+/// The app's configuration, and one exception: a local test feed (updater::test_feed, development
+/// builds and the test copy only) is plain http, which the updater otherwise refuses in a release
+/// build. Real copies keep it refused.
+fn context() -> tauri::Context<tauri::Wry> {
+    let mut context = tauri::generate_context!();
+    if updater::test_feed().is_some() {
+        if let Some(updater) = context.config_mut().plugins.0.get_mut("updater") {
+            updater["dangerousInsecureTransportProtocol"] = serde_json::json!(true);
+        }
+    }
+    context
+}
+
+#[cfg(test)]
+mod tests {
+    use super::webview2_variable;
+
+    #[test]
+    fn every_webview2_variable_goes() {
+        for name in ["WEBVIEW2_RELEASE_CHANNELS", "WEBVIEW2_WAIT_FOR_SCRIPT_DEBUGGER", "WebView2_Use_Edge_View", "WEBVIEW2_"] {
+            assert!(webview2_variable(std::ffi::OsStr::new(name)), "{name}");
+        }
+        for name in ["PATH", "MY_WEBVIEW2_THING", "WEBVIEW2"] {
+            assert!(!webview2_variable(std::ffi::OsStr::new(name)), "{name}");
+        }
+    }
 }
