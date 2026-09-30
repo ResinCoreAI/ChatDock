@@ -1233,6 +1233,7 @@ impl Core {
         hwnds.extend(self.update_win.as_ref().map(|w| w.hwnd));
         hwnds.extend(self.whatsnew.win.as_ref().map(|w| w.hwnd));
         hwnds.extend(self.identify_hwnds());
+        hwnds.extend(crate::popups::hwnds()); // the windows the chats open (a call, a sign-in)
         for hwnd in hwnds {
             win32::set_capture_excluded(hwnd, on);
         }

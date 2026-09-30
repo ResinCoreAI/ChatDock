@@ -1091,9 +1091,9 @@ impl Core {
         self.test_browser_pid.unwrap_or_else(chats::browser_pid)
     }
 
-    /// A chat opened a call window: Messenger and Instagram calls run in a window of their own,
-    /// which WebView2 makes by itself (the page script doesn't run there). It is found as a new
-    /// window of the chats' browser; while it's open the app is in a call.
+    /// A chat opened a call window: Messenger and Instagram calls run in a window of their own.
+    /// ChatDock makes it (popups.rs, popup_shown); when it can't, WebView2 makes it by itself, and
+    /// then it is found as a new window of the chats' browser. While it's open the app is in a call.
     pub fn call_window_opening(&mut self, app: &str) {
         let before = win32::top_windows_of(self.calls_browser_pid());
         self.call_window_search = Some((app.to_string(), before, rt::epoch_ms() + 8000));
@@ -1109,13 +1109,7 @@ impl Core {
         match found {
             Some(h) => {
                 self.call_window_search = None;
-                let watching = !self.call_windows.is_empty();
-                self.call_windows.push((h, app.clone()));
-                log!("call window {app} open");
-                self.call_windows_changed(&app);
-                if !watching {
-                    timer(CALL_WATCH_MS, |c| c.watch_call_windows());
-                }
+                self.add_call_window(h, &app);
             }
             None if rt::epoch_ms() > until => {
                 self.call_window_search = None;
@@ -1125,6 +1119,28 @@ impl Core {
                 timer(150, |c| c.find_call_window());
             }
         }
+    }
+
+    fn add_call_window(&mut self, h: isize, app: &str) {
+        let watching = !self.call_windows.is_empty();
+        self.call_windows.push((h, app.to_string()));
+        log!("call window {app} open");
+        self.call_windows_changed(app);
+        if !watching {
+            timer(CALL_WATCH_MS, |c| c.watch_call_windows());
+        }
+    }
+
+    /// A window a chat opened is on screen (popups.rs): a call's is the app's call until it closes.
+    pub fn popup_shown(&mut self, hwnd: isize, app: &str, call: bool) {
+        if call && win32::is_window(hwnd) {
+            self.add_call_window(hwnd, app);
+        }
+    }
+
+    /// One of them is gone (a call it held ends at the next look, watch_call_windows).
+    pub fn popup_closed(&mut self, hwnd: isize) {
+        self.own_hwnds.retain(|h| *h != hwnd);
     }
 
     /// Every second while a call window is open: closed, that call ended. And a small window of the

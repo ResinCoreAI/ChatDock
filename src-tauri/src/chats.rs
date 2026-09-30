@@ -26,7 +26,7 @@ use windows::{
 use crate::{
     apps,
     core::{later, timer, Core, AUTO_RETRY_MS},
-    log, rt, site_log,
+    log, popups, rt, site_log,
     win32::{self, Rect},
 };
 
@@ -318,7 +318,7 @@ const SITE_SCRIPT: &str = r#"(() => {
 
 /// SITE_SCRIPT as this run injects it: the volume messages under this run's key, and only in a
 /// self-test run the mark its checks read (Symbol.for('chatdock.volume')).
-fn site_script(selftest: bool) -> String {
+pub(crate) fn site_script(selftest: bool) -> String {
     let mark = "try { Object.defineProperty(window, Symbol.for('chatdock.volume'), { get: () => level }); } catch (e) {}";
     SITE_SCRIPT.replace("%KEY%", volume_key()).replace("/*SELFTEST*/", if selftest { mark } else { "" })
 }
@@ -398,9 +398,14 @@ fn env() -> Option<ICoreWebView2Environment> {
     ENV.with(|e| e.borrow().clone())
 }
 
+/// The chats' WebView2 environment (a window a chat opens is made in it too).
+pub(crate) fn environment() -> Option<ICoreWebView2Environment> {
+    env()
+}
+
 static BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// The longest message the page script sends (its volume state is the longest, ~200 bytes).
-const MESSAGE_MAX: usize = 1024;
+pub(crate) const MESSAGE_MAX: usize = 1024;
 /// Requests the chat pages made to this PC and ChatDock refused (the self-test counts them).
 pub static LOCAL_BLOCKED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -462,7 +467,7 @@ fn same_address(a: &str, b: &str) -> bool {
 }
 
 /// What kind of link it was, for the log (never the address).
-fn outside_kind(uri: &str) -> String {
+pub(crate) fn outside_kind(uri: &str) -> String {
     let scheme = uri.split(':').next().unwrap_or("").to_ascii_lowercase();
     if scheme == "http" || scheme == "https" {
         "a web page".into()
@@ -491,7 +496,7 @@ fn pwstr_string(p: PWSTR) -> String {
     take_pwstr(p)
 }
 
-fn color(dark: bool) -> COREWEBVIEW2_COLOR {
+pub(crate) fn color(dark: bool) -> COREWEBVIEW2_COLOR {
     if dark {
         COREWEBVIEW2_COLOR { A: 255, R: 24, G: 25, B: 29 }
     } else {
@@ -500,6 +505,11 @@ fn color(dark: bool) -> COREWEBVIEW2_COLOR {
 }
 
 impl Chats {
+    /// The chats are in the dark theme (their background while a page loads).
+    pub fn dark(&self) -> bool {
+        self.theme.1
+    }
+
     pub fn has(&self, id: &str) -> bool {
         self.views.contains_key(id)
     }
@@ -775,6 +785,7 @@ impl Chats {
     }
 
     fn close(&mut self, id: &str) {
+        popups::close_app(id);
         OWN_NAV.with(|n| n.borrow_mut().remove(id));
         if let Some(v) = self.views.remove(id) {
             unsafe {
@@ -1179,6 +1190,7 @@ impl Core {
 
     /// Wipe everything an app stored on this PC (login, cookies, cache) and start it fresh.
     pub fn clear_app_data(&mut self, id: &str) {
+        popups::close_app(id); // (signed in there too)
         self.toasts_dismiss_app(id);
         self.set_count(id, 0);
         // a new login starts from scratch: nothing it will count has been seen yet (the old "seen"
@@ -1433,26 +1445,7 @@ unsafe fn configure(
     if wv.BrowserProcessId(&mut pid).is_ok() && pid != 0 {
         BROWSER_PID.store(pid, std::sync::atomic::Ordering::Relaxed); // (a new one after a crash)
     }
-    let s = wv.Settings()?;
-    s.SetAreDevToolsEnabled(debug)?;
-    s.SetIsStatusBarEnabled(false)?;
-    s.SetIsZoomControlEnabled(true)?;
-    if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
-        // no find bar / print / save-as on Ctrl+F, Ctrl+P, Ctrl+S (1.4 had none); ChatDock's own
-        // keys still arrive through AcceleratorKeyPressed
-        s3.SetAreBrowserAcceleratorKeysEnabled(debug)?;
-    }
-    s.SetIsBuiltInErrorPageEnabled(false)?; // a failed load shows ChatDock's own "can't connect" screen
-    if let Ok(s4) = s.cast::<ICoreWebView2Settings4>() {
-        s4.SetIsPasswordAutosaveEnabled(false)?;
-        s4.SetIsGeneralAutofillEnabled(false)?;
-    }
-    if let Ok(s6) = s.cast::<ICoreWebView2Settings6>() {
-        s6.SetIsSwipeNavigationEnabled(false)?;
-    }
-    if let Ok(s8) = s.cast::<ICoreWebView2Settings8>() {
-        s8.SetIsReputationCheckingRequired(false)?;
-    }
+    apply_settings(wv, debug, true)?;
     wv.AddScriptToExecuteOnDocumentCreated(
         &HSTRING::from(site_script(selftest)),
         &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(()))),
@@ -1461,36 +1454,8 @@ unsafe fn configure(
     if let Ok(profile) = wv.cast::<ICoreWebView2_13>().and_then(|w| w.Profile()) {
         grant_site_permissions(&profile, id);
     }
-    // Chat sites have no business talking to programs on this PC. (Discord's page probes the
-    // desktop app on localhost and then nags "Discord App Detected".) The filters catch every way
-    // this PC can be written, from the pages and from their workers; the handler decides by the
-    // parsed host (a filter also matches an address that merely mentions one).
-    let wv22 = wv.cast::<ICoreWebView2_22>().ok();
-    for f in ["*://127.*", "*://localhost*", "*://*.localhost*", "*://[::1]*", "*://[::]*", "*://0.0.0.0*", "*://[::ffff:*"] {
-        match &wv22 {
-            Some(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(
-                &HSTRING::from(f),
-                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
-                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
-            )?,
-            None => wv.AddWebResourceRequestedFilter(&HSTRING::from(f), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?,
-        }
-    }
+    block_this_pc(wv)?;
     let mut token = 0i64;
-    wv.add_WebResourceRequested(
-        &WebResourceRequestedEventHandler::create(Box::new(|_, args| {
-            let (Some(args), Some(env)) = (args, env()) else { return Ok(()) };
-            let mut p = PWSTR::null();
-            args.Request()?.Uri(&mut p)?;
-            if apps::is_this_pc(&take_pwstr(p)) {
-                let resp = env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))?;
-                args.SetResponse(&resp)?;
-                LOCAL_BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            Ok(())
-        })),
-        &mut token,
-    )?;
 
     let app = id.to_string();
     wv.add_NavigationStarting(
@@ -1578,92 +1543,11 @@ unsafe fn configure(
         &mut token,
     )?;
 
-    let app = id.to_string();
-    wv.add_NewWindowRequested(
-        &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else { return Ok(()) };
-            let mut p = PWSTR::null();
-            args.Uri(&mut p)?;
-            let uri = take_pwstr(p);
-            // Voice / video calls and "Sign in with Google/Apple" need their own small window
-            let call = apps::is_call_url(&app, &uri);
-            if uri == "about:blank" || call || apps::is_auth_popup(&app, &uri) {
-                let (a, kind) = (
-                    app.clone(),
-                    if call {
-                        "a call"
-                    } else if uri == "about:blank" {
-                        "a blank page"
-                    } else {
-                        "a sign-in"
-                    },
-                );
-                later(move |c| {
-                    site_log!(&a, "{a} opens a window of its own: {kind}");
-                    if call {
-                        c.call_window_opening(&a);
-                    }
-                });
-                return Ok(());
-            }
-            args.SetHandled(true)?; // no window of WebView2's own for it
-            let mut clicked = BOOL(0);
-            let _ = args.IsUserInitiated(&mut clicked);
-            let (a, what) = (app.clone(), outside_kind(&uri));
-            if opens_outside(&uri, clicked.as_bool()) {
-                later(move |c| {
-                    site_log!(&a, "{a}: {what} opens outside ChatDock (a new window)");
-                    c.open_external(&a, &uri);
-                });
-            } else {
-                later(move |_| site_log!(&a, "{a}: {what} not opened (a new window nobody clicked)"));
-            }
-            Ok(())
-        })),
-        &mut token,
-    )?;
+    guard_new_windows(wv, id)?;
 
-    // A frame (an ad, an embed) heading for a program's link (ms-msdt:, discord://, …): only a
-    // clicked link to e-mail or one of the apps' own programs (top-level pages go through
-    // NavigationStarting above). Handling it also stops WebView2's own "open this app?" dialog.
-    if let Ok(wv18) = wv.cast::<ICoreWebView2_18>() {
-        let app = id.to_string();
-        let _ = wv18.add_LaunchingExternalUriScheme(
-            &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else { return Ok(()) };
-                let mut p = PWSTR::null();
-                args.Uri(&mut p)?;
-                let uri = take_pwstr(p);
-                let mut clicked = BOOL(0);
-                let _ = args.IsUserInitiated(&mut clicked);
-                let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri) && !selftest;
-                args.SetCancel(!open)?;
-                let (a, what) = (app.clone(), outside_kind(&uri));
-                later(move |_| site_log!(&a, "{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
-                Ok(())
-            })),
-            &mut token,
-        );
-    }
+    guard_programs(wv, id, selftest);
 
-    let app = id.to_string();
-    wv.add_PermissionRequested(
-        &PermissionRequestedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else { return Ok(()) };
-            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
-            args.PermissionKind(&mut kind)?;
-            let mut p = PWSTR::null();
-            args.Uri(&mut p)?;
-            let uri = take_pwstr(p);
-            let allow = permission_allowed(&app, kind, &uri);
-            args.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
-            if !allow {
-                site_log!(&app, "permission {} refused for {app}", kind.0);
-            }
-            Ok(())
-        })),
-        &mut token,
-    )?;
+    guard_permissions(wv, id)?;
 
     if let Ok(wv24) = wv.cast::<ICoreWebView2_24>() {
         let app = id.to_string();
@@ -1811,9 +1695,163 @@ unsafe fn configure(
     Ok(())
 }
 
+/// What every chat page gets, in its app's view or in a window it opened (own_error_page: the
+/// app's view shows ChatDock's own "can't connect" screen instead of the browser's).
+pub(crate) unsafe fn apply_settings(wv: &ICoreWebView2, debug: bool, own_error_page: bool) -> windows::core::Result<()> {
+    let s = wv.Settings()?;
+    s.SetAreDevToolsEnabled(debug)?;
+    s.SetIsStatusBarEnabled(false)?;
+    s.SetIsZoomControlEnabled(true)?;
+    if let Ok(s3) = s.cast::<ICoreWebView2Settings3>() {
+        // no find bar / print / save-as on Ctrl+F, Ctrl+P, Ctrl+S (1.4 had none); ChatDock's own
+        // keys still arrive through AcceleratorKeyPressed
+        s3.SetAreBrowserAcceleratorKeysEnabled(debug)?;
+    }
+    s.SetIsBuiltInErrorPageEnabled(!own_error_page)?; // (a chat's own view shows ChatDock's "can't connect" screen)
+    if let Ok(s4) = s.cast::<ICoreWebView2Settings4>() {
+        s4.SetIsPasswordAutosaveEnabled(false)?;
+        s4.SetIsGeneralAutofillEnabled(false)?;
+    }
+    if let Ok(s6) = s.cast::<ICoreWebView2Settings6>() {
+        s6.SetIsSwipeNavigationEnabled(false)?;
+    }
+    if let Ok(s8) = s.cast::<ICoreWebView2Settings8>() {
+        s8.SetIsReputationCheckingRequired(false)?;
+    }
+    Ok(())
+}
+
+/// Chat sites have no business talking to programs on this PC. (Discord's page probes the
+/// desktop app on localhost and then nags "Discord App Detected".) The filters catch every way
+/// this PC can be written, from the pages and from their workers; the handler decides by the
+/// parsed host (a filter also matches an address that merely mentions one).
+pub(crate) unsafe fn block_this_pc(wv: &ICoreWebView2) -> windows::core::Result<()> {
+    let wv22 = wv.cast::<ICoreWebView2_22>().ok();
+    for f in ["*://127.*", "*://localhost*", "*://*.localhost*", "*://[::1]*", "*://[::]*", "*://0.0.0.0*", "*://[::ffff:*"] {
+        match &wv22 {
+            Some(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(
+                &HSTRING::from(f),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+            )?,
+            None => wv.AddWebResourceRequestedFilter(&HSTRING::from(f), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?,
+        }
+    }
+    let mut token = 0i64;
+    wv.add_WebResourceRequested(
+        &WebResourceRequestedEventHandler::create(Box::new(|_, args| {
+            let (Some(args), Some(env)) = (args, env()) else { return Ok(()) };
+            let mut p = PWSTR::null();
+            args.Request()?.Uri(&mut p)?;
+            if apps::is_this_pc(&take_pwstr(p)) {
+                let resp = env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))?;
+                args.SetResponse(&resp)?;
+                LOCAL_BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(())
+        })),
+        &mut token,
+    )?;
+    Ok(())
+}
+
+pub(crate) unsafe fn guard_new_windows(wv: &ICoreWebView2, id: &str) -> windows::core::Result<()> {
+    let app = id.to_string();
+    let mut token = 0i64;
+    wv.add_NewWindowRequested(
+        &NewWindowRequestedEventHandler::create(Box::new(move |_, args| match args {
+            Some(args) => new_window(&app, &args),
+            None => Ok(()),
+        })),
+        &mut token,
+    )
+}
+
+/// A page asks for a window. A voice / video call, "Sign in with Google / Apple" or a blank page
+/// the site fills in gets one of its own, made by ChatDock (popups.rs); anything else is a link,
+/// for the normal browser if it was clicked.
+unsafe fn new_window(app: &str, args: &ICoreWebView2NewWindowRequestedEventArgs) -> windows::core::Result<()> {
+    let mut p = PWSTR::null();
+    args.Uri(&mut p)?;
+    let uri = take_pwstr(p);
+    let mut clicked = BOOL(0);
+    let _ = args.IsUserInitiated(&mut clicked);
+    let kind = if apps::is_call_url(app, &uri) {
+        Some(popups::Kind::Call)
+    } else if uri == "about:blank" {
+        Some(popups::Kind::Blank)
+    } else if apps::is_auth_popup(app, &uri) {
+        Some(popups::Kind::SignIn)
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        return popups::requested(app, kind, clicked.as_bool(), args);
+    }
+    args.SetHandled(true)?; // no window of WebView2's own for it
+    let (a, what) = (app.to_string(), outside_kind(&uri));
+    if opens_outside(&uri, clicked.as_bool()) {
+        later(move |c| {
+            site_log!(&a, "{a}: {what} opens outside ChatDock (a new window)");
+            c.open_external(&a, &uri);
+        });
+    } else {
+        later(move |_| site_log!(&a, "{a}: {what} not opened (a new window nobody clicked)"));
+    }
+    Ok(())
+}
+
+/// A frame (an ad, an embed) heading for a program's link (ms-msdt:, discord://, …): only a
+/// clicked link to e-mail or one of the apps' own programs (top-level pages go through
+/// NavigationStarting). Handling it also stops WebView2's own "open this app?" dialog.
+pub(crate) unsafe fn guard_programs(wv: &ICoreWebView2, id: &str, selftest: bool) {
+    if let Ok(wv18) = wv.cast::<ICoreWebView2_18>() {
+        let app = id.to_string();
+        let mut token = 0i64;
+        let _ = wv18.add_LaunchingExternalUriScheme(
+            &LaunchingExternalUriSchemeEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut p = PWSTR::null();
+                args.Uri(&mut p)?;
+                let uri = take_pwstr(p);
+                let mut clicked = BOOL(0);
+                let _ = args.IsUserInitiated(&mut clicked);
+                let open = opens_outside(&uri, clicked.as_bool()) && apps::app_scheme(&uri) && !selftest; // (a self-test starts nothing)
+                args.SetCancel(!open)?;
+                let (a, what) = (app.clone(), outside_kind(&uri));
+                later(move |_| site_log!(&a, "{a}: {what} from a frame {}", if open { "opens its program" } else { "not opened" }));
+                Ok(())
+            })),
+            &mut token,
+        );
+    }
+}
+
+pub(crate) unsafe fn guard_permissions(wv: &ICoreWebView2, id: &str) -> windows::core::Result<()> {
+    let app = id.to_string();
+    let mut token = 0i64;
+    wv.add_PermissionRequested(
+        &PermissionRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+            args.PermissionKind(&mut kind)?;
+            let mut p = PWSTR::null();
+            args.Uri(&mut p)?;
+            let uri = take_pwstr(p);
+            let allow = permission_allowed(&app, kind, &uri);
+            args.SetState(if allow { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
+            if !allow {
+                site_log!(&app, "permission {} refused for {app}", kind.0);
+            }
+            Ok(())
+        })),
+        &mut token,
+    )
+}
+
 /// A passkey request the page script refused, as the log says it: only fields ChatDock knows (what
 /// was asked, the site's name, how), never text of the page's own.
-fn passkey_line(v: &serde_json::Value) -> String {
+pub(crate) fn passkey_line(v: &serde_json::Value) -> String {
     let kind = v["kind"].as_str().filter(|k| ["get", "create"].contains(k)).unwrap_or("?");
     let site = v["origin"].as_str().and_then(|o| tauri::Url::parse(o).ok()).and_then(|u| u.host_str().map(str::to_string));
     let site = site.filter(|h| h.len() <= 100).unwrap_or_else(|| "?".into());

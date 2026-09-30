@@ -15,7 +15,7 @@ use webview2_com::{CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler
 use windows::{
     core::HSTRING,
     Win32::{
-        Foundation::WPARAM,
+        Foundation::{LPARAM, WPARAM},
         Graphics::Gdi::{
             BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
             BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, SRCCOPY,
@@ -23,7 +23,7 @@ use windows::{
         System::Com::{STGM_CREATE, STGM_WRITE},
         UI::{
             Shell::SHCreateStreamOnFileEx,
-            WindowsAndMessaging::{GetWindowDisplayAffinity, SendMessageW, WM_ENDSESSION, WM_QUERYENDSESSION},
+            WindowsAndMessaging::{GetWindowDisplayAffinity, PostMessageW, SendMessageW, WM_CLOSE, WM_ENDSESSION, WM_QUERYENDSESSION},
         },
     },
 };
@@ -2088,7 +2088,10 @@ fn security_test() {
     wait(1500);
     log!("security: two navigations of ChatDock's own at once: the chat shows {host}, taken for links {taken_for_links} (expect \"example.com\", 0)");
 
-    // 5. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
+    // 5. the windows the pages open (before Clear data reloads the chats)
+    popups_check();
+
+    // 6. Clear data: an old Electron login (and one of an app no longer listed), Discord's servers
     let dir = on(|c| c.args.data_dir.clone());
     for app in ["discord", "retired-app"] {
         let _ = std::fs::create_dir_all(dir.join("Partitions").join(app).join("Network"));
@@ -2106,7 +2109,7 @@ fn security_test() {
         "security: Clear data (Discord): its old login still there {discord_old}, another's still there {other_old}, servers {servers} | Clear all data: Partitions {partitions}, old key {old_key} (expect false, true, {{}} | false, false)"
     );
 
-    // 6. the log: a path under the Windows account, plain and as {:?} writes it
+    // 7. the log: a path under the Windows account, plain and as {:?} writes it
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     log!("security: paths {home}\\AppData and {:?}", format!("{home}\\AppData"));
     let tail = log::path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -2160,6 +2163,89 @@ fn this_pc_check() {
     on(|c| c.load_home("discord"));
     log!(
         "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
+    );
+}
+
+/// A window a chat page opens itself (a blank one here, from a page with no rules of its own) is
+/// ChatDock's: the page script, the local-access block and hiding from capture work there, and the
+/// site still has it (opener, close()). An address that isn't the app's never loads in a blank one.
+/// A call link's window is the app's call until it closes.
+fn popups_check() {
+    let refused = || crate::chats::LOCAL_BLOCKED.load(std::sync::atomic::Ordering::Relaxed);
+    // new windows on screen, ChatDock's or the chats' browser's
+    let windows = || {
+        on(|_| {
+            let mut all = win32::top_windows_of(std::process::id());
+            all.extend(win32::top_windows_of(crate::chats::browser_pid()));
+            all.into_iter().filter(|&h| win32::is_visible(h) && win32::window_rect(h).w >= 200).collect::<Vec<_>>()
+        })
+    };
+    let lines = |text: &str| log::path().and_then(|p| std::fs::read_to_string(p).ok()).map_or(0, |l| l.matches(text).count());
+    on(|c| c.chats.navigate("discord", "https://example.com/"));
+    for _ in 0..40 {
+        wait(250);
+        if view_js("discord", "location.host") == "\"example.com\"" {
+            break;
+        }
+    }
+    wait(500);
+    on(|c| c.set_pref("hideFromCapture", json!(true)));
+
+    // a blank one
+    let before = windows();
+    let blocked_before = refused();
+    let opened =
+        view_js("discord", "(() => { window.__w = window.open('about:blank', '_blank', 'width=480,height=360'); return !!window.__w; })()");
+    wait(2500);
+    let w = windows().into_iter().find(|h| !before.contains(h)).unwrap_or(0);
+    let ours = w != 0 && win32::window_pid(w) == std::process::id();
+    let mut affinity = 0u32;
+    let _ = unsafe { GetWindowDisplayAffinity(win32::h(w), &mut affinity) };
+    let inside = view_js(
+        "discord",
+        "(() => { const w = window.__w; return (w.opener === window) + ' ' + (String(w.WebSocket).includes('[native code]') ? 'native' : 'wrapped'); })()",
+    );
+    view_js("discord", "window.__w.fetch('https://127.0.0.5/', { mode: 'no-cors' }).catch(() => 0); 1");
+    wait(800);
+    let blocked = refused() - blocked_before;
+    view_js("discord", "window.__w.close(); 1");
+    wait(1000);
+    let closed = w != 0 && !win32::is_window(w);
+
+    // a blank one the site then sends to another site
+    let before = windows();
+    let decided = || {
+        lines("discord: a web page opens outside ChatDock (from a window of its own)")
+            + lines("discord: a web page not opened (nobody clicked it, in a window of its own)")
+    };
+    let said = decided();
+    view_js(
+        "discord",
+        "(() => { const w = window.open('about:blank'); window.__w2 = w; setTimeout(() => { try { w.location = 'https://example.org/'; } catch (e) {} }, 400); return 1; })()",
+    );
+    wait(3000);
+    let gone = windows().into_iter().all(|h| before.contains(&h));
+    let logged = decided() > said;
+    view_js("discord", "(() => { try { window.__w2.close(); } catch (e) {} return 1; })()");
+
+    // a call link
+    let icons = || on(|c| c.ui_state()["calls"].to_string());
+    let before = windows();
+    view_js("instagram", "(() => { window.__c = window.open('https://www.instagram.com/call/?selftest=1'); return 1; })()");
+    wait(3500);
+    let call = windows().into_iter().find(|h| !before.contains(h)).unwrap_or(0);
+    let call_ours = call != 0 && win32::window_pid(call) == std::process::id();
+    let in_call = icons();
+    // closed as you would (its page may have cut the tie to the chat that opened it)
+    on(move |_| unsafe {
+        let _ = PostMessageW(Some(win32::h(call)), WM_CLOSE, WPARAM(0), LPARAM(0));
+    });
+    wait(2000);
+    let after_call = icons();
+    on(|c| c.set_pref("hideFromCapture", json!(false)));
+    on(|c| c.load_home("discord"));
+    log!(
+        "security: windows the pages open: a blank one opened {opened}, ChatDock's {ours} (capture {affinity}) | in it: {inside} | refused {blocked} | closed by the site {closed} | one sent to another site: gone {gone}, the link decided on {logged} | a call link's window ChatDock's {call_ours}, icons {in_call}, after it closed {after_call} (expect true, true (17) | \"true wrapped\" | 1 | true | true, true | true, [instagram call], [])"
     );
 }
 
