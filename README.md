@@ -258,9 +258,13 @@ scripts/                    icon and README-media generators
 
 </details>
 
+## Support our work
+
+**Buy Me a Coffee:** https://buymeacoffee.com/resincore
+
 ## License
 
-[MIT](LICENSE) © 2026 ResinCore
+[MIT](LICENSE) Copyright © 2026 ResinCore. All rights reserved. Created by MrGunshi @luraselenehalo
 
 ChatDock is a ResinCore project and isn't affiliated with Meta, X, Discord, Telegram or WhatsApp.
 Their names and logos belong to their teams.
