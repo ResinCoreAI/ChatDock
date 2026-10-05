@@ -135,6 +135,7 @@ pub struct Toasts {
     /// game mode: what waits for the end of the game (newest first), the look at whether it's still
     /// in front, and since when it hasn't been
     pub held: Vec<Held>,
+    held_away: bool,
     game_timer: u64,
     game_gone_at: i64,
     /// self-test: a pretend game in front (or not), and the pop-ups shown off screen
@@ -201,12 +202,17 @@ impl Core {
     // -----------------------------------------------------------------------------------------
     // Game mode
     // -----------------------------------------------------------------------------------------
-    /// Game mode is on and a game (or a video) fills the screen: pop-ups wait.
+    /// Game mode is on and a game (or a video) fills the screen, or nobody can see the screen (the PC
+    /// is locked, a screen saver runs): pop-ups wait.
     pub fn game_holds(&self) -> bool {
-        self.settings.bool("popupQuietFullscreen") && self.toasts.test_game.unwrap_or_else(win32::game_in_front)
+        self.settings.bool("popupQuietFullscreen") && self.toasts.test_game.unwrap_or_else(|| win32::game_in_front() || win32::away())
     }
 
     fn hold_popup(&mut self, id: &str, f: Fields) {
+        if self.toasts.held.is_empty() {
+            // what the card afterwards says: while playing, or while away
+            self.toasts.held_away = self.toasts.test_game.is_none() && win32::away() && !win32::game_in_front();
+        }
         let tag = if f.tag.is_empty() { format!("{id}:{}", f.title) } else { f.tag };
         let n = match self.toasts.held.iter().position(|h| h.tag == tag) {
             Some(i) => self.toasts.held.remove(i).n + 1,
@@ -263,8 +269,22 @@ impl Core {
         for h in rows.iter_mut().filter(|h| h.tag.ends_with(":count")) {
             h.n = self.counts.get(&h.app).copied().unwrap_or(h.n).max(1); // an unread number: as it is now
         }
-        if rows.len() == 1 {
+        if rows.is_empty() {
+            return;
+        }
+        // the card of an earlier game still up: its rows come along (the newer of a conversation
+        // wins), and the new card takes its place
+        let earlier = self.toasts.items.iter().find(|it| it.action == "game").map(|it| it.rows.clone());
+        if let Some(old) = &earlier {
+            let more: Vec<Held> = old.iter().filter(|o| !rows.iter().any(|h| h.tag == o.tag)).cloned().collect();
+            rows.extend(more);
+        }
+        if rows.len() == 1 && earlier.is_none() {
             let h = rows.remove(0);
+            if h.tag.ends_with(":count") {
+                self.count_popup(&h.app, h.target); // an unread number: said as it is now
+                return;
+            }
             let meta = if h.meta.is_empty() && h.n > 1 { self.tv("toast.unread", &[("n", h.n.to_string())]) } else { h.meta };
             let fields = Fields {
                 title: h.who,
@@ -279,9 +299,6 @@ impl Core {
             self.show_popup(&h.app, fields);
             return;
         }
-        if rows.is_empty() {
-            return;
-        }
         let total: u32 = rows.iter().map(|h| h.n).sum();
         let mut item = Item::new_own(
             "chatdock",
@@ -289,7 +306,7 @@ impl Core {
             "logo",
             "#8b5cf6",
             self.tv("game.count", &[("n", total.to_string())]),
-            self.t("game.title"),
+            self.t(if self.toasts.held_away { "game.titleAway" } else { "game.title" }),
             String::new(),
             String::new(),
             "chatdock:game",
@@ -399,7 +416,7 @@ impl Core {
                     .map(|h| {
                         let a = apps::get(&h.app);
                         json!({
-                            "appId": h.app, "appName": a.map(|a| a.name).unwrap_or(""), "iconName": a.map(|a| a.icon).unwrap_or("logo"),
+                            "tag": h.tag, "appId": h.app, "appName": a.map(|a| a.name).unwrap_or(""), "iconName": a.map(|a| a.icon).unwrap_or("logo"),
                             "who": h.who, "text": h.text, "icon": h.icon, "meta": h.meta, "n": h.n,
                         })
                     })
@@ -746,13 +763,12 @@ impl Core {
                     self.open_from_toast(it);
                 }
             }
-            // a row of the card after a game: that chat (the other rows stay)
+            // a row of the card after a game: that chat (the other rows stay). The row by its
+            // conversation, not its place: one may have gone meanwhile.
             "toast:row" => {
-                let i = args.get(1).and_then(Value::as_u64).unwrap_or(u64::MAX) as usize;
+                let tag = args.get(1).and_then(Value::as_str).unwrap_or("");
                 let Some(pos) = self.toasts.items.iter().position(|x| x.key == key) else { return };
-                if i >= self.toasts.items[pos].rows.len() {
-                    return;
-                }
+                let Some(i) = self.toasts.items[pos].rows.iter().position(|h| h.tag == tag) else { return };
                 let row = self.toasts.items[pos].rows.remove(i);
                 if self.toasts.items[pos].rows.is_empty() {
                     self.toast_remove(&key, false);

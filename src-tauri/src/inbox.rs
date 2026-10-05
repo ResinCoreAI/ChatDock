@@ -96,6 +96,7 @@ const LATEST_JS: &str = r#"((open) => {
     return { r, name: ts[0].t, text: line.t, w: weight(line.e) };
   });
   const base = Math.min(...info.map((i) => i.w));
+  out.base = base;
   out.weights = new Set(info.map((i) => i.w)).size;
   const unread = info.filter((i) => i.w > base && i.w >= 600 && !mine.test(i.text));
   out.unread = unread.length;
@@ -167,13 +168,18 @@ fn latest_of(v: &Value) -> Option<Latest> {
     })
 }
 
-/// The conversation read, or that the list has nothing unread, or that there was no list.
+/// The conversation read, or that the list has nothing unread, or that there was no list. "Nothing
+/// unread" only when the page is sure to be the chat list: on a chats page, three rows or more that
+/// link to their conversations, and a normal (not bold) weight to tell unread rows from (with every
+/// row bold, they could all be unread).
 fn list_read(v: &Value) -> ListRead {
     if let Some(l) = latest_of(v) {
         return ListRead::Unread(l);
     }
     let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
-    if n("rows") >= 3 && n("unread") == 0 {
+    let page = v.get("page").and_then(Value::as_str).unwrap_or("");
+    let sure = n("rows") >= 3 && n("links") >= 3 && matches!(page, "list" | "conversation") && (1..600).contains(&n("base"));
+    if sure && n("unread") == 0 {
         ListRead::NothingUnread
     } else {
         ListRead::Unknown
@@ -297,16 +303,25 @@ mod tests {
 
     #[test]
     fn a_list_with_nothing_unread_is_told_from_no_list() {
-        assert_eq!(
-            list_read(&json!({ "how": "none", "page": "conversation", "rows": 11, "links": 11, "weights": 1, "unread": 0 })),
-            ListRead::NothingUnread
-        );
-        // too few rows to be sure it's the list, or nothing there at all
-        assert_eq!(list_read(&json!({ "how": "none", "rows": 2, "unread": 0 })), ListRead::Unknown);
+        // Facebook on 10-05: a conversation open, its list beside it, every row read
+        let read = json!({ "how": "none", "page": "conversation", "rows": 11, "links": 11, "weights": 1, "base": 400, "unread": 0 });
+        assert_eq!(list_read(&read), ListRead::NothingUnread);
+        // every row bold: they could all be unread
+        let bold = json!({ "how": "none", "page": "list", "rows": 5, "links": 5, "base": 700, "unread": 0 });
+        assert_eq!(list_read(&bold), ListRead::Unknown);
+        // rows without links (found by their shape), or another page: not sure it's the chat list
+        let shapes = json!({ "how": "none", "page": "list", "rows": 9, "links": 0, "base": 400, "unread": 0 });
+        assert_eq!(list_read(&shapes), ListRead::Unknown);
+        let other = json!({ "how": "none", "page": "other", "rows": 9, "links": 9, "base": 400, "unread": 0 });
+        assert_eq!(list_read(&other), ListRead::Unknown);
+        // too few rows, or nothing there at all
+        let few = json!({ "how": "none", "page": "list", "rows": 2, "links": 2, "base": 400, "unread": 0 });
+        assert_eq!(list_read(&few), ListRead::Unknown);
         assert_eq!(list_read(&json!({ "how": "none", "rows": 0 })), ListRead::Unknown);
         assert_eq!(list_read(&serde_json::Value::Null), ListRead::Unknown);
         // something unread that couldn't be read whole isn't "nothing unread"
-        assert_eq!(list_read(&json!({ "how": "none", "rows": 9, "unread": 1 })), ListRead::Unknown);
+        let half = json!({ "how": "none", "page": "list", "rows": 9, "links": 9, "base": 400, "unread": 1 });
+        assert_eq!(list_read(&half), ListRead::Unknown);
         assert!(matches!(list_read(&json!({ "how": "list", "rows": 9, "unread": 1, "name": "Nok", "text": "hi" })), ListRead::Unread(_)));
     }
 

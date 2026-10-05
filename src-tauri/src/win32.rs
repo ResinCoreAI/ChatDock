@@ -17,7 +17,7 @@ use windows::{
             HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
             Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState, VK_CONTROL, VK_LBUTTON, VK_MBUTTON, VK_MENU, VK_RBUTTON, VK_SHIFT},
             Shell::{
-                SHQueryUserNotificationState, ShellExecuteW, QUERY_USER_NOTIFICATION_STATE, QUNS_PRESENTATION_MODE,
+                SHQueryUserNotificationState, ShellExecuteW, QUERY_USER_NOTIFICATION_STATE, QUNS_NOT_PRESENT, QUNS_PRESENTATION_MODE,
                 QUNS_RUNNING_D3D_FULL_SCREEN,
             },
             WindowsAndMessaging::{
@@ -179,6 +179,12 @@ pub fn is_fullscreen_app_active() -> bool {
         let m = info.rcMonitor;
         r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
     }
+}
+
+/// Nobody can see the screen: the PC is locked, a screen saver runs, or another user's session is in
+/// front.
+pub fn away() -> bool {
+    notification_state() == QUNS_NOT_PRESENT
 }
 
 /// A game (or a video) fills the screen in front: exclusive fullscreen, a presentation, or a window

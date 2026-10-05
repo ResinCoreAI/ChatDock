@@ -527,6 +527,17 @@ impl Core {
         if version.is_empty() || self.update_announced == version {
             return;
         }
+        if self.game_holds() {
+            // not over the game (game mode): again in a minute; the header's button is there meanwhile
+            let v = version.to_string();
+            timer(60_000, move |c| {
+                if c.upd.version == v && matches!(c.upd.status, "ready" | "available") {
+                    let ready = c.upd.status == "ready";
+                    c.announce_update(&v, ready);
+                }
+            });
+            return;
+        }
         self.update_announced = version.to_string();
         self.broadcast_state();
         if !self.popup_allowed(None) {

@@ -39,8 +39,9 @@ const SLEEP_AFTER_MS: i64 = 10 * 60 * 1000;
 const CALL_WATCH_MS: u64 = 1000;
 const COUNT_POPUP_GRACE_MS: i64 = 20_000;
 pub const AUTO_RETRY_MS: u64 = 15_000;
-/// How long a site's number may be gone and still count as a blink when it comes back.
-const BLINK_MS: i64 = 120_000;
+/// How soon after its zero was trusted (3 s without a number) a site's number has to be back to
+/// count as a blink (Facebook's: 0.8 s on 10-05). Later, it may be a reply after reading elsewhere.
+const BLINK_MS: i64 = 15_000;
 
 /// A site's number fell to nothing while ChatDock was watching: what it was, for a while.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -53,7 +54,8 @@ pub struct CountDrop {
 
 /// The number is back, `n`: as high as before the drop and soon enough to be the site's title
 /// blinking (Facebook's loses its number for seconds at a time), not the user reading elsewhere —
-/// reading lowers it, and new messages after that start from the bottom again.
+/// reading lowers it, and what comes after that starts from the bottom again. (Only for sites whose
+/// number counts more than chats: for the others "back as high" may well be a reply.)
 fn count_blink(drop: &CountDrop, n: u32, now: i64) -> bool {
     n >= drop.site && now - drop.at < BLINK_MS
 }
@@ -1328,7 +1330,7 @@ impl Core {
 
     fn set_site_count(&mut self, id: &str, n: u32) {
         let was = self.site_counts.insert(id.to_string(), n).unwrap_or(0);
-        if self.chat_in_view(id) {
+        if self.chat_in_view(id) || !inbox::counts_notifications(id) {
             self.count_drops.remove(id);
         } else if n == 0 && was > 0 && self.counted_pages.contains(id) {
             // kept a while: it may come straight back (count_blink)
@@ -1391,6 +1393,15 @@ impl Core {
         self.update_glow(rise && badge);
         if rise {
             self.schedule_count_popup(id);
+        } else if n == 0 && self.count_drops.contains_key(id) {
+            // maybe only its title blinking (count_blink): its pop-ups, and the ones waiting for the
+            // end of a game, go only if it is still at nothing once that can't be the case any more
+            let app = id.to_string();
+            timer(BLINK_MS as u64 + 500, move |c| {
+                if c.counts.get(&app).copied().unwrap_or(0) == 0 {
+                    c.toasts_dismiss_app(&app);
+                }
+            });
         } else if n == 0 {
             self.toasts_dismiss_app(id); // read elsewhere (e.g. on the phone)
         }
@@ -1630,13 +1641,15 @@ impl Core {
             return;
         }
         let a = app.to_string();
+        // what the list is checked against (a number that goes up while it is read has a look of its own)
+        let site = self.site_counts.get(app).copied().unwrap_or(0);
         self.read_list(
             app,
             Box::new(move |c, read| {
                 if checks && c.counts.get(&a).copied().unwrap_or(0) > 0 {
                     match &read {
                         inbox::ListRead::NothingUnread if !c.flashed_lately(&a) => {
-                            c.not_a_chat(&a);
+                            c.not_a_chat(&a, site);
                             return;
                         }
                         inbox::ListRead::Unknown if tries < 4 && c.loaded_lately(&a) => {
@@ -1664,12 +1677,12 @@ impl Core {
         rt::epoch_ms() - self.load_started_at.get(app).copied().unwrap_or(0) < 30_000
     }
 
-    /// What the site counts now isn't a chat (count_rise_checked): it counts as seen, so the
-    /// number stays the chats' own.
-    fn not_a_chat(&mut self, app: &str) {
-        let site = self.site_counts.get(app).copied().unwrap_or(0);
+    /// What the site counted (`site`, when its list was read) isn't a chat (count_rise_checked): it
+    /// counts as seen, so the number stays the chats' own.
+    fn not_a_chat(&mut self, app: &str, site: u32) {
+        let site = site.min(self.site_counts.get(app).copied().unwrap_or(0));
         site_log!(app, "{app}: its number went up without an unread chat (one of its other notifications): not counted");
-        self.settings.set_in("seenCounts", app, json!(site));
+        self.settings.set_in("seenCounts", app, json!(site.max(self.seen_count(app))));
         self.save_soon();
         self.refresh_count(app);
     }
@@ -2259,16 +2272,17 @@ mod tests {
 
     #[test]
     fn a_number_back_as_high_and_soon_is_a_blink() {
-        // Facebook, 10-05 11:51: "(10)" gone for 3.8 s, back as "(10)"; 9 of them had been seen
+        // Facebook, 10-05 11:51: "(10)" gone 3.8 s (its zero trusted after 3 s), back as "(10)" 0.8 s
+        // after that; 9 of them had been seen
         let drop = CountDrop { site: 10, seen: 9, unread: 1, at: 1_000 };
-        assert!(count_blink(&drop, 10, 4_800));
-        assert!(count_blink(&drop, 12, 60_000)); // and two new ones meanwhile
+        assert!(count_blink(&drop, 10, 1_800));
+        assert!(count_blink(&drop, 12, 9_000)); // and two new ones meanwhile
     }
 
     #[test]
     fn a_lower_number_or_a_late_one_is_not() {
         let drop = CountDrop { site: 10, seen: 9, unread: 1, at: 1_000 };
-        assert!(!count_blink(&drop, 1, 4_800)); // read elsewhere, then one new message
-        assert!(!count_blink(&drop, 10, 1_000 + 120_000)); // gone two minutes: not a blink any more
+        assert!(!count_blink(&drop, 1, 1_800)); // read elsewhere, then one new message
+        assert!(!count_blink(&drop, 10, 1_000 + 15_000)); // back 15 s later: maybe a reply after reading
     }
 }

@@ -100,7 +100,7 @@ function fillRows(card, it) {
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   card.querySelector('.sum-head .meta').textContent = it.meta;
-  box.replaceChildren(...it.rows.map((r, i) => {
+  box.replaceChildren(...it.rows.map((r) => {
     const row = document.createElement('div');
     row.className = 'row';
     const words = document.createElement('div');
@@ -122,7 +122,7 @@ function fillRows(card, it) {
     row.append(avatarOf(r.iconName, r.icon), words, n);
     row.addEventListener('click', (e) => {
       e.stopPropagation();
-      chatdock.send('toast:row', it.key, i);
+      chatdock.send('toast:row', it.key, r.tag); // the conversation, not its place in the card
     });
     return row;
   }));

@@ -45,7 +45,8 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🖥️ **Several monitors** | *Settings → Monitors & position* shows a map of your monitors (with their own names, e.g. “DELL U2720Q” or “Built-in screen”). *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor, lit up on the map — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or click one monitor to always open the chat there: it is remembered by the monitor itself, so it survives unplugging and Windows renumbering its screens. *Show numbers on the screens* tells them apart, and pop-ups can go on the chat's monitor, where the mouse is, or the main monitor. |
 | 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 3 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
-| ⚙️ **Fully adjustable pop-ups** | Any screen corner · which monitor · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · stay quiet while a fullscreen game or video is in front. |
+| 🎮 **Game mode** | Rather not be disturbed? While a game or a video fills the screen, pop-ups wait; when you leave it, one card shows who wrote (a row per conversation, click one to open it). Tray menu → *Game mode*, or *Settings → Notifications*. |
+| ⚙️ **Fully adjustable pop-ups** | Any screen corner · which monitor · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · game mode. |
 | 🔎 **Settings that are easy to find** | A home page with search (in your language or English) and a one-line summary under each category, then a short page per category. |
 | 🔢 **Unread numbers that clear** | The number on each app counts only what's new since you last looked at it: open the app and it's gone, even when the site's own number also counts likes or follows. A message that arrives in the conversation you're reading never pops up afterwards. |
 | 🎚️ **Per-app notifications** | For each app on its own: pop-ups, message text, chime, unread count & glow, and the site’s own sounds. |
@@ -106,8 +107,8 @@ installer replaces the old copy, and your logins, settings and "start with Windo
 | Reload / back | <kbd>Ctrl</kbd>+<kbd>R</kbd> or <kbd>F5</kbd> · <kbd>Alt</kbd>+<kbd>←</kbd> |
 | Settings | The ⚙️ button in the header, or right-click the tray icon → Settings |
 
-The tray menu (right-click the ChatDock icon) has the quick switches: pop-ups on/off, do not disturb
-(30 min … until turned off), pin, settings, quit.
+The tray menu (right-click the ChatDock icon) has the quick switches: pop-ups on/off, game mode, do not
+disturb (30 min … until turned off), pin, settings, how to use (the guide again), quit.
 
 ### Knowing about new messages
 

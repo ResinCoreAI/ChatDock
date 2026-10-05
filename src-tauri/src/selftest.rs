@@ -2097,7 +2097,53 @@ fn game_mode_test() {
     wait(500);
     log!("X read meanwhile: {} (expect the card with 2 rows: Instagram, Discord, and ใหม่ 3)", page_js("toasts", card));
     shot("95-game-summary-2");
+    // another game ends while that card is still up: one card with both games' rows
+    on(|c| {
+        c.toasts.test_game = Some(true);
+        c.on_site_notification("x", 0, "Cee", "ready?", "", "x3");
+        c.on_site_notification("discord", 0, "Dan", "here", "", "dc3");
+    });
+    wait(400);
+    on(|c| c.toasts.test_game = Some(false));
+    wait(3200);
+    log!("a second game while the first card is up: {} (expect one card: Dan, Cee, Nok, Alice; ใหม่ 5)", page_js("toasts", card));
     on(|c| c.toasts_dismiss_all());
+    wait(700);
+
+    // Facebook's title blinks during the game (its number gone 3 s, then back): what waits stays
+    on(|c| {
+        c.toasts.test_game = Some(true);
+        c.counted_pages.insert("facebook".into());
+        c.site_counts.insert("facebook".into(), 10);
+        c.settings.set_in("seenCounts", "facebook", json!(9));
+        c.counts.insert("facebook".into(), 1);
+        let beam = crate::inbox::Latest { name: "Beam".into(), text: "brb".into(), avatar: String::new(), href: "/messages/t/9/".into() };
+        c.count_popup_for_test("facebook", Some(beam));
+        c.on_title("facebook", "Facebook");
+    });
+    wait(3500);
+    let gone = on(|c| (c.counts.get("facebook").copied().unwrap_or(0), c.held_count()));
+    on(|c| c.on_title("facebook", "(10) Facebook"));
+    wait(300);
+    let back = on(|c| (c.counts.get("facebook").copied().unwrap_or(0), c.held_count()));
+    on(|c| c.toasts.test_game = Some(false));
+    wait(3200);
+    log!("Facebook blink in a game: number gone → (unread, waiting) {gone:?} (expect 0, 1) | back → {back:?} (expect 1, 1) | after the game: {} (expect Beam's own card)", page_js("toasts", card));
+    on(|c| {
+        c.toasts_dismiss_all();
+        c.set_count("facebook", 0);
+    });
+    wait(700);
+
+    // an update found during the game: no pop-up over it (it comes later)
+    on(|c| {
+        c.toasts.test_game = Some(true);
+        c.update_announced.clear();
+        c.announce_update("9.9.9", true);
+    });
+    wait(400);
+    log!("update during a game: shown {} announced {:?} (expect 0, \"\")", on(|c| c.toasts_count()), on(|c| c.update_announced.clone()));
+    on(|c| c.toasts.test_game = Some(false));
     wait(700);
 
     // just one conversation waited: it shows as its own pop-up
@@ -2202,6 +2248,29 @@ fn facebook_count_test() {
     wait(200);
     log!("Facebook read elsewhere, then one new: {} (expect unread 1 seen 0)", state());
 
+    // 2b. Instagram: read on the phone, the reply comes back as "(1)": news, not a blink
+    let ig = "instagram";
+    on(move |c| {
+        c.counted_pages.insert(ig.into());
+        c.site_counts.insert(ig.into(), 1);
+        c.settings.set_in("seenCounts", ig, json!(0));
+        c.counts.insert(ig.into(), 1);
+        c.load_started_at.insert(ig.into(), 0);
+        if let Some(t) = c.fallback_timers.remove(ig) {
+            rt::cancel(t);
+        }
+        c.on_title(ig, "Instagram");
+    });
+    wait(3400);
+    on(move |c| c.on_title(ig, "(1) Instagram"));
+    wait(200);
+    log!(
+        "Instagram read elsewhere, then a reply: unread {} pop-up coming {} (expect 1, true)",
+        on(move |c| c.counts.get(ig).copied().unwrap_or(0)),
+        on(move |c| c.fallback_timers.contains_key(ig))
+    );
+    on(move |c| c.set_count(ig, 0));
+
     // 3. a like: "(11)", nothing unread in the chat list, no message in the title
     let list = |weights: [u32; 4]| {
         format!(
@@ -2215,6 +2284,8 @@ fn facebook_count_test() {
             weights = json!(weights)
         )
     };
+    // (on a page of chats, as Facebook's always is: a conversation with the list beside it)
+    view_js(fb, "history.pushState({}, '', '/messages/t/1/'), 1");
     view_js(fb, &list([400, 400, 400, 400]));
     on(start);
     on(move |c| c.on_title(fb, "(11) Facebook"));
