@@ -17,7 +17,7 @@ let closing = false;
 // turns stop on the last frame: nothing keeps redrawing a window left open for hours.
 // ---------------------------------------------------------------------------------------------
 const DEMOS = {
-  '1.7.4': ['guide', 'fbIcon', 'glide'],
+  '1.7.4': ['guide', 'fbIcon', 'glide', 'gameMode'],
   '1.7.1': ['spotify', 'volume', 'dcList'],
   '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'],
 };
@@ -56,6 +56,11 @@ const SCENES = {
     <div class="pill2"><i class="chev"></i><i class="ap">${icon('instagram')}</i>
     <i class="ap swap"><span class="old">${MESSENGER(2)}</span><span class="new">${icon('facebook')}</span><i class="ring"></i></i>
     <i class="ap">${icon('x')}</i><i class="ap">${icon('discord')}</i></div>`,
+  // game mode: messages wait while the game fills the screen, then one card says who wrote
+  gameMode: () => `<div class="desk"><i class="tb"></i></div><div class="gm">${GAME}</div>
+    <div class="wait"><i class="pz"></i><i class="a a1"></i><i class="a a2"></i><i class="a a3"></i></div>
+    <div class="sum"><div class="sh"><i class="lg">${icon('logo')}</i><p><b>${esc(texts.gameTitle)}</b><small>${esc(texts.gameCount)}</small></p></div>
+      <p class="r r1"><i class="av"></i><b></b><span></span><em>2</em></p><p class="r r2"><i class="av"></i><b></b><span></span></p></div>${CURSOR}`,
   // the highlight glides to the app picked; a new message's number pops
   glide: () => `<div class="hdr"><i class="gl"></i>${['instagram', 'facebook', 'x', 'discord'].map((a, i) => `<i class="t t${i + 1}">${icon(a)}</i>`).join('')}
     <b class="bd b1">1</b><b class="bd b2">2</b></div>${CURSOR}`,

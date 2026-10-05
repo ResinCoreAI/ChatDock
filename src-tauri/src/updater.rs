@@ -719,6 +719,8 @@ impl Core {
                     "muted": self.t("dc.muted"),
                     "unmuted": self.t("dc.unmuted"),
                     "keepAwake": self.t("dc.keepAwake"),
+                    "gameTitle": self.t("game.title"),
+                    "gameCount": self.tv("game.count", &[("n", "3".to_string())]),
                 },
                 "sections": sections,
                 "ok": self.t("wn.ok"),

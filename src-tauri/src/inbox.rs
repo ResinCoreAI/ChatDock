@@ -22,6 +22,12 @@ pub fn reads_list(app: &str) -> bool {
     matches!(app, "instagram" | "facebook")
 }
 
+/// Apps whose unread number also counts things that aren't chats (Facebook's: likes, comments,
+/// friend requests), so each rise is checked against the chat list.
+pub fn counts_notifications(app: &str) -> bool {
+    app == "facebook"
+}
+
 /// The newest unread conversation, as the chat list shows it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Latest {
@@ -30,6 +36,26 @@ pub struct Latest {
     pub avatar: String,
     /// its link ("/messages/t/…"), when the row is one; else its name finds it again
     pub href: String,
+}
+
+/// What the chat list said.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListRead {
+    /// the newest unread conversation
+    Unread(Latest),
+    /// the list is there (three rows or more) and nothing in it looks unread
+    NothingUnread,
+    /// no list to read: another page, one still loading, or one not understood
+    Unknown,
+}
+
+impl ListRead {
+    pub fn latest(self) -> Option<Latest> {
+        match self {
+            ListRead::Unread(l) => Some(l),
+            _ => None,
+        }
+    }
 }
 
 /// How long the chat stays hidden before a page left on a conversation goes back to its list.
@@ -141,6 +167,19 @@ fn latest_of(v: &Value) -> Option<Latest> {
     })
 }
 
+/// The conversation read, or that the list has nothing unread, or that there was no list.
+fn list_read(v: &Value) -> ListRead {
+    if let Some(l) = latest_of(v) {
+        return ListRead::Unread(l);
+    }
+    let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
+    if n("rows") >= 3 && n("unread") == 0 {
+        ListRead::NothingUnread
+    } else {
+        ListRead::Unknown
+    }
+}
+
 /// How the page looked, for the log: never its text.
 fn shape(v: &Value) -> String {
     let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
@@ -161,13 +200,13 @@ fn shape(v: &Value) -> String {
 }
 
 type Then = Box<dyn FnOnce(&mut Core, Option<Latest>) + Send>;
+type ThenRead = Box<dyn FnOnce(&mut Core, ListRead) + Send>;
 
 impl Core {
-    /// Reads the newest unread conversation from `app`'s chat list, then `then` with it (None: the
-    /// page shows a conversation rather than the list, or nothing there looks unread).
-    pub fn read_latest(&mut self, app: &str, then: Then) {
+    /// Reads `app`'s chat list, then `then` with what it said.
+    pub fn read_list(&mut self, app: &str, then: ThenRead) {
         if !reads_list(app) || !self.chats.has(app) {
-            then(self, None);
+            then(self, ListRead::Unknown);
             return;
         }
         let a = app.to_string();
@@ -175,9 +214,15 @@ impl Core {
             let v = parse(&result);
             later(move |c| {
                 log!("{a}: who wrote: {}", shape(&v));
-                then(c, latest_of(&v));
+                then(c, list_read(&v));
             });
         });
+    }
+
+    /// Reads the newest unread conversation from `app`'s chat list, then `then` with it (None: the
+    /// page shows no list, or nothing there looks unread).
+    pub fn read_latest(&mut self, app: &str, then: Then) {
+        self.read_list(app, Box::new(move |c, read| then(c, read.latest())));
     }
 
     /// The edge tab or a pop-up opened `app` on something new: straight into that conversation (the
@@ -248,7 +293,22 @@ impl Core {
 mod tests {
     use serde_json::json;
 
-    use super::{latest_js, latest_of, open_js, shape, Latest};
+    use super::{latest_js, latest_of, list_read, open_js, shape, Latest, ListRead};
+
+    #[test]
+    fn a_list_with_nothing_unread_is_told_from_no_list() {
+        assert_eq!(
+            list_read(&json!({ "how": "none", "page": "conversation", "rows": 11, "links": 11, "weights": 1, "unread": 0 })),
+            ListRead::NothingUnread
+        );
+        // too few rows to be sure it's the list, or nothing there at all
+        assert_eq!(list_read(&json!({ "how": "none", "rows": 2, "unread": 0 })), ListRead::Unknown);
+        assert_eq!(list_read(&json!({ "how": "none", "rows": 0 })), ListRead::Unknown);
+        assert_eq!(list_read(&serde_json::Value::Null), ListRead::Unknown);
+        // something unread that couldn't be read whole isn't "nothing unread"
+        assert_eq!(list_read(&json!({ "how": "none", "rows": 9, "unread": 1 })), ListRead::Unknown);
+        assert!(matches!(list_read(&json!({ "how": "list", "rows": 9, "unread": 1, "name": "Nok", "text": "hi" })), ListRead::Unread(_)));
+    }
 
     #[test]
     fn what_the_page_said_becomes_the_pop_up() {

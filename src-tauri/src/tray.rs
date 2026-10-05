@@ -177,13 +177,14 @@ impl Core {
         let tip: String = tip.join("\n").chars().take(127).collect(); // Windows cuts tooltips at 127 characters
 
         let menu_key = format!(
-            "{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}",
             self.lang,
             update_ready,
             self.upd.version,
             self.panel_state == crate::core::PanelState::Hidden,
             self.enabled_apps().iter().map(|id| (id.to_string(), self.shown_count(id))).collect::<Vec<_>>(),
             self.settings.bool("popups"),
+            self.settings.bool("popupQuietFullscreen"),
             if self.dnd_active() { self.settings.i64("dndUntil") } else { 0 },
             self.settings.bool("pinned"),
             hotkey,
@@ -250,6 +251,7 @@ impl Core {
         }
         items.push(sep()?);
         items.push(Box::new(check("popups", self.t("tray.popups"), self.settings.bool("popups"))?));
+        items.push(Box::new(check("game", self.t("tray.gameMode"), self.settings.bool("popupQuietFullscreen"))?));
 
         let dnd = self.dnd_active();
         let until = self.settings.i64("dndUntil");
@@ -294,6 +296,10 @@ impl Core {
             "popups" => {
                 let on = !self.settings.bool("popups");
                 self.set_pref("popups", serde_json::json!(on));
+            }
+            "game" => {
+                let on = !self.settings.bool("popupQuietFullscreen");
+                self.set_pref("popupQuietFullscreen", serde_json::json!(on));
             }
             "pin" => {
                 let on = !self.settings.bool("pinned");

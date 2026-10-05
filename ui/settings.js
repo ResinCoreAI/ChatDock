@@ -677,7 +677,8 @@
     const onCount = st.catalog.filter((a) => a.on).length;
     sub('apps', st.memory ? t('s.appsSub', { n: onCount, mb: mb(st.memory) }) : t('s.appsOn', { n: onCount }));
 
-    sub('popups', !p.popups ? t('s.popupsOff') : dndOn() ? t('set.dnd') : t('s.popupsOn', { corner: t(CORNERS[p.popupPosition] || 'corner.tr') }));
+    const popupsOn = t('s.popupsOn', { corner: t(CORNERS[p.popupPosition] || 'corner.tr') }) + (p.popupQuietFullscreen ? ` · ${t('set.quietFs')}` : '');
+    sub('popups', !p.popups ? t('s.popupsOff') : dndOn() ? t('set.dnd') : popupsOn);
     sub('security', t(st.cookieEncryption ? 's.secOk' : 's.secDev'));
     const vkLabel = (acc) => (st.voiceKeys.find((k) => k.acc === acc) || {}).label;
     const keys = [vkLabel(p.discordMuteKey), vkLabel(p.discordDeafenKey)].filter(Boolean).join(', ');

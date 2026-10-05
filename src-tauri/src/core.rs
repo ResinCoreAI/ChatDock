@@ -39,6 +39,24 @@ const SLEEP_AFTER_MS: i64 = 10 * 60 * 1000;
 const CALL_WATCH_MS: u64 = 1000;
 const COUNT_POPUP_GRACE_MS: i64 = 20_000;
 pub const AUTO_RETRY_MS: u64 = 15_000;
+/// How long a site's number may be gone and still count as a blink when it comes back.
+const BLINK_MS: i64 = 120_000;
+
+/// A site's number fell to nothing while ChatDock was watching: what it was, for a while.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CountDrop {
+    pub site: u32,
+    pub seen: u32,
+    pub unread: u32,
+    pub at: i64,
+}
+
+/// The number is back, `n`: as high as before the drop and soon enough to be the site's title
+/// blinking (Facebook's loses its number for seconds at a time), not the user reading elsewhere —
+/// reading lowers it, and new messages after that start from the bottom again.
+fn count_blink(drop: &CountDrop, n: u32, now: i64) -> bool {
+    n >= drop.site && now - drop.at < BLINK_MS
+}
 
 // ---------------------------------------------------------------------------------------------
 // Command line
@@ -232,6 +250,10 @@ pub struct Core {
     pub retry_timers: HashMap<String, u64>,
     pub fallback_timers: HashMap<String, u64>,
     pub last_flash: HashMap<String, (String, i64)>,
+    /// a site's number that fell to nothing while ChatDock was watching, kept a while (count_blink)
+    pub count_drops: HashMap<String, CountDrop>,
+    /// numbers back after a blink: how many of them were shown before it (they don't pop up again)
+    pub quiet_rises: HashMap<String, u32>,
     pub last_content_at: HashMap<String, i64>,
     pub load_started_at: HashMap<String, i64>,
     // panel
@@ -1305,7 +1327,24 @@ impl Core {
     }
 
     fn set_site_count(&mut self, id: &str, n: u32) {
-        self.site_counts.insert(id.to_string(), n);
+        let was = self.site_counts.insert(id.to_string(), n).unwrap_or(0);
+        if self.chat_in_view(id) {
+            self.count_drops.remove(id);
+        } else if n == 0 && was > 0 && self.counted_pages.contains(id) {
+            // kept a while: it may come straight back (count_blink)
+            let drop =
+                CountDrop { site: was, seen: self.seen_count(id), unread: self.counts.get(id).copied().unwrap_or(0), at: rt::epoch_ms() };
+            self.count_drops.insert(id.to_string(), drop);
+        } else if n > 0 {
+            if let Some(d) = self.count_drops.remove(id) {
+                if self.counted_pages.contains(id) && count_blink(&d, n, rt::epoch_ms()) {
+                    // what was seen before the blink stays seen, and what was shown doesn't pop up again
+                    self.settings.set_in("seenCounts", id, json!(d.seen));
+                    self.quiet_rises.insert(id.to_string(), d.unread);
+                    site_log!(id, "{id}: its number came back ({} -> 0 -> {n}): nothing was read meanwhile", d.site);
+                }
+            }
+        }
         self.refresh_count(id);
         if n > 0 {
             self.counted_pages.insert(id.to_string()); // (after: its first number is checked against "seen")
@@ -1339,6 +1378,8 @@ impl Core {
 
     pub fn set_count(&mut self, id: &str, n: u32) {
         let before = *self.counts.get(id).unwrap_or(&0);
+        // back after a blink: as many as were shown before it aren't new
+        let shown = self.quiet_rises.remove(id).unwrap_or(0);
         if before == n {
             return;
         }
@@ -1346,8 +1387,9 @@ impl Core {
         site_log!(id, "unread {id} {before} -> {n} (the site counts {})", self.site_counts.get(id).copied().unwrap_or(0));
         self.broadcast_state();
         let badge = self.settings.app_pref(id, "badge");
-        self.update_glow(n > before && badge);
-        if n > before {
+        let rise = n > before.max(shown);
+        self.update_glow(rise && badge);
+        if rise {
             self.schedule_count_popup(id);
         } else if n == 0 {
             self.toasts_dismiss_app(id); // read elsewhere (e.g. on the phone)
@@ -1412,17 +1454,16 @@ impl Core {
         });
     }
 
-    /// Every "should this pop up?" rule the user can set, except "already reading that chat".
+    /// Every "should this pop up?" rule the user can set, except "already reading that chat" (and
+    /// game mode, which keeps pop-ups for later instead: toasts.rs).
     pub fn popup_allowed(&self, id: Option<&str>) -> bool {
         if !self.settings.bool("popups") || self.dnd_active() {
             return false;
         }
-        if let Some(id) = id {
-            if !self.settings.app_pref(id, "popups") {
-                return false;
-            }
+        match id {
+            Some(id) => self.settings.app_pref(id, "popups"),
+            None => true,
         }
-        !(self.settings.bool("popupQuietFullscreen") && win32::is_fullscreen_app_active())
     }
 
     /// Is the user already looking at this app's chat?
@@ -1566,25 +1607,71 @@ impl Core {
         let app = id.to_string();
         let t = timer(2500, move |c| {
             c.fallback_timers.remove(&app);
-            if !c.count_popup_due(&app) {
-                return;
-            }
-            if inbox::reads_list(&app) {
-                // who wrote, from the page's chat list (these sites never say it in a notification)
-                let a = app.clone();
-                c.read_latest(
-                    &app,
-                    Box::new(move |c, latest| {
-                        if c.count_popup_due(&a) {
-                            c.count_popup(&a, latest);
-                        }
-                    }),
-                );
-            } else {
-                c.count_popup(&app, None);
-            }
+            c.count_rise_checked(&app, 0);
         });
         self.fallback_timers.insert(id.to_string(), t);
+    }
+
+    /// A moment after an unread number went up: who wrote, from the page's chat list where there is
+    /// one (these sites never say it in a notification), and the pop-up. Facebook's number counts
+    /// its other notifications too (likes, comments, friend requests): a rise with nothing unread in
+    /// its chat list and no "… sent you a message" in its title is one of those, and isn't counted
+    /// (a page that has only just loaded is read again a few times first: its list comes later).
+    fn count_rise_checked(&mut self, app: &str, tries: u32) {
+        let due = self.count_popup_due(app);
+        let checks = inbox::counts_notifications(app);
+        if !inbox::reads_list(app) {
+            if due {
+                self.count_popup(app, None);
+            }
+            return;
+        }
+        if !due && !checks {
+            return;
+        }
+        let a = app.to_string();
+        self.read_list(
+            app,
+            Box::new(move |c, read| {
+                if checks && c.counts.get(&a).copied().unwrap_or(0) > 0 {
+                    match &read {
+                        inbox::ListRead::NothingUnread if !c.flashed_lately(&a) => {
+                            c.not_a_chat(&a);
+                            return;
+                        }
+                        inbox::ListRead::Unknown if tries < 4 && c.loaded_lately(&a) => {
+                            let b = a.clone();
+                            timer(3000, move |c| c.count_rise_checked(&b, tries + 1));
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                if c.count_popup_due(&a) {
+                    c.count_popup(&a, read.latest());
+                }
+            }),
+        );
+    }
+
+    /// The title said "… sent you a message" in the last 15 s.
+    fn flashed_lately(&self, app: &str) -> bool {
+        self.last_flash.get(app).is_some_and(|(_, at)| rt::epoch_ms() - at < 15_000)
+    }
+
+    /// The app's page (re)loaded in the last 30 s.
+    fn loaded_lately(&self, app: &str) -> bool {
+        rt::epoch_ms() - self.load_started_at.get(app).copied().unwrap_or(0) < 30_000
+    }
+
+    /// What the site counts now isn't a chat (count_rise_checked): it counts as seen, so the
+    /// number stays the chats' own.
+    fn not_a_chat(&mut self, app: &str) {
+        let site = self.site_counts.get(app).copied().unwrap_or(0);
+        site_log!(app, "{app}: its number went up without an unread chat (one of its other notifications): not counted");
+        self.settings.set_in("seenCounts", app, json!(site));
+        self.save_soon();
+        self.refresh_count(app);
     }
 
     /// Is a pop-up for `app`'s unread number still wanted (checked again after its list was read)?
@@ -2109,7 +2196,7 @@ pub fn safe_icon(url: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{same_folder, seen_after, test_folder};
+    use super::{count_blink, same_folder, seen_after, test_folder, CountDrop};
 
     #[test]
     fn a_folder_is_the_same_however_it_is_written() {
@@ -2166,5 +2253,22 @@ mod tests {
         // it went down while ChatDock wasn't watching (closed, the app asleep or off), then new
         // messages came: they can't be told apart from the old ones, so none of them is hidden
         assert_eq!(seen_after(5, 2, false, false), 0);
+    }
+
+    // count_blink(drop, back to, now)
+
+    #[test]
+    fn a_number_back_as_high_and_soon_is_a_blink() {
+        // Facebook, 10-05 11:51: "(10)" gone for 3.8 s, back as "(10)"; 9 of them had been seen
+        let drop = CountDrop { site: 10, seen: 9, unread: 1, at: 1_000 };
+        assert!(count_blink(&drop, 10, 4_800));
+        assert!(count_blink(&drop, 12, 60_000)); // and two new ones meanwhile
+    }
+
+    #[test]
+    fn a_lower_number_or_a_late_one_is_not() {
+        let drop = CountDrop { site: 10, seen: 9, unread: 1, at: 1_000 };
+        assert!(!count_blink(&drop, 1, 4_800)); // read elsewhere, then one new message
+        assert!(!count_blink(&drop, 10, 1_000 + 120_000)); // gone two minutes: not a blink any more
     }
 }

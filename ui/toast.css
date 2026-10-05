@@ -122,6 +122,46 @@ body.left .card.enter { animation-name: slide-in-left; }
 .card:hover .close { opacity: 1; }
 .close:hover { background: rgba(255, 255, 255, .1); color: #fff; }
 
+/* The card after a game (game mode): a heading, then a row per conversation */
+.card.summary { flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 38px 10px 15px; }
+.sum-head { display: flex; align-items: center; gap: 10px; }
+.sum-logo svg { display: block; width: 30px; height: 30px; }
+.summary .sum-head .title { margin: 0; }
+.summary .sum-head .meta { color: #b9a4ff; font-weight: 600; }
+.rows { display: flex; flex-direction: column; margin: 0 -26px 0 -7px; }
+.rows .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 7px;
+  border-radius: 10px;
+  transition: background .15s;
+}
+.rows .row:hover { background: rgba(255, 255, 255, .08); }
+.rows .avatar, .rows .avatar img, .rows .avatar .big { width: 36px; height: 36px; }
+.rows .avatar .big svg { width: 20px; height: 20px; }
+.rows .app-badge { width: 17px; height: 17px; right: -3px; bottom: -3px; }
+.rows .app-badge svg { width: 11px; height: 11px; }
+.rt { flex: 1; min-width: 0; }
+.rt b, .rt span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt b { font-size: 13.5px; line-height: 1.35; }
+.rt b small { color: #a4a4b4; font-size: 11.5px; font-weight: 400; }
+.rt span { color: #dcdce7; font-size: 12.5px; line-height: 1.4; }
+.rows .n {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #ff3040;
+  color: #fff;
+  font: 700 11px/20px "Segoe UI", sans-serif;
+  font-style: normal;
+  text-align: center;
+}
+.rows .n[hidden] { display: none; }
+.rows-more { padding: 3px 7px 0; color: #a4a4b4; font-size: 12px; }
+
 .more {
   animation: more-in .25s ease-out;
   width: 360px;

@@ -171,6 +171,7 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
   .s-dcServers .flip::after { transform: none; }
   .s-lighter .bar b { transform: scaleX(.04); }
   .s-lighter .bar b::after { opacity: 0; }
+  .s-gameMode .gm, .s-gameMode .wait { display: none; }
 }
 
 /* things several scenes use */
@@ -254,6 +255,57 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
 .s-fbIcon .ap { width: 24px; height: 24px; color: #111; }
 .s-fbIcon .ap svg { width: 24px; height: 24px; }
 .s-fbIcon .pill2 .ring { animation-delay: .1s; }
+
+/* game mode: messages wait while the game fills the screen, then one card says who wrote */
+.s-gameMode .desk { inset: 0; background: linear-gradient(135deg, #1e3a8a 0%, #4c1d95 60%, #6d28d9 100%); }
+.s-gameMode .tb { left: 0; right: 0; bottom: 0; height: 16px; background: rgba(16, 17, 26, .85); }
+.s-gameMode .gm { inset: 0; background: radial-gradient(130% 110% at 12% 0%, #30345a 0%, #1a1b2e 55%, #111219 100%); animation-name: gm-off; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
+@keyframes gm-off { 0%, 50% { opacity: 1; transform: none; } 57%, 100% { opacity: 0; transform: scale(.94); } }
+.s-gameMode .wait { right: 14px; top: 14px; height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 9px 0 8px; border-radius: 15px; background: rgba(0, 0, 0, .45); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); animation-name: gm-wait; }
+@keyframes gm-wait { 0%, 6% { opacity: 0; } 10%, 49% { opacity: 1; } 54%, 100% { opacity: 0; } }
+.s-gameMode .wait > * { position: relative; flex: none; }
+.s-gameMode .pz { width: 10px; height: 12px; margin-right: 2px; }
+.s-gameMode .pz::before, .s-gameMode .pz::after { content: ""; position: absolute; top: 0; width: 3px; height: 12px; border-radius: 1px; background: #cfcfe0; }
+.s-gameMode .pz::before { left: 1px; }
+.s-gameMode .pz::after { left: 6px; }
+.s-gameMode .a { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ec4899); box-shadow: 0 0 0 2px rgba(0, 0, 0, .45); }
+.s-gameMode .a2 { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
+.s-gameMode .a3 { background: linear-gradient(135deg, #a78bfa, #ec4899); }
+.s-gameMode .a1 { animation-name: gm-a1; }
+.s-gameMode .a2 { animation-name: gm-a2; }
+.s-gameMode .a3 { animation-name: gm-a3; }
+@keyframes gm-a1 { 0%, 13% { opacity: 0; transform: scale(.4); } 17%, 100% { opacity: 1; transform: none; } }
+@keyframes gm-a2 { 0%, 25% { opacity: 0; transform: scale(.4); } 29%, 100% { opacity: 1; transform: none; } }
+@keyframes gm-a3 { 0%, 37% { opacity: 0; transform: scale(.4); } 41%, 100% { opacity: 1; transform: none; } }
+.s-gameMode .sum { right: 14px; top: 16px; width: 236px; padding: 10px 12px 8px; border-radius: 13px; background: #1f2029; border-left: 3px solid #8b5cf6; box-shadow: 0 10px 24px rgba(0, 0, 0, .5); animation-name: gm-sum; }
+@keyframes gm-sum { 0%, 54% { transform: translateX(120%); opacity: 0; animation-timing-function: cubic-bezier(.16, 1, .3, 1); } 62%, 100% { transform: none; opacity: 1; } }
+.s-gameMode .sum > * { position: relative; }
+.s-gameMode .sh { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+.s-gameMode .sh > * { position: relative; flex: none; }
+.s-gameMode .sh .lg svg { width: 24px; height: 24px; }
+.s-gameMode .sh p { flex: 1; min-width: 0; }
+.s-gameMode .sh b, .s-gameMode .sh small { position: relative; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-gameMode .sh b { color: #fff; font-size: 12px; }
+.s-gameMode .sh small { color: #b9a4ff; font-size: 10px; font-weight: 600; }
+.s-gameMode .r { height: 36px; margin: 0 -6px; border-radius: 8px; }
+.s-gameMode .r .av { position: absolute; left: 6px; top: 6px; width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ec4899); } /* (.scene .av would make it inline: no size) */
+.s-gameMode .r2 .av { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
+.s-gameMode .r b { left: 38px; top: 10px; width: 74px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .75); }
+.s-gameMode .r span { left: 38px; top: 21px; width: 112px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .32); }
+.s-gameMode .r2 b { width: 58px; }
+.s-gameMode .r2 span { width: 92px; }
+.s-gameMode .r em { right: 6px; top: 9px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #ff3040; color: #fff; font: 700 10px/18px "Segoe UI", sans-serif; font-style: normal; text-align: center; }
+.s-gameMode .r1 { animation-name: gm-row; }
+@keyframes gm-row { 0%, 79% { background: transparent; } 81%, 100% { background: rgba(255, 255, 255, .1); } }
+.s-gameMode .cur { animation-name: gm-cur; }
+@keyframes gm-cur {
+  0%, 62% { transform: translate(300px, 176px); opacity: 0; }
+  66% { transform: translate(300px, 176px); opacity: 1; }
+  77% { transform: translate(262px, 70px) scale(1); }
+  80% { transform: translate(262px, 70px) scale(.85); }
+  83% { transform: translate(262px, 70px) scale(1); opacity: 1; }
+  94%, 100% { transform: translate(262px, 70px); opacity: 0; }
+}
 
 /* the highlight glides to the app picked; a new message's number pops */
 .s-glide .hdr { left: 92px; top: 68px; width: 220px; height: 52px; display: flex; gap: 4px; padding: 5px; border-radius: 16px; background: #232429; box-shadow: 0 10px 24px rgba(0, 0, 0, .4); }

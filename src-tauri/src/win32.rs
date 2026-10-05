@@ -22,12 +22,13 @@ use windows::{
             },
             WindowsAndMessaging::{
                 BringWindowToTop, GetAncestor, GetClassNameW, GetClipCursor, GetCursorInfo, GetCursorPos, GetForegroundWindow,
-                GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow,
-                IsWindowVisible, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity, SetWindowLongPtrW,
-                SetWindowPos, ShowWindow, WindowFromPoint, CURSORINFO, CURSOR_SHOWING, GA_PARENT, GA_ROOTOWNER, GWL_EXSTYLE, GWL_STYLE,
-                GW_CHILD, GW_HWNDNEXT, HWND_BOTTOM, HWND_TOPMOST, LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-                SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA,
-                SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+                GetSystemMetrics, GetWindow, GetWindowLongPtrW, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+                IsWindow, IsWindowVisible, IsZoomed, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowDisplayAffinity,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, WindowFromPoint, CURSORINFO, CURSOR_SHOWING, GA_PARENT, GA_ROOTOWNER,
+                GWL_EXSTYLE, GWL_STYLE, GW_CHILD, GW_HWNDNEXT, HWND_BOTTOM, HWND_TOPMOST, LWA_ALPHA, SM_CXVIRTUALSCREEN,
+                SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+                SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_CAPTION, WS_CLIPSIBLINGS,
+                WS_EX_LAYERED, WS_EX_TOOLWINDOW,
             },
         },
     },
@@ -178,6 +179,26 @@ pub fn is_fullscreen_app_active() -> bool {
         let m = info.rcMonitor;
         r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom
     }
+}
+
+/// A game (or a video) fills the screen in front: exclusive fullscreen, a presentation, or a window
+/// without a title bar covering its whole monitor (borderless games, F11 in a browser). Not a
+/// maximized window: with the taskbar set to hide, one of those covers its monitor too.
+pub fn game_in_front() -> bool {
+    let s = notification_state();
+    if s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE {
+        return true;
+    }
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() || !IsWindowVisible(fg).as_bool() || IsZoomed(fg).as_bool() || IsIconic(fg).as_bool() {
+            return false;
+        }
+        if (GetWindowLongW(fg, GWL_STYLE) as u32 & WS_CAPTION.0) == WS_CAPTION.0 {
+            return false; // a window with a title bar
+        }
+    }
+    is_fullscreen_app_active()
 }
 
 /// The mouse pointer is hidden: a game in mouse-look mode (FPS aiming), a fullscreen video, ...

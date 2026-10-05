@@ -103,6 +103,10 @@ pub fn start() {
         } else if only.as_deref() == Some("tour") {
             wait(4000); // ChatDock's own pages load
             tour_test();
+        } else if only.as_deref() == Some("gamemode") {
+            wait(8000); // the pages load
+            game_mode_test();
+            facebook_count_test();
         } else if only.as_deref() == Some("tourgif") {
             wait(4000);
             tour_gif_frames();
@@ -1047,6 +1051,7 @@ fn counts_test() {
     let count = move || on(move |c| c.counts.get(app).copied().unwrap_or(0));
     let (popups_were, active_was) = on(|c| (c.settings.get("popups").clone(), c.active()));
     on(move |c| {
+        c.toasts.offscreen = true; // (pop-ups shown off the screen: the user may be at the PC)
         c.settings.set("popups", json!(true));
         c.settings.set_in("seenCounts", app, json!(0));
         c.load_started_at.insert(app.to_string(), 0);
@@ -1145,6 +1150,7 @@ fn counts_test() {
         c.set_setting("active", json!(active_was));
     });
     wait(3300);
+    on(|c| c.toasts.offscreen = false);
 }
 
 /// Discord extras: where a notification is from, per-server pop-ups, and the voice keys (a real
@@ -2039,6 +2045,209 @@ fn tour_gif_frames() {
     });
 }
 
+// ---------------------------------------------------------------------------------------------
+// Game mode and Facebook's number (1.7.4)
+// ---------------------------------------------------------------------------------------------
+/// Game mode with a pretend game in front: pop-ups wait (nothing on screen), and once the game is
+/// gone one card says who wrote (one waiting pop-up shows as itself). The pop-ups are shown off
+/// screen; nothing takes the focus.
+fn game_mode_test() {
+    let was = on(|c| {
+        let was = (c.settings.get("popups").clone(), c.settings.get("popupQuietFullscreen").clone(), c.settings.get("lang").clone());
+        c.settings.set("popups", json!(true));
+        c.settings.set("popupQuietFullscreen", json!(true));
+        c.toasts.offscreen = true;
+        c.toasts.test_game = Some(true);
+        c.toasts_dismiss_all();
+        was
+    });
+    on(|c| c.set_pref("lang", json!("th")));
+    log!("game in front for real right now: {} (the user's own screen: expect false unless they are playing)", win32::game_in_front());
+    let card = "JSON.stringify([...document.querySelectorAll('.card:not(.leaving)')].map((c) => ({ summary: c.classList.contains('summary'), \
+                title: c.querySelector('.title')?.textContent, meta: c.querySelector('.meta')?.textContent, \
+                rows: [...c.querySelectorAll('.rows .row')].map((r) => [r.querySelector('.rt b')?.textContent, r.querySelector('.rt span')?.textContent, r.querySelector('.n')?.hidden ? '' : r.querySelector('.n')?.textContent]) })))";
+
+    // three conversations write during the game (one of them twice)
+    on(|c| {
+        c.counts.insert("instagram".into(), 1);
+        c.on_site_notification("discord", 0, "Alice (#general, Gamers)", "gg ez", "", "dc1");
+        c.on_site_notification("discord", 0, "Alice (#general, Gamers)", "one more?", "", "dc1");
+        c.on_site_notification("x", 0, "Bob", "are you on?", "", "x1");
+        let nok =
+            crate::inbox::Latest {
+                name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/direct/t/1/".into()
+            };
+        c.count_popup_for_test("instagram", Some(nok));
+    });
+    wait(600);
+    let during = on(|c| (c.toasts_count(), c.held_count(), win32::is_visible(c.toastwin.hwnd)));
+    // the game is still in front a while later: still nothing
+    wait(2500);
+    let still = on(|c| (c.toasts_count(), c.held_count()));
+    on(|c| c.toasts.test_game = Some(false));
+    wait(3200);
+    let after = on(|c| (c.toasts_count(), c.held_count(), win32::is_visible(c.toastwin.hwnd)));
+    shot("95-game-summary");
+    log!(
+        "game mode: during the game shown/waiting/window {during:?} (expect 0, 3, false) | still in the game {still:?} (expect 0, 3) | after it {after:?} (expect 1, 0, true) | card {}",
+        page_js("toasts", card)
+    );
+    // X read meanwhile (on the phone): its row goes, the card stays with the others
+    on(|c| c.toasts_dismiss_app("x"));
+    wait(500);
+    log!("X read meanwhile: {} (expect the card with 2 rows: Instagram, Discord, and ใหม่ 3)", page_js("toasts", card));
+    shot("95-game-summary-2");
+    on(|c| c.toasts_dismiss_all());
+    wait(700);
+
+    // just one conversation waited: it shows as its own pop-up
+    on(|c| {
+        c.toasts.test_game = Some(true);
+        c.on_site_notification("discord", 0, "Mint", "gg", "", "dc2");
+        c.on_site_notification("discord", 0, "Mint", "again?", "", "dc2");
+    });
+    wait(400);
+    on(|c| c.toasts.test_game = Some(false));
+    wait(3200);
+    log!("one conversation waited: {} (expect a normal card: Mint, again?, 2 unread)", page_js("toasts", card));
+    on(|c| c.toasts_dismiss_all());
+    wait(700);
+
+    // read during the game (the app opened, or on the phone): nothing left to show afterwards
+    on(|c| {
+        c.toasts.test_game = Some(true);
+        c.counts.insert("instagram".into(), 1);
+        let nok = crate::inbox::Latest { name: "Nok".into(), text: "hi".into(), avatar: String::new(), href: String::new() };
+        c.count_popup_for_test("instagram", Some(nok));
+    });
+    wait(300);
+    let held = on(|c| c.held_count());
+    on(|c| {
+        c.set_count("instagram", 0);
+        c.toasts.test_game = Some(false);
+    });
+    wait(3200);
+    log!("read during the game: waiting {held} → after it shown {} (expect 1, 0)", on(|c| c.toasts_count()));
+
+    // game mode off: pop-ups show right away, game or not
+    on(|c| {
+        c.settings.set("popupQuietFullscreen", json!(false));
+        c.toasts.test_game = Some(true);
+        c.on_site_notification("x", 0, "Bob", "now?", "", "x2");
+    });
+    wait(500);
+    log!("game mode off, in a game: shown {} waiting {} (expect 1, 0)", on(|c| c.toasts_count()), on(|c| c.held_count()));
+    on(move |c| {
+        c.toasts_dismiss_all();
+        c.toasts.test_game = None;
+        c.toasts.offscreen = false;
+        c.settings.set("popups", was.0);
+        c.settings.set("popupQuietFullscreen", was.1);
+        c.settings.set("lang", was.2);
+    });
+    wait(700);
+}
+
+/// Facebook's number: a blink of its title (gone, then back as high) changes nothing, and a rise
+/// with nothing unread in its chat list and no "… sent you a message" isn't a chat. The list is a
+/// stand-in put into the (logged-out) test page; pop-ups are off, so nothing shows.
+fn facebook_count_test() {
+    let popups_were = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(false));
+        was
+    });
+    let fb = "facebook";
+    // what Facebook counted, and what was seen of it: 10, 9 seen, 1 unread (10-05 11:51)
+    let start = move |c: &mut Core| {
+        c.counted_pages.insert(fb.into());
+        c.site_counts.insert(fb.into(), 10);
+        c.settings.set_in("seenCounts", fb, json!(9));
+        c.counts.insert(fb.into(), 1);
+        c.count_drops.remove(fb);
+        c.last_flash.remove(fb);
+        c.load_started_at.insert(fb.into(), 0);
+        if let Some(t) = c.fallback_timers.remove(fb) {
+            rt::cancel(t);
+        }
+    };
+    let state = move || {
+        on(move |c| {
+            format!(
+                "unread {} seen {} pop-up coming {}",
+                c.counts.get(fb).copied().unwrap_or(0),
+                c.settings.get("seenCounts").get(fb).and_then(serde_json::Value::as_u64).unwrap_or(0),
+                c.fallback_timers.contains_key(fb)
+            )
+        })
+    };
+
+    // 1. the title loses its number for 3 s and more, then "(10)" again
+    on(start);
+    on(move |c| c.on_title(fb, "Facebook"));
+    wait(3400);
+    let gone = state();
+    on(move |c| c.on_title(fb, "(10) Facebook"));
+    wait(200);
+    log!(
+        "Facebook blink: number gone → {gone} (expect unread 0 seen 0) | back as (10) → {} (expect unread 1 seen 9, no pop-up coming)",
+        state()
+    );
+
+    // 2. gone, then read on the phone and one new message: "(1)" is news
+    on(start);
+    on(move |c| c.on_title(fb, "Facebook"));
+    wait(3400);
+    on(move |c| c.on_title(fb, "(1) Facebook"));
+    wait(200);
+    log!("Facebook read elsewhere, then one new: {} (expect unread 1 seen 0)", state());
+
+    // 3. a like: "(11)", nothing unread in the chat list, no message in the title
+    let list = |weights: [u32; 4]| {
+        format!(
+            "(() => {{ document.getElementById('cd-list')?.remove(); const box = document.createElement('div'); box.id = 'cd-list'; box.style.cssText = 'position:fixed;left:0;top:0;width:320px;z-index:2147483647;background:#fff;font:14px sans-serif'; \
+             [['Somchai Jaidee', 'You: ok see you'], ['Nok', 'see you tonight'], ['Beam', 'haha'], ['Old friend', 'long ago']].forEach(([name, text], i) => {{ \
+               const r = document.createElement('a'); r.href = '/messages/t/' + (i + 1) + '/'; r.style.cssText = 'display:flex;gap:8px;height:64px;align-items:center'; \
+               const img = document.createElement('img'); img.src = 'https://example.com/p' + i + '.jpg'; img.width = 44; img.height = 44; \
+               const col = document.createElement('div'); const n = document.createElement('span'); n.textContent = name; const t = document.createElement('span'); t.textContent = text; t.style.fontWeight = {weights}[i]; t.style.display = 'block'; \
+               col.append(n, t); r.append(img, col); r.addEventListener('click', (e) => e.preventDefault()); box.append(r); }}); \
+             document.body.append(box); return 1; }})()",
+            weights = json!(weights)
+        )
+    };
+    view_js(fb, &list([400, 400, 400, 400]));
+    on(start);
+    on(move |c| c.on_title(fb, "(11) Facebook"));
+    wait(200);
+    let rose = state();
+    wait(3600);
+    log!(
+        "Facebook like: number up → {rose} (expect unread 2, a check coming) | its list has nothing unread → {} (expect unread 0 seen 11)",
+        state()
+    );
+
+    // 4. the same, but the title said "… sent you a message": it is a chat
+    on(start);
+    on(move |c| {
+        c.on_title(fb, "Somchai sent you a message");
+        c.on_title(fb, "(11) Facebook");
+    });
+    wait(3800);
+    log!("Facebook message the list doesn't show yet: {} (expect unread 2 seen 9: still counted)", state());
+
+    // 5. an unread chat in the list: counted
+    view_js(fb, &list([400, 700, 400, 400]));
+    on(start);
+    on(move |c| c.on_title(fb, "(11) Facebook"));
+    wait(3800);
+    log!("Facebook with an unread chat: {} (expect unread 2 seen 9)", state());
+    view_js(fb, "document.getElementById('cd-list')?.remove(), 1");
+    on(move |c| {
+        c.settings.set("popups", popups_were);
+        c.set_count(fb, 0);
+    });
+}
+
 /// The pre-release review's findings, checked (nothing takes the focus or the keyboard; pop-ups off).
 fn review_fixes_test() {
     // 1. a Discord title longer than 90 characters still says which server
@@ -2472,6 +2681,7 @@ fn inbox_test() {
     let popups_were = on(|c| {
         let was = c.settings.get("popups").clone();
         c.settings.set("popups", json!(true));
+        c.toasts.offscreen = true; // (pop-ups shown off the screen: the user may be at the PC)
         was
     });
 
@@ -2518,7 +2728,10 @@ fn inbox_test() {
         "history.pushState({}, '', '/messages/t/3/'); window.__cdBack = false; const b = document.createElement('div'); b.contentEditable = 'true'; b.textContent = 'half a message'; document.getElementById('cd-list').append(b); 1",
     );
     let typing = run_back("facebook");
-    on(move |c| c.settings.set("popups", popups_were));
+    on(move |c| {
+        c.settings.set("popups", popups_were);
+        c.toasts.offscreen = false;
+    });
     log!(
         "inbox: Facebook's list read {:?} | pop-up {} | its click opened {fb_opened} | the tab opened {fb_newest} | Instagram's read {:?} | opened by name {ig_by_name} | back to the list {back}, while typing {typing} (expect Nok + her text + link /messages/t/2/ | [Nok, her text, picture] | Nok | Nok | Nok, no link | Beam | back true, typing false)",
         fb.map(|l| (l.name, l.text, l.href)),

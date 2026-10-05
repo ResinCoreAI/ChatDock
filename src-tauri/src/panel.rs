@@ -267,6 +267,8 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         retry_timers: HashMap::new(),
         fallback_timers: HashMap::new(),
         last_flash: HashMap::new(),
+        count_drops: HashMap::new(),
+        quiet_rises: HashMap::new(),
         last_content_at: HashMap::new(),
         load_started_at: HashMap::new(),
         panel_state: PanelState::Hidden,

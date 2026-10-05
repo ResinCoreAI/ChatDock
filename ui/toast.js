@@ -26,33 +26,122 @@ function appIcon(name) {
   return span;
 }
 
-function createCard(it) {
-  const card = document.createElement('div');
-  card.className = 'card enter';
-  card.dataset.key = it.key;
-  card.style.setProperty('--accent', it.accent || '#0866ff');
-
+// The sender's picture with the app's icon on it, or just the app's icon.
+function avatarOf(iconName, picture) {
   const avatar = document.createElement('div');
   avatar.className = 'avatar';
   const big = document.createElement('div');
   big.className = 'big';
-  big.append(appIcon(it.iconName));
-  if (it.icon) {
+  big.append(appIcon(iconName));
+  if (picture) {
     const img = document.createElement('img');
     const badge = document.createElement('span');
     img.alt = '';
     img.referrerPolicy = 'no-referrer';
-    img.src = it.icon;
+    img.src = picture;
     img.addEventListener('error', () => { // picture didn't load: fall back to the app icon
       img.replaceWith(big);
       badge.remove();
     });
     badge.className = 'app-badge';
-    badge.append(appIcon(it.iconName));
+    badge.append(appIcon(iconName));
     avatar.append(img, badge);
   } else {
     avatar.append(big);
   }
+  return avatar;
+}
+
+function closeButton(it) {
+  const close = document.createElement('button');
+  close.className = 'close';
+  close.title = labels.close;
+  close.textContent = '✕';
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();
+    chatdock.send('toast:dismiss', it.key);
+  });
+  return close;
+}
+
+// The card after a game (game mode): who wrote meanwhile, a row each; a row opens that chat.
+function createSummary(it) {
+  const card = document.createElement('div');
+  card.className = 'card enter summary';
+  card.dataset.key = it.key;
+  card.style.setProperty('--accent', it.accent || '#8b5cf6');
+  const head = document.createElement('div');
+  head.className = 'sum-head';
+  const logo = appIcon('logo');
+  logo.className = 'sum-logo';
+  const text = document.createElement('div');
+  text.className = 'text';
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = it.title;
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = it.meta;
+  text.append(title, meta);
+  head.append(logo, text);
+  const rows = document.createElement('div');
+  rows.className = 'rows';
+  card.append(head, rows, closeButton(it));
+  fillRows(card, it);
+  card.addEventListener('click', () => chatdock.send('toast:click', it.key));
+  card.addEventListener('animationend', () => card.classList.remove('enter'), { once: true });
+  return card;
+}
+
+// (again when a row has gone: opened, or read meanwhile)
+function fillRows(card, it) {
+  const box = card.querySelector('.rows');
+  const sig = JSON.stringify([it.rows.map((r) => [r.appId, r.who, r.text, r.n]), it.moreRows, it.meta]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  card.querySelector('.sum-head .meta').textContent = it.meta;
+  box.replaceChildren(...it.rows.map((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const words = document.createElement('div');
+    words.className = 'rt';
+    const who = document.createElement('b');
+    who.textContent = r.who || r.appName;
+    if (r.meta) {
+      const where = document.createElement('small');
+      where.textContent = ` · ${r.meta}`;
+      who.append(where);
+    }
+    const said = document.createElement('span');
+    said.textContent = r.text;
+    words.append(who, said);
+    const n = document.createElement('i');
+    n.className = 'n';
+    n.textContent = String(r.n);
+    n.hidden = !(r.n > 1);
+    row.append(avatarOf(r.iconName, r.icon), words, n);
+    row.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chatdock.send('toast:row', it.key, i);
+    });
+    return row;
+  }));
+  if (it.moreRows > 0) {
+    const more = document.createElement('div');
+    more.className = 'rows-more';
+    more.textContent = it.moreLabel;
+    box.append(more);
+  }
+}
+
+function createCard(it) {
+  if (it.rows && it.rows.length) return createSummary(it);
+  const card = document.createElement('div');
+  card.className = 'card enter';
+  card.dataset.key = it.key;
+  card.style.setProperty('--accent', it.accent || '#0866ff');
+
+  const avatar = avatarOf(it.iconName, it.icon);
 
   const text = document.createElement('div');
   text.className = 'text';
@@ -74,16 +163,7 @@ function createCard(it) {
   hint.textContent = it.hint || '';
   if (it.hint) text.append(hint);
 
-  const close = document.createElement('button');
-  close.className = 'close';
-  close.title = labels.close;
-  close.textContent = '✕';
-  close.addEventListener('click', (e) => {
-    e.stopPropagation();
-    chatdock.send('toast:dismiss', it.key);
-  });
-
-  card.append(avatar, text, close);
+  card.append(avatar, text, closeButton(it));
   card.addEventListener('click', () => chatdock.send('toast:click', it.key));
   card.addEventListener('animationend', () => card.classList.remove('enter'), { once: true });
   return card;
@@ -144,6 +224,7 @@ function render(state) {
   for (const b of stack.querySelectorAll('.close')) b.title = labels.close;
   state.items.forEach((it, i) => {
     const el = stack.querySelector(`.card[data-key="${it.key}"]:not(.leaving)`) || createCard(it);
+    if (el.classList.contains('summary') && it.rows) fillRows(el, it);
     const cards = liveCards();
     if (cards[i] !== el) stack.insertBefore(el, cards[i] || moreEl);
   });
