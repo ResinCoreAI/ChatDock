@@ -1,0 +1,459 @@
+/* The guide (tour.js): ChatDock opens on it the first time, and "How to use" shows it again. A
+   400 x 230 stage scaled to the panel's width, the step's text under it, and the buttons. Uses the
+   colour tokens of panel.css; the stage itself is always a dark game. */
+
+/* as tall as the panel at least, with the guide in the middle of it */
+#welcome { min-height: 100%; display: flex; flex-direction: column; }
+.tour {
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: 452px;
+  margin: 0 auto;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.tour > .lang-pick { margin: 0 0 4px; }
+.tour-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
+.tour-head .logo svg { display: block; width: 40px; height: 40px; }
+.tour-brand { flex: 1; min-width: 0; }
+.tour-brand b { display: block; font-size: 18px; line-height: 1.2; }
+.tour-brand small { display: block; margin-top: 1px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+/* the stage: drawn for 400 x 230 and scaled to fit (--k, from tour.js) */
+.tour-view { position: relative; flex: none; }
+.tour-screen {
+  position: relative;
+  aspect-ratio: 400 / 230;
+  overflow: hidden;
+  border-radius: 16px;
+  background: radial-gradient(130% 110% at 12% 0%, #30345a 0%, #1a1b2e 55%, #111219 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07), 0 10px 26px rgba(0, 0, 0, .16);
+  cursor: pointer;
+  user-select: none;
+}
+.tour-stage { position: absolute; left: 0; top: 0; width: 400px; height: 230px; transform-origin: 0 0; transform: scale(var(--k, 1)); }
+/* a click anywhere on the stage plays the scene again: this only says so */
+.tour-replay {
+  position: absolute;
+  left: 8px; bottom: 8px;
+  width: 28px; height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .5);
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s;
+}
+.tour-replay svg { width: 15px; height: 15px; }
+.tour-view:hover .tour-replay { opacity: 1; }
+body.left .tour-replay { left: auto; right: 8px; }
+
+.tour-dots { display: flex; justify-content: center; gap: 6px; margin: 13px 0 4px; }
+.tour-dot {
+  width: 7px; height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  cursor: pointer;
+  transition: width .32s cubic-bezier(.2, .9, .25, 1), background .32s;
+}
+.tour-dot:hover { background: color-mix(in srgb, var(--muted) 70%, transparent); }
+.tour-dot.done { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+.tour-dot.now { width: 22px; background: linear-gradient(90deg, #8b5cf6, #0866ff); }
+
+/* every step's text in one cell: the tallest sets the height, so nothing jumps between steps */
+.tour-texts { display: grid; margin-top: 8px; }
+.tour-text { grid-area: 1 / 1; visibility: hidden; }
+.tour-text.now { visibility: visible; }
+.tour-text.go-next { animation: tour-next .34s cubic-bezier(.16, 1, .3, 1); }
+.tour-text.go-back { animation: tour-back .34s cubic-bezier(.16, 1, .3, 1); }
+@keyframes tour-next { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes tour-back { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.tour-text .count { display: block; color: var(--accent); font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+.tour-text h2 { margin: 3px 0 6px; font-size: 18px; line-height: 1.3; }
+.tour-text p { margin: 0; font-size: 13.5px; line-height: 1.55; }
+.tour-text p.more { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+.tour .check { margin: 14px 0 0; }
+.tour-nav { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.tour-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .15s, background .15s, transform .1s;
+}
+.tour-btn:active { transform: scale(.98); }
+.tour-btn.ghost { border: 1px solid var(--line); background: transparent; color: var(--text); }
+.tour-btn.ghost:hover { background: var(--hover); }
+.tour-btn.go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 118px;
+  margin-left: auto;
+  padding: 0 12px 0 18px;
+  border: 0;
+  background: linear-gradient(90deg, #8b5cf6, #0866ff);
+  color: #fff;
+}
+.tour-btn.go:hover { filter: brightness(1.1); }
+.tour-btn.go svg { display: block; width: 17px; height: 17px; }
+.tour-btn.go.start { flex: 1; height: auto; min-height: 44px; padding: 8px 18px; font-size: 15px; line-height: 1.3; }
+.tour-btn.go.start .go-ico { display: none; }
+.tour-skip {
+  align-self: center;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.tour-skip:hover { color: var(--text); text-decoration: underline; }
+
+/* ---------------------------------------------------------------------------------------------
+   The scenes. Everything is placed for a dock on the right; docked on the left, the .flip layer
+   is mirrored and each .uf inside it mirrored back, so text, icons and the pointer read normally.
+   The .fix layer (game menus, keys) is never mirrored. Every animation runs once per play.
+   --------------------------------------------------------------------------------------------- */
+.tour-stage * { position: absolute; box-sizing: border-box; animation-duration: var(--dur, 8s); animation-fill-mode: both; animation-timing-function: ease; }
+.tour-stage svg, .tour-stage svg * { position: static; }
+.tour-stage svg { display: block; }
+.tour-stage p { margin: 0; }
+.tour-stage .flip, .tour-stage .fix { inset: 0; }
+.tour-stage.left .flip { transform: scaleX(-1); }
+.tour-stage.left .flip .uf { transform: scaleX(-1); }
+.tour-stage .clock { width: 0; height: 0; animation-name: clock; animation-timing-function: linear; }
+@keyframes clock { from { opacity: 0; } to { opacity: 0; } }
+.s-edge { --dur: 8s; }
+.s-hotkey { --dur: 8s; }
+.s-popup { --dur: 8.5s; }
+.s-game { --dur: 9s; }
+.s-ready { --dur: 8s; }
+
+/* shared: the game, the pointer, a click, the chat panel */
+.tour-stage .game { inset: 0; }
+.tour-stage .game i { border-radius: 50%; background: rgba(255, 255, 255, .06); }
+.tour-stage .game i:nth-child(1) { width: 130px; height: 130px; left: 22px; top: 50px; }
+.tour-stage .game i:nth-child(2) { width: 58px; height: 58px; left: 178px; top: 20px; background: rgba(255, 120, 80, .17); animation-name: drift; animation-timing-function: ease-in-out; }
+.tour-stage .game i:nth-child(3) { width: 196px; height: 40px; left: 104px; top: 166px; border-radius: 10px; }
+.tour-stage .game b { left: 104px; top: 104px; width: 18px; height: 18px; opacity: .5; }
+.tour-stage .game b::before, .tour-stage .game b::after { content: ""; position: absolute; border-radius: 1px; background: #fff; }
+.tour-stage .game b::before { left: 8px; top: 0; width: 2px; height: 18px; }
+.tour-stage .game b::after { left: 0; top: 8px; width: 18px; height: 2px; }
+@keyframes drift { 0% { transform: none; } 50% { transform: translate(46px, 20px); } 100% { transform: none; } }
+
+.tour-stage .cur { left: 0; top: 0; width: 18px; height: 18px; z-index: 5; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
+.tour-stage .cur .uf { inset: 0; }
+.tour-stage .cur svg { width: 18px; height: 18px; }
+.tour-stage .rip { width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 2px solid rgba(255, 255, 255, .9); border-radius: 50%; z-index: 4; animation: rip .5s ease-out both; }
+@keyframes rip { 0% { opacity: 0; transform: scale(.3); } 12% { opacity: .9; } 100% { opacity: 0; transform: scale(1.5); } }
+@keyframes bub { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: none; } }
+
+.tour-stage .pnl {
+  top: 0; right: 0; bottom: 0;
+  width: 168px;
+  overflow: hidden;
+  background: var(--bg);
+  border-left: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: -10px 0 26px rgba(0, 0, 0, .45);
+  transform: translateX(106%);
+}
+.tour-stage .pnl > .uf { inset: 0; }
+.tour-stage .ph { left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tour-stage .ph .seg { position: relative; display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--seg); }
+.tour-stage .ph .seg i { position: relative; width: 26px; height: 22px; display: grid; place-items: center; border-radius: 7px; }
+.tour-stage .ph .seg i.on { background: var(--seg-active); box-shadow: var(--seg-shadow); }
+.tour-stage .ph svg { width: 13px; height: 13px; color: var(--text); }
+.tour-stage .bb { left: 10px; height: 14px; border-radius: 8px; }
+.tour-stage .bb.in { width: 62%; background: color-mix(in srgb, var(--text) 13%, transparent); }
+.tour-stage .bb.out { left: auto; right: 10px; width: 52%; background: linear-gradient(90deg, #8b5cf6, #0866ff); }
+.tour-stage .bb.b1 { top: 46px; }
+.tour-stage .bb.b2 { top: 68px; }
+.tour-stage .bb.b3 { top: 90px; width: 44%; }
+
+/* 1. the screen edge: hold, the line grows, the tab comes out, click an app, the chat slides in */
+.s-edge .track { right: 1px; top: 0; bottom: 0; width: 2px; background: rgba(167, 139, 250, .32); animation-name: e-track; }
+@keyframes e-track { 0%, 18% { opacity: 0; } 20%, 50% { opacity: 1; } 54%, 100% { opacity: 0; } }
+.s-edge .ln { right: 0; width: 4px; border-radius: 2px; background: linear-gradient(#c084fc, #8b5cf6 40%, #3b82f6 75%, #0866ff) 0 0 / 100% 230px; box-shadow: 0 0 8px rgba(139, 92, 246, .9); animation-name: e-line; }
+.s-edge .ln.up { top: 0; height: 94px; transform-origin: 50% 100%; }
+.s-edge .ln.dn { top: 94px; bottom: 0; transform-origin: 50% 0; background-position: 0 -94px; }
+@keyframes e-line {
+  0%, 18.75% { transform: scaleY(0); opacity: 1; filter: none; animation-timing-function: linear; }
+  50% { transform: scaleY(1); opacity: 1; filter: none; }
+  52% { transform: scaleY(1); opacity: 1; filter: brightness(1.8); }
+  57%, 100% { transform: scaleY(1); opacity: 0; filter: none; }
+}
+.s-edge .pill { right: 0; top: 36px; width: 30px; border-radius: 15px 0 0 15px; background: #fff; box-shadow: -3px 0 14px rgba(0, 0, 0, .4); animation-name: e-pill; }
+.s-edge .pill .uf { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 10px 0; }
+.s-edge .pill .uf > * { position: relative; flex: none; }
+.s-edge .pill .chev { width: 9px; height: 9px; }
+.s-edge .pill .chev::before { content: ""; position: absolute; left: 3px; top: 1px; width: 6px; height: 6px; border-left: 2px solid #a1a1ab; border-bottom: 2px solid #a1a1ab; transform: rotate(45deg); }
+.s-edge .pill .ap { width: 17px; height: 17px; color: #111; }
+.s-edge .pill svg { width: 17px; height: 17px; }
+@keyframes e-pill {
+  0%, 50% { transform: translateX(115%); animation-timing-function: cubic-bezier(.2, .9, .25, 1.15); }
+  54%, 66% { transform: none; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
+  70%, 100% { transform: translateX(115%); }
+}
+.s-edge .rip { left: 384px; top: 70px; animation-delay: 5.12s; }
+.s-edge .pnl { animation-name: e-pnl; }
+@keyframes e-pnl { 0%, 67% { transform: translateX(106%); animation-timing-function: cubic-bezier(.2, .9, .25, 1); } 74%, 100% { transform: none; } }
+.s-edge .bb { animation: bub .35s cubic-bezier(.2, .9, .25, 1.2) both; }
+.s-edge .b1 { animation-delay: 6.1s; }
+.s-edge .b2 { animation-delay: 6.45s; }
+.s-edge .b3 { animation-delay: 6.8s; }
+.s-edge .cur { animation-name: e-cur; }
+@keyframes e-cur {
+  0% { transform: translate(170px, 150px); opacity: 0; }
+  4% { transform: translate(170px, 150px); opacity: 1; }
+  17%, 50% { transform: translate(394px, 92px); }
+  62% { transform: translate(382px, 68px) scale(1); }
+  64% { transform: translate(382px, 68px) scale(.8); }
+  66% { transform: translate(382px, 68px) scale(1); opacity: 1; }
+  76% { transform: translate(352px, 120px); opacity: 1; }
+  82%, 100% { transform: translate(352px, 120px); opacity: 0; }
+}
+
+/* 2. the hotkey opens the chat over the game; again, and you're back in the game */
+.s-hotkey .keys { left: 0; right: 168px; bottom: 22px; display: flex; justify-content: center; align-items: center; gap: 6px; animation: pop .35s cubic-bezier(.2, .9, .25, 1.2) .2s both; }
+.s-hotkey.left .keys { left: 168px; right: 0; }
+.s-hotkey .keys > * { position: relative; }
+.s-hotkey .keys b { color: rgba(255, 255, 255, .7); font: 700 13px/1 "Segoe UI", sans-serif; }
+.s-hotkey kbd {
+  min-width: 40px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: linear-gradient(#f5f5f9, #d8d8e2);
+  color: #26262e;
+  font: 700 12.5px/30px "Segoe UI", sans-serif;
+  text-align: center;
+  box-shadow: 0 4px 0 #8f8fa2, 0 7px 14px rgba(0, 0, 0, .45);
+  animation-name: h-key;
+  animation-timing-function: linear;
+}
+.s-hotkey kbd.gear { display: grid; place-items: center; }
+.s-hotkey kbd svg { width: 16px; height: 16px; }
+.s-hotkey .k2 { animation-delay: .12s; }
+.s-hotkey .k3 { animation-delay: .24s; }
+.s-hotkey .k4 { animation-delay: .36s; }
+@keyframes h-key {
+  0%, 9% { transform: none; box-shadow: 0 4px 0 #8f8fa2, 0 7px 14px rgba(0, 0, 0, .45); }
+  10%, 17% { transform: translateY(3px); box-shadow: 0 1px 0 #8f8fa2, 0 3px 8px rgba(0, 0, 0, .45); }
+  18%, 59% { transform: none; box-shadow: 0 4px 0 #8f8fa2, 0 7px 14px rgba(0, 0, 0, .45); }
+  60%, 67% { transform: translateY(3px); box-shadow: 0 1px 0 #8f8fa2, 0 3px 8px rgba(0, 0, 0, .45); }
+  68%, 100% { transform: none; box-shadow: 0 4px 0 #8f8fa2, 0 7px 14px rgba(0, 0, 0, .45); }
+}
+.s-hotkey .pnl { animation-name: h-pnl; }
+@keyframes h-pnl {
+  0%, 19% { transform: translateX(106%); animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+  26%, 68% { transform: none; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
+  75%, 100% { transform: translateX(106%); }
+}
+.s-hotkey .bb { animation: bub .35s cubic-bezier(.2, .9, .25, 1.2) both; }
+.s-hotkey .b1 { animation-delay: 2.3s; }
+.s-hotkey .b2 { animation-delay: 2.65s; }
+.s-hotkey .b3 { animation-delay: 3s; }
+.s-hotkey .back {
+  left: 176px; top: 74px;
+  width: 48px; height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(35, 165, 90, .22);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, .7);
+  font: 24px/1 "Segoe UI Emoji", sans-serif;
+  font-style: normal;
+  animation: pop .45s cubic-bezier(.2, .9, .25, 1.35) 6.2s both;
+}
+
+/* 3. a pop-up says who wrote; click it and that conversation opens */
+.s-popup .glow { right: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 4px 0 0 4px; background: linear-gradient(#4d9bff, #0866ff); box-shadow: 0 0 9px 1px rgba(8, 102, 255, .75); animation-name: p-glow; }
+.s-popup .glow.g-instagram { background: linear-gradient(#feda75, #fa7e1e 35%, #d62976 70%, #962fbf); box-shadow: 0 0 9px 1px rgba(214, 41, 118, .7); }
+@keyframes p-glow {
+  0%, 13% { opacity: 0; transform: scaleY(.4); }
+  17% { opacity: 1; transform: scaleY(1.06); }
+  19%, 44% { opacity: .9; transform: none; }
+  48%, 100% { opacity: 0; transform: none; }
+}
+.s-popup .toast {
+  right: 12px; top: 12px;
+  width: 236px; height: 58px;
+  overflow: hidden;
+  border-radius: 13px;
+  background: rgba(27, 28, 38, .97);
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .5);
+  color: #f3f3f7;
+  animation-name: p-toast;
+}
+.s-popup .toast .uf { inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; }
+.s-popup .toast .uf::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #d62976; }
+.s-popup .toast .uf > * { position: relative; flex: none; }
+@keyframes p-toast {
+  0%, 6% { transform: translateX(120%); opacity: 0; animation-timing-function: cubic-bezier(.16, 1, .3, 1); }
+  13%, 36% { transform: none; opacity: 1; }
+  38% { transform: scale(.96); opacity: 1; }
+  40% { transform: none; opacity: 1; }
+  46%, 100% { transform: scale(.92); opacity: 0; }
+}
+.s-popup .av {
+  width: 36px; height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ec4899);
+  color: #fff;
+  font: 700 15px/1 "Segoe UI", "Leelawadee UI", sans-serif;
+}
+.s-popup .ab { right: -3px; bottom: -3px; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: #fff; color: #111; box-shadow: 0 0 0 2px rgb(27, 28, 38); }
+.s-popup .ab svg { width: 11px; height: 11px; }
+.s-popup .toast .uf > .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.s-popup .tx > * { position: relative; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.s-popup .tx small { color: #a4a4b4; font-size: 9px; line-height: 1.3; }
+.s-popup .tx b { font-size: 12px; line-height: 1.3; }
+.s-popup .tx span { color: #dcdce7; font-size: 10.5px; line-height: 1.35; }
+.s-popup .rip { left: 274px; top: 36px; animation-delay: 3.06s; }
+.s-popup .pnl { animation-name: p-pnl; }
+@keyframes p-pnl { 0%, 41% { transform: translateX(106%); animation-timing-function: cubic-bezier(.2, .9, .25, 1); } 48%, 100% { transform: none; } }
+.s-popup .ch { left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--line); color: var(--text); }
+.s-popup .ch > * { position: relative; flex: none; }
+.s-popup .ch .bk { width: 7px; height: 7px; margin: 0 2px 0 3px; border-left: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); }
+.s-popup .ch .av { width: 20px; height: 20px; font-size: 10px; }
+.s-popup .ch b { font-size: 11px; }
+.s-popup .msg { max-width: 128px; padding: 5px 8px; border-radius: 11px; font-size: 9.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.s-popup .msg.in { left: 10px; top: 44px; background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.s-popup .msg.out { right: 10px; top: 76px; background: linear-gradient(90deg, #8b5cf6, #0866ff); color: #fff; animation: bub .35s cubic-bezier(.2, .9, .25, 1.2) 5.6s both; }
+.s-popup .typing { right: 10px; top: 80px; display: flex; gap: 3px; padding: 6px 8px; border-radius: 11px; background: color-mix(in srgb, var(--text) 10%, transparent); animation-name: p-typing; }
+.s-popup .typing i { position: relative; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+@keyframes p-typing { 0%, 53% { opacity: 0; } 55%, 64% { opacity: 1; } 65.5%, 100% { opacity: 0; } }
+.s-popup .cur { animation-name: p-cur; }
+@keyframes p-cur {
+  0%, 16% { transform: translate(150px, 190px); opacity: 0; }
+  19% { transform: translate(150px, 190px); opacity: 1; }
+  33% { transform: translate(272px, 34px) scale(1); }
+  36% { transform: translate(272px, 34px) scale(.82); }
+  38% { transform: translate(272px, 34px) scale(1); opacity: 1; }
+  47% { transform: translate(318px, 118px); opacity: 1; }
+  53%, 100% { transform: translate(318px, 118px); opacity: 0; }
+}
+
+/* 4. a game's display mode set to borderless; the chat floats over the game */
+.s-game .menu {
+  left: 70px; top: 26px;
+  width: 260px; height: 106px;
+  border-radius: 10px;
+  background: rgba(14, 15, 24, .93);
+  border: 1px solid rgba(255, 255, 255, .13);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .5);
+  color: #e9e9f2;
+  animation-name: g-menu;
+}
+@keyframes g-menu { 0% { opacity: 0; transform: translateY(8px); } 4%, 46% { opacity: 1; transform: none; } 51%, 100% { opacity: 0; transform: scale(.97); } }
+.s-game .mt { left: 12px; right: 12px; top: 9px; height: 22px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.s-game .mt > * { position: relative; }
+.s-game .mt svg { width: 13px; height: 13px; color: #b9a4ff; }
+.s-game .mt b { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.s-game .mr { left: 12px; top: 46px; width: 110px; height: 26px; display: flex; align-items: center; color: #c9cad6; font-size: 10.5px; line-height: 1.2; }
+.s-game .mr span { position: relative; }
+.s-game .dd { right: 12px; top: 46px; width: 112px; height: 26px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .06); }
+.s-game .dd .v { left: 9px; right: 22px; top: 0; height: 24px; overflow: hidden; color: #fff; font-size: 10.5px; line-height: 24px; white-space: nowrap; text-overflow: ellipsis; }
+.s-game .dd .v1 { animation-name: g-v1; }
+.s-game .dd .v2 { animation-name: g-v2; }
+@keyframes g-v1 { 0%, 33% { opacity: 1; } 35%, 100% { opacity: 0; } }
+@keyframes g-v2 { 0%, 33% { opacity: 0; } 35%, 100% { opacity: 1; } }
+.s-game .caret { right: 9px; top: 8px; width: 6px; height: 6px; border-right: 2px solid #c9cad6; border-bottom: 2px solid #c9cad6; transform: rotate(45deg); }
+.s-game .ok { right: -10px; top: 51px; width: 16px; height: 16px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px rgba(14, 15, 24, .93); animation-name: g-ok; }
+.s-game .ok::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px; border-right: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(45deg); }
+@keyframes g-ok { 0%, 35% { transform: scale(0); } 38% { transform: scale(1.15); } 40%, 100% { transform: none; } }
+.s-game .list { right: 12px; top: 74px; width: 112px; padding: 3px; border-radius: 7px; background: #23243a; border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 8px 18px rgba(0, 0, 0, .5); animation-name: g-list; }
+@keyframes g-list { 0%, 20% { opacity: 0; transform: translateY(-4px); } 22%, 32% { opacity: 1; transform: none; } 34%, 100% { opacity: 0; transform: none; } }
+.s-game .list p { position: relative; height: 21px; padding: 0 7px; border-radius: 5px; color: #e9e9f2; font-size: 10.5px; line-height: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-game .list .o1 { background: rgba(255, 255, 255, .07); }
+.s-game .list .o2 { animation-name: g-hover; }
+@keyframes g-hover { 0%, 27% { background: transparent; } 28%, 100% { background: rgba(59, 130, 246, .45); } }
+.s-game .pnl { animation-name: g-pnl; }
+@keyframes g-pnl { 0%, 52% { transform: translateX(106%); animation-timing-function: cubic-bezier(.2, .9, .25, 1); } 58%, 100% { transform: none; } }
+.s-game .r1 { left: 262px; top: 85px; animation-delay: 1.75s; }
+.s-game .r2 { left: 258px; top: 134px; animation-delay: 2.75s; }
+.s-game .cur { animation-name: g-cur; }
+@keyframes g-cur {
+  0%, 5% { transform: translate(340px, 196px); opacity: 0; }
+  8% { transform: translate(340px, 196px); opacity: 1; }
+  18% { transform: translate(260px, 83px) scale(1); }
+  19.5% { transform: translate(260px, 83px) scale(.82); }
+  21% { transform: translate(260px, 83px) scale(1); }
+  29% { transform: translate(256px, 132px) scale(1); }
+  30.5% { transform: translate(256px, 132px) scale(.82); }
+  32% { transform: translate(256px, 132px) scale(1); opacity: 1; }
+  40%, 100% { transform: translate(330px, 190px); opacity: 0; }
+}
+
+/* 5. log in on the app's own page, once; it stays on this PC */
+.s-ready .pnl { transform: none; }
+.s-ready .login { left: 0; right: 0; top: 32px; bottom: 0; animation-name: r-login; }
+@keyframes r-login { 0%, 48% { opacity: 1; transform: none; } 53%, 100% { opacity: 0; transform: translateY(-6px); } }
+.s-ready .lg { left: 70px; top: 14px; width: 28px; height: 28px; color: var(--text); }
+.s-ready .lg svg { width: 28px; height: 28px; }
+.s-ready .f { left: 16px; right: 16px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-soft); }
+.s-ready .f1 { top: 54px; }
+.s-ready .f2 { top: 84px; }
+.s-ready .ty { left: 8px; top: 9px; height: 5px; width: 55%; border-radius: 3px; background: color-mix(in srgb, var(--text) 45%, transparent); transform-origin: 0 50%; }
+.s-ready .f1 .ty { animation-name: r-type1; animation-timing-function: steps(6); }
+.s-ready .f2 .ty { width: 40%; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 55%, transparent) 0 5px, transparent 5px 8px); animation-name: r-type2; animation-timing-function: steps(5); }
+@keyframes r-type1 { 0%, 14% { transform: scaleX(0); } 22%, 100% { transform: none; } }
+@keyframes r-type2 { 0%, 30% { transform: scaleX(0); } 38%, 100% { transform: none; } }
+.s-ready .btn { left: 16px; right: 16px; top: 118px; height: 26px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 10.5px; line-height: 26px; text-align: center; white-space: nowrap; overflow: hidden; animation-name: r-btn; }
+@keyframes r-btn { 0%, 44% { transform: none; } 45.5% { transform: scale(.95); } 47%, 100% { transform: none; } }
+/* the chat list after logging in: a picture, a name, the last message */
+.s-ready .row { left: 10px; right: 10px; height: 30px; animation: bub .4s cubic-bezier(.2, .9, .25, 1.2) both; }
+.s-ready .w1 { top: 44px; animation-delay: 4.3s; }
+.s-ready .w2 { top: 80px; animation-delay: 4.5s; }
+.s-ready .w3 { top: 116px; animation-delay: 4.7s; }
+.s-ready .row .av { left: 0; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ec4899); }
+.s-ready .w2 .av { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
+.s-ready .w3 .av { background: linear-gradient(135deg, #a78bfa, #ec4899); }
+.s-ready .row .l1 { left: 32px; top: 7px; width: 58px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 45%, transparent); }
+.s-ready .row .l2 { left: 32px; top: 18px; width: 96px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+.s-ready .w2 .l2 { width: 76px; }
+.s-ready .w3 .l1 { width: 46px; }
+.s-ready .safe { left: 26px; top: 96px; animation: pop .45s cubic-bezier(.2, .9, .25, 1.35) 5.1s both; }
+.s-ready .safe .uf { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 12px 7px 9px; border-radius: 12px; background: rgba(22, 40, 29, .92); border: 1px solid rgba(74, 222, 128, .55); color: #dcfce7; font-size: 11.5px; font-weight: 600; white-space: nowrap; box-shadow: 0 8px 20px rgba(0, 0, 0, .4); }
+.s-ready .safe .uf > * { position: relative; flex: none; }
+.s-ready .safe svg { width: 18px; height: 18px; color: #4ade80; }
+.s-ready .r1 { left: 316px; top: 98px; animation-delay: 1.08s; }
+.s-ready .r2 { left: 316px; top: 128px; animation-delay: 2.2s; }
+.s-ready .r3 { left: 314px; top: 163px; animation-delay: 3.64s; }
+.s-ready .cur { animation-name: r-cur; }
+@keyframes r-cur {
+  0% { transform: translate(130px, 196px); opacity: 0; }
+  4% { transform: translate(130px, 196px); opacity: 1; }
+  12% { transform: translate(314px, 96px) scale(1); }
+  13.5% { transform: translate(314px, 96px) scale(.85); }
+  15% { transform: translate(314px, 96px) scale(1); }
+  26% { transform: translate(314px, 126px) scale(1); }
+  27.5% { transform: translate(314px, 126px) scale(.85); }
+  29% { transform: translate(314px, 126px) scale(1); }
+  42% { transform: translate(312px, 161px) scale(1); }
+  45.5% { transform: translate(312px, 161px) scale(.85); }
+  47% { transform: translate(312px, 161px) scale(1); opacity: 1; }
+  58%, 100% { transform: translate(262px, 206px); opacity: 0; }
+}
+
+/* "Reduce motion" in Windows: tour.js stops each scene on one frame; no pointer or clicks in it */
+@media (prefers-reduced-motion: reduce) {
+  .tour-stage .cur, .tour-stage .rip { display: none; }
+  .tour-text.go-next, .tour-text.go-back { animation: none; }
+}

@@ -6,6 +6,7 @@
 <title>ChatDock</title>
 <link rel="stylesheet" href="panel.css">
 <link rel="stylesheet" href="settings.css">
+<link rel="stylesheet" href="tour.css">
 </head>
 <body>
   <!-- Every text is filled in by i18n.js (data-i18n*) in the chosen language. -->
@@ -49,39 +50,28 @@
       <button id="retry" class="primary" data-i18n="error.retry"></button>
     </section>
 
+    <!-- The guide (tour.js): ChatDock opens on it the first time; "How to use" shows it again. -->
     <section id="welcome" hidden>
-      <div class="welcome">
+      <div class="tour">
         <label class="lang-pick" data-i18n-title="welcome.language">🌐 <select data-lang-select></select></label>
-        <div class="brand">
+        <div class="tour-head">
           <span class="logo" data-icon="logo"></span>
-          <div>
-            <h1>ChatDock</h1>
-            <p data-i18n="welcome.tagline"></p>
-          </div>
+          <div class="tour-brand"><b>ChatDock</b><small data-i18n="welcome.tagline"></small></div>
         </div>
 
-        <div class="demo" aria-hidden="true">
-          <div class="demo-game"><i></i><i></i><i></i></div>
-          <div class="demo-pill"></div>
-          <div class="demo-panel"><b></b><span class="in"></span><span class="out"></span><span class="in short"></span><span class="out"></span></div>
-          <svg class="demo-cursor" viewBox="0 0 16 16"><path d="M2 1.5v11.2l3-2.9 2 4.7 2.1-.9-2-4.6h4.2z" fill="#fff" stroke="#111" stroke-width="1" stroke-linejoin="round"/></svg>
+        <div class="tour-view">
+          <div id="tour-screen" class="tour-screen" role="img"><div id="tour-stage" class="tour-stage"></div></div>
+          <span class="tour-replay" aria-hidden="true" data-icon="reload"></span>
         </div>
-
-        <ol class="steps">
-          <li id="step1"></li>
-          <li id="step2"></li>
-          <li data-i18n-html="welcome.step3"></li>
-          <li data-i18n-html="welcome.step4"></li>
-        </ol>
-
-        <div class="note" data-i18n-html="welcome.note1"></div>
-        <div class="note" data-i18n-html="welcome.note2"></div>
-        <div class="note" data-i18n-html="welcome.note3"></div>
-        <div class="note" data-i18n-html="welcome.note4"></div>
-        <div class="note subtle" data-i18n-html="welcome.note5"></div>
+        <div id="tour-dots" class="tour-dots"></div>
+        <div id="tour-texts" class="tour-texts" aria-live="polite"></div>
 
         <label class="check" id="autostart-row" hidden><input type="checkbox" id="autostart" checked> <span data-i18n="welcome.autostart"></span></label>
-        <button id="start" class="primary big"></button>
+        <div class="tour-nav">
+          <button id="tour-back" class="tour-btn ghost" type="button" data-i18n="tour.back"></button>
+          <button id="tour-next" class="tour-btn go" type="button"><span class="label"></span><span class="go-ico" data-icon="chevronRight"></span></button>
+        </div>
+        <button id="tour-skip" class="tour-skip" type="button"></button>
       </div>
     </section>
 
@@ -479,6 +469,7 @@
   <script src="i18n.js"></script>
   <script src="icons.js"></script>
   <script src="panel.js"></script>
+  <script src="tour.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

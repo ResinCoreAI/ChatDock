@@ -53,7 +53,7 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🌐 **Five languages** | English, ไทย, 简体中文, 日本語, Deutsch — automatic from Windows or picked in Settings. |
 | 🔒 **Security** | Encrypted cookies, sandboxed pages, isolated logins, signed updates. See [Privacy & security](#privacy--security). |
 | ⬆️ **Updates from GitHub** | Checks for new releases, downloads them in the background, checks their signature, and installs only when you press **Update**. Afterwards a *What's new* window plays a short animated demo of each change (*Settings → Updates → See what's new* shows it again). |
-| ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place. |
+| ✨ **Smooth** | The panel and the edge tab move with every screen refresh — up to 300 fps on a 300 Hz screen. Pop-ups slide in and away, the others glide into place; the open app's highlight glides to the app you pick, and unread numbers pop when they go up. |
 | 🎨 **Look** | Dark / light / follow Windows · panel opacity · per-app width and zoom · unread glow on the screen edge. |
 | 🎥 **Streaming-safe** | Optionally hide the panel, the pop-ups and ChatDock's other windows (edge tab, glow, What's new, and the call and sign-in windows the chats open) from screenshots, OBS and Discord screen share. |
 
@@ -73,8 +73,10 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 2. Run it. It installs for your Windows user only (no admin rights needed), adds Start-menu and
    desktop shortcuts, and starts ChatDock. (It uses Microsoft Edge WebView2, which Windows 11 already
    has; on Windows 10 the installer fetches it if it's missing.)
-3. The welcome screen slides out (pick your language at its top right): press **Get started** and log in
-   to each chat app once, with its normal login page. ChatDock remembers the logins.
+3. A short animated guide slides out (pick your language at its top right): five steps with a little
+   scene each — the screen edge, the hotkey, pop-ups, games, logging in. Press **Let's go** and log in
+   to each chat app once, with its normal login page. ChatDock remembers the logins. (The guide again,
+   any time: right-click the tray icon → *How to use*.)
 
 > [!IMPORTANT]
 > The installer isn't code-signed with a Windows certificate, so SmartScreen may say *"Windows protected

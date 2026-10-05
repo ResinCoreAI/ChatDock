@@ -196,6 +196,97 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
 .scene .av:nth-child(2) { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
 .scene .av:nth-child(3) { background: linear-gradient(135deg, #a78bfa, #ec4899); }
 
+/* the guide on the first start: Next, step by step */
+.s-guide .gcard { left: 112px; top: 8px; width: 180px; height: 174px; border-radius: 14px; background: #1d1e2a; box-shadow: 0 10px 24px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.s-guide .gt { left: 12px; right: 12px; top: 10px; height: 22px; display: flex; align-items: center; gap: 8px; }
+.s-guide .gt > * { position: relative; }
+.s-guide .gt .lg, .s-guide .gt .lg svg { width: 20px; height: 20px; }
+.s-guide .gt b { width: 70px; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, .25); }
+.s-guide .thumb { left: 12px; top: 40px; width: 156px; height: 82px; overflow: hidden; border-radius: 9px; background: radial-gradient(130% 110% at 12% 0%, #30345a 0%, #1a1b2e 55%, #111219 100%); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07); }
+.s-guide .m1 { left: 12px; top: 22px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255, 255, 255, .07); }
+.s-guide .m2 { left: 70px; top: 8px; width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 120, 80, .2); }
+.s-guide .gp { right: 0; top: 18px; width: 10px; height: 44px; border-radius: 6px 0 0 6px; background: #fff; animation-name: gd-pill; }
+@keyframes gd-pill { 0%, 8% { transform: translateX(110%); } 13%, 20% { transform: none; } 24%, 56% { transform: translateX(110%); } 61%, 68% { transform: none; } 72%, 100% { transform: translateX(110%); } }
+.s-guide .gpn { right: 0; top: 0; bottom: 0; width: 58px; background: #f3f3f7; box-shadow: -4px 0 10px rgba(0, 0, 0, .4); animation-name: gd-pnl; animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+@keyframes gd-pnl { 0%, 20% { transform: translateX(105%); } 26%, 40% { transform: none; } 46%, 68% { transform: translateX(105%); } 74%, 100% { transform: none; } }
+.s-guide .gd { left: 63px; top: 132px; width: 54px; height: 6px; }
+.s-guide .gd i { top: 0; width: 6px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .22); }
+.s-guide .gd i:nth-child(2) { left: 12px; }
+.s-guide .gd i:nth-child(3) { left: 24px; }
+.s-guide .gd i:nth-child(4) { left: 36px; }
+.s-guide .gd i:nth-child(5) { left: 48px; }
+.s-guide .gd .now { left: -5px; width: 16px; background: linear-gradient(90deg, #8b5cf6, #0866ff); animation-name: gd-dot; animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+@keyframes gd-dot { 0%, 24% { transform: none; } 28%, 49% { transform: translateX(12px); } 53%, 74% { transform: translateX(24px); } 78%, 100% { transform: translateX(36px); } }
+.s-guide .l1 { left: 12px; top: 148px; width: 104px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .3); }
+.s-guide .l2 { left: 12px; top: 159px; width: 76px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .16); }
+.s-guide .nx { right: 12px; top: 144px; width: 36px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: linear-gradient(90deg, #8b5cf6, #0866ff); color: #fff; animation-name: gd-next; }
+.s-guide .nx svg { width: 13px; height: 13px; }
+@keyframes gd-next { 0%, 23% { transform: none; } 25% { transform: scale(.86); } 27%, 48% { transform: none; } 50% { transform: scale(.86); } 52%, 73% { transform: none; } 75% { transform: scale(.86); } 77%, 100% { transform: none; } }
+.s-guide .cur { animation-name: gd-cur; }
+@keyframes gd-cur {
+  0% { transform: translate(330px, 186px); opacity: 0; }
+  6% { transform: translate(330px, 186px); opacity: 1; }
+  20% { transform: translate(260px, 153px) scale(1); }
+  24.5% { transform: translate(260px, 153px) scale(.85); }
+  27%, 47% { transform: translate(260px, 153px) scale(1); }
+  49.5% { transform: translate(260px, 153px) scale(.85); }
+  52%, 72% { transform: translate(260px, 153px) scale(1); }
+  74.5% { transform: translate(260px, 153px) scale(.85); }
+  77% { transform: translate(260px, 153px) scale(1); opacity: 1; }
+  90%, 100% { transform: translate(300px, 180px); opacity: 0; }
+}
+
+/* Facebook's own logo, big and on the tab */
+.s-fbIcon .swap span { inset: 0; }
+.s-fbIcon .swap svg { width: 100%; height: 100%; }
+.s-fbIcon .old { opacity: 0; animation-name: fb-old; }
+.s-fbIcon .new { animation-name: fb-new; }
+@keyframes fb-old { 0%, 30% { transform: none; opacity: 1; } 38%, 100% { transform: rotateY(90deg) scale(.8); opacity: 0; } }
+@keyframes fb-new { 0%, 38% { transform: rotateY(-90deg) scale(.8); opacity: 0; } 46% { transform: scale(1.16); opacity: 1; } 52%, 100% { transform: none; opacity: 1; } }
+.s-fbIcon .ring { inset: -7px; border: 2px solid #0866ff; border-radius: 50%; opacity: 0; animation-name: fb-ring; }
+@keyframes fb-ring { 0%, 42% { transform: scale(.6); opacity: 0; } 46% { opacity: 1; } 62%, 100% { transform: scale(1.6); opacity: 0; } }
+.s-fbIcon .big { left: 132px; top: 47px; width: 96px; height: 96px; }
+.s-fbIcon .big .ring { inset: -10px; border-width: 3px; }
+.s-fbIcon .pill2 { right: 0; top: 18px; width: 50px; height: 154px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; border-radius: 25px 0 0 25px; background: #fff; box-shadow: -3px 0 16px rgba(0, 0, 0, .4); animation-name: fb-pill; animation-timing-function: cubic-bezier(.2, .9, .25, 1.1); }
+@keyframes fb-pill { 0%, 4% { transform: translateX(115%); } 12%, 100% { transform: none; } }
+.s-fbIcon .pill2 > * { position: relative; flex: none; }
+.s-fbIcon .chev { width: 8px; height: 8px; margin-left: 3px; border-left: 2px solid #a1a1ab; border-bottom: 2px solid #a1a1ab; transform: rotate(45deg); }
+.s-fbIcon .ap { width: 24px; height: 24px; color: #111; }
+.s-fbIcon .ap svg { width: 24px; height: 24px; }
+.s-fbIcon .pill2 .ring { animation-delay: .1s; }
+
+/* the highlight glides to the app picked; a new message's number pops */
+.s-glide .hdr { left: 92px; top: 68px; width: 220px; height: 52px; display: flex; gap: 4px; padding: 5px; border-radius: 16px; background: #232429; box-shadow: 0 10px 24px rgba(0, 0, 0, .4); }
+.s-glide .t { position: relative; flex: 1; height: 42px; display: grid; place-items: center; border-radius: 12px; color: #fff; }
+.s-glide .t svg { width: 22px; height: 22px; }
+.s-glide .gl { left: 5px; top: 5px; width: 49.5px; height: 42px; border-radius: 12px; background: #3a3b44; box-shadow: 0 1px 3px rgba(0, 0, 0, .5); animation-name: gl-move; }
+@keyframes gl-move {
+  0%, 20% { transform: none; animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+  27%, 44% { transform: translateX(53.5px); animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+  51%, 68% { transform: translateX(107px); animation-timing-function: cubic-bezier(.2, .9, .25, 1); }
+  75%, 100% { transform: none; }
+}
+.s-glide .bd { left: 196px; top: -3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #ff3040; color: #fff; font: 700 11px/18px "Segoe UI", sans-serif; text-align: center; box-shadow: 0 0 0 2px #232429; }
+.s-glide .b1 { opacity: 0; animation-name: gl-b1; }
+.s-glide .b2 { animation-name: gl-b2; }
+@keyframes gl-b1 { 0%, 30% { transform: scale(0); opacity: 1; } 34% { transform: scale(1.25); opacity: 1; } 37%, 56% { transform: none; opacity: 1; } 57%, 100% { transform: none; opacity: 0; } }
+@keyframes gl-b2 { 0%, 56% { transform: scale(.5); opacity: 0; } 57% { transform: scale(.5); opacity: 1; } 61% { transform: scale(1.25); opacity: 1; } 64%, 100% { transform: none; opacity: 1; } }
+.s-glide .cur { animation-name: gl-cur; }
+@keyframes gl-cur {
+  0% { transform: translate(260px, 170px); opacity: 0; }
+  6% { transform: translate(260px, 170px); opacity: 1; }
+  17% { transform: translate(173px, 90px) scale(1); }
+  20% { transform: translate(173px, 90px) scale(.85); }
+  23% { transform: translate(173px, 90px) scale(1); }
+  41% { transform: translate(227px, 90px) scale(1); }
+  44% { transform: translate(227px, 90px) scale(.85); }
+  47% { transform: translate(227px, 90px) scale(1); }
+  65% { transform: translate(120px, 90px) scale(1); }
+  68% { transform: translate(120px, 90px) scale(.85); }
+  71% { transform: translate(120px, 90px) scale(1); opacity: 1; }
+  84%, 100% { transform: translate(150px, 150px); opacity: 0; }
+}
+
 /* Settings → Discord */
 .s-dcPage .win { left: 97px; top: 7px; width: 210px; height: 176px; border-radius: 12px; overflow: hidden; background: #1d1e2a; box-shadow: 0 10px 24px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .06); }
 .s-dcPage .wtop { left: 0; right: 0; top: 0; height: 22px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-bottom: 1px solid rgba(255, 255, 255, .06); }

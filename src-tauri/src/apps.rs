@@ -42,7 +42,7 @@ pub const CATALOG: &[App] = &[
     App {
         id: "facebook",
         name: "Facebook",
-        icon: "messenger",
+        icon: "facebook",
         // messenger.com was retired in April 2026; Facebook chats now live here.
         home: "https://www.facebook.com/messages/",
         home_path: "/messages",

@@ -67,6 +67,10 @@ body:hover .pill { width: 46px; }
   text-align: center;
   box-shadow: 0 0 0 2px #fff;
 }
+/* once, as the tab slides out (and when a number goes up while it's out): tab.js bump() */
+.badge.bump { animation: bump .45s cubic-bezier(.2, .9, .25, 1.4) .1s both; }
+@keyframes bump { 0% { transform: scale(.4); } 55% { transform: scale(1.25); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .badge.bump { animation: none; } }
 [hidden] { display: none !important; }
 
 .apps { display: flex; flex-direction: column; align-items: center; gap: 8px; }

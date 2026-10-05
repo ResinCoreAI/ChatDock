@@ -8,10 +8,10 @@ window.ICONS = {
     <rect x="3" y="3" width="18" height="18" rx="5.5" fill="none" stroke="url(#ig-g)" stroke-width="2.1"/>
     <circle cx="12" cy="12" r="4.1" fill="none" stroke="url(#ig-g)" stroke-width="2.1"/>
     <circle cx="17.4" cy="6.6" r="1.25" fill="url(#ig-g)"/></svg>`,
-  messenger: `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="ms-g" x1="0" y1="1" x2="1" y2="0">
-    <stop offset="0" stop-color="#0866ff"/><stop offset=".6" stop-color="#a033ff"/><stop offset="1" stop-color="#ff5c87"/></linearGradient></defs>
-    <path d="M12 2.2C6.5 2.2 2.2 6.3 2.2 11.7c0 2.8 1.2 5.3 3.1 7v3.4l3.2-1.8c1.1.3 2.3.5 3.5.5 5.5 0 9.8-4.1 9.8-9.5S17.5 2.2 12 2.2z" fill="url(#ms-g)"/>
-    <path d="M6.4 14.3l3.5-5.4 2.9 2.2 4.8-2.5-3.5 5.4-2.9-2.2z" fill="#fff"/></svg>`,
+  // the blue circle with a white "f" whose stem runs off the bottom (the white "f" is drawn under the
+  // circle's cut-out, so it stays white on dark backgrounds too)
+  facebook: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245A12 12 0 0 1 9.101 23.691z" fill="#fff"/>
+    <path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647z" fill="#0866ff"/></svg>`,
   x: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.2 2.5h3.3l-7.2 8.2 8.5 10.8h-6.6l-5.2-6.7-5.9 6.7H1.8l7.7-8.8L1.4 2.5h6.8l4.7 6.2 5.3-6.2zm-1.2 17h1.8L7.1 4.3H5.2z" fill="currentColor"/></svg>`,
   discord: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.3 4.4A19.6 19.6 0 0 0 15.4 3l-.6 1.3a18.3 18.3 0 0 0-5.6 0L8.6 3a19.5 19.5 0 0 0-4.9 1.5C.6 9.1-.2 13.6.2 18a19.7 19.7 0 0 0 6 3l1.3-2.1a12.8 12.8 0 0 1-2-1l.5-.4a14 14 0 0 0 12 0l.5.4c-.6.4-1.3.7-2 1l1.3 2.1a19.6 19.6 0 0 0 6-3c.5-5.1-.8-9.6-3.5-13.6zM8 15.3c-1.2 0-2.1-1.1-2.1-2.4S6.8 10.5 8 10.5s2.2 1.1 2.1 2.4c0 1.3-.9 2.4-2.1 2.4zm8 0c-1.2 0-2.1-1.1-2.1-2.4s.9-2.4 2.1-2.4 2.2 1.1 2.1 2.4c0 1.3-.9 2.4-2.1 2.4z" fill="#5865F2"/></svg>`,
   telegram: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#2AABEE"/>

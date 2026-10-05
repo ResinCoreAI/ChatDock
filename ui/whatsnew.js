@@ -17,6 +17,7 @@ let closing = false;
 // turns stop on the last frame: nothing keeps redrawing a window left open for hours.
 // ---------------------------------------------------------------------------------------------
 const DEMOS = {
+  '1.7.4': ['guide', 'fbIcon', 'glide'],
   '1.7.1': ['spotify', 'volume', 'dcList'],
   '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'],
 };
@@ -37,8 +38,27 @@ const GAME = '<div class="game"><i></i><i></i><i></i></div>';
 const SWITCH = (on, cls = '') => `<i class="sw${on ? ' on' : ''}${cls ? ` ${cls}` : ''}"></i>`;
 const MINI = (people) => `<div class="mini"><div class="mh"><i class="ic">${icon('discordMono')}</i><b></b></div>
   <div class="vc">${'<i class="av"></i>'.repeat(people)}</div></div>`;
+// Facebook's icon before 1.7.4 (Messenger's), for the scene where it changes; n keeps each copy's
+// gradient its own
+const MESSENGER = (n) => `<svg viewBox="0 0 24 24"><defs><linearGradient id="ms-old-${n}" x1="0" y1="1" x2="1" y2="0">
+  <stop offset="0" stop-color="#0866ff"/><stop offset=".6" stop-color="#a033ff"/><stop offset="1" stop-color="#ff5c87"/></linearGradient></defs>
+  <path d="M12 2.2C6.5 2.2 2.2 6.3 2.2 11.7c0 2.8 1.2 5.3 3.1 7v3.4l3.2-1.8c1.1.3 2.3.5 3.5.5 5.5 0 9.8-4.1 9.8-9.5S17.5 2.2 12 2.2z" fill="url(#ms-old-${n})"/>
+  <path d="M6.4 14.3l3.5-5.4 2.9 2.2 4.8-2.5-3.5 5.4-2.9-2.2z" fill="#fff"/></svg>`;
 
 const SCENES = {
+  // the guide on the first start: Next, step by step
+  guide: () => `<div class="gcard"><div class="gt"><i class="lg">${icon('logo')}</i><b></b></div>
+    <div class="thumb"><i class="m1"></i><i class="m2"></i><i class="gp"></i><i class="gpn"></i></div>
+    <div class="gd"><i></i><i></i><i></i><i></i><i></i><i class="now"></i></div><b class="l1"></b><b class="l2"></b>
+    <i class="nx">${icon('chevronRight')}</i></div>${CURSOR}`,
+  // Facebook's own logo, big and on the tab
+  fbIcon: () => `<i class="big swap"><span class="old">${MESSENGER(1)}</span><span class="new">${icon('facebook')}</span><i class="ring"></i></i>
+    <div class="pill2"><i class="chev"></i><i class="ap">${icon('instagram')}</i>
+    <i class="ap swap"><span class="old">${MESSENGER(2)}</span><span class="new">${icon('facebook')}</span><i class="ring"></i></i>
+    <i class="ap">${icon('x')}</i><i class="ap">${icon('discord')}</i></div>`,
+  // the highlight glides to the app picked; a new message's number pops
+  glide: () => `<div class="hdr"><i class="gl"></i>${['instagram', 'facebook', 'x', 'discord'].map((a, i) => `<i class="t t${i + 1}">${icon(a)}</i>`).join('')}
+    <b class="bd b1">1</b><b class="bd b2">2</b></div>${CURSOR}`,
   // Settings → Discord
   dcPage: () => `<div class="win"><div class="wtop"><i></i><b></b></div>
     <div class="list"><p><i class="t t1"></i><b></b></p><p><i class="t t2"></i><b></b></p><p><i class="t t3"></i><b></b></p>
@@ -59,7 +79,7 @@ const SCENES = {
   dcShare: () => `${GAME}<i class="live"></i><i class="badge">${icon('monitor')}</i>${MINI(2)}
     <div class="bar"><i class="mon">${icon('monitor')}</i><b></b><i class="stop"></i></div>`,
   // the phone and screen icons on the tab
-  dockCalls: () => `${GAME}<div class="pill"><i class="chev"></i><i class="ap">${icon('instagram')}</i><i class="ap">${icon('messenger')}</i><i class="ap">${icon('discord')}</i>
+  dockCalls: () => `${GAME}<div class="pill"><i class="chev"></i><i class="ap">${icon('instagram')}</i><i class="ap">${icon('facebook')}</i><i class="ap">${icon('discord')}</i>
     <i class="line"></i><i class="chip call">${icon('phone')}</i><i class="chip share">${icon('monitor')}</i></div>${MINI(3)}${CURSOR}`,
   // a call keeps Discord awake
   dcAwake: () => `<i class="wave w1"></i><i class="wave w2"></i><div class="orb">${icon('discordMono')}<i class="ph">${icon('phone')}</i></div>

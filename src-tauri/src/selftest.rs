@@ -11,7 +11,10 @@ use std::{
 
 use serde_json::json;
 use tauri::Manager;
-use webview2_com::{CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler, Microsoft::Web::WebView2::Win32::*};
+use webview2_com::{
+    CallDevToolsProtocolMethodCompletedHandler, CapturePreviewCompletedHandler, ExecuteScriptCompletedHandler,
+    Microsoft::Web::WebView2::Win32::*,
+};
 use windows::{
     core::HSTRING,
     Win32::{
@@ -97,6 +100,12 @@ pub fn start() {
         } else if only.as_deref() == Some("newsgif") {
             wait(3000);
             news_gif_frames();
+        } else if only.as_deref() == Some("tour") {
+            wait(4000); // ChatDock's own pages load
+            tour_test();
+        } else if only.as_deref() == Some("tourgif") {
+            wait(4000);
+            tour_gif_frames();
         } else if only.as_deref() == Some("newsdemo") {
             wait(3000);
             news_demo_test();
@@ -1590,6 +1599,350 @@ fn news_gif_frames() {
     on(|c| {
         c.close_whats_new(false);
         c.whatsnew.offscreen = false;
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// The guide (1.7.4)
+// ---------------------------------------------------------------------------------------------
+/// Each step's scene runs this long (ms), and is checked and pictured at this moment.
+const TOUR_STEPS: [(&str, u32, u32); 5] =
+    [("edge", 8000, 7000), ("hotkey", 8000, 3200), ("popup", 8500, 7200), ("game", 9000, 7400), ("ready", 8000, 7000)];
+
+/// The guide in the panel, shown off screen and never activated (nothing takes the keyboard): the
+/// first start, or "How to use".
+fn tour_show(onboarded: bool) {
+    on(move |c| {
+        c.settings.set("onboarded", json!(onboarded));
+        c.settings_mode = false;
+        c.help_mode = true;
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+    });
+}
+
+/// Every animation of the scene on the guide's stage stopped at `ms` into it (not timed).
+fn tour_freeze(ms: u32) -> String {
+    page_js(
+        "panel",
+        &format!(
+            "(() => {{ const a = document.getElementById('tour-stage').getAnimations({{ subtree: true }}); a.forEach((x) => {{ x.pause(); x.currentTime = {ms}; }}); return a.length; }})()"
+        ),
+    )
+}
+
+/// What doesn't fit in the guide as it is now: a step's text wider than the panel, a label in the
+/// scene cut short, the "stays on this PC" label over the chat, the game's menu off the stage, the
+/// panel scrolling sideways. "[]" when all is well.
+const TOUR_FIT: &str = "(() => { const out = []; const st = document.getElementById('tour-stage'); const box = st.getBoundingClientRect(); \
+  for (const el of document.querySelectorAll('.tour-text')) if (el.scrollWidth > el.clientWidth + 1) out.push('text wider than the panel: ' + el.querySelector('h2').textContent.slice(0, 24)); \
+  for (const el of st.querySelectorAll('.tx > *, .dd .v, .list p, .btn, .ch b, kbd, .mr span, .mt b')) if (el.scrollWidth > el.clientWidth + 1) out.push('cut: ' + el.textContent.slice(0, 24)); \
+  const safe = st.querySelector('.safe .uf'), pnl = st.querySelector('.pnl'); \
+  if (safe && pnl) { const a = safe.getBoundingClientRect(), b = pnl.getBoundingClientRect(); if (a.right > b.left + 1 && a.left < b.right - 1) out.push('the safe label covers the chat'); if (a.left < box.left - 1 || a.right > box.right + 1) out.push('the safe label is off the stage'); } \
+  const menu = st.querySelector('.menu'); if (menu) { const r = menu.getBoundingClientRect(); if (r.left < box.left - 1 || r.right > box.right + 1) out.push('the menu is off the stage'); } \
+  const page = document.getElementById('stage'); if (page.scrollWidth > page.clientWidth + 1) out.push('the panel scrolls sideways'); \
+  return JSON.stringify(out); })()";
+
+/// A DevTools call in one of ChatDock's own pages (the self-test only: emulating "reduce motion").
+fn page_cdp(label: &str, method: &str, params: &str) -> String {
+    let Some(w) = rt::app().get_webview_window(label) else { return "err:no such window".into() };
+    let (tx, rx) = mpsc::channel::<String>();
+    let (method, params) = (method.to_string(), params.to_string());
+    let _ = w.with_webview(move |pw| unsafe {
+        if let Ok(wv) = pw.controller().CoreWebView2() {
+            let done = tx.clone();
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |r, json| {
+                let _ = done.send(if r.is_ok() { json } else { format!("err:{r:?}") });
+                Ok(())
+            }));
+            if wv.CallDevToolsProtocolMethod(&HSTRING::from(method), &HSTRING::from(params), &handler).is_err() {
+                let _ = tx.send("err:call".into());
+            }
+        }
+    });
+    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "err:timeout".into())
+}
+
+/// Sets the panel's width (DIP) where it stands, off screen.
+fn panel_width(width: f64) {
+    on(move |c| {
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        let w = (width * d.ui).round() as i32;
+        let r = win32::Rect { w, ..g };
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&r, &d), ..r });
+    });
+}
+
+fn tour_test() {
+    let keys = ["onboarded", "theme", "side", "lang", "popups", "glow", "active"];
+    let was: Vec<(&str, serde_json::Value)> = on(move |c| keys.iter().map(|k| (*k, c.settings.get(k).clone())).collect());
+    on(|c| c.set_pref("lang", json!("en")));
+    tour_show(false);
+    wait(1800);
+    log!(
+        "guide on the first start: {} (expect shown, step 0, 5 texts, 5 dots, s-edge, Next, Skip the guide, Back hidden, no start box, k ~1)",
+        page_js(
+            "panel",
+            "JSON.stringify({ shown: !document.getElementById('welcome').hidden, at: tourAt(), texts: document.querySelectorAll('.tour-text').length, \
+             dots: document.querySelectorAll('.tour-dot').length, scene: document.getElementById('tour-stage').className, next: document.querySelector('#tour-next .label').textContent, \
+             skip: document.getElementById('tour-skip').textContent, back: document.getElementById('tour-back').hidden, box: document.getElementById('autostart-row').hidden, \
+             k: getComputedStyle(document.getElementById('tour-stage')).getPropertyValue('--k') })"
+        )
+    );
+
+    // every step at a moment in the middle and at its end, in both themes
+    for theme in ["dark", "light"] {
+        on(move |c| {
+            c.settings.set("theme", json!(theme));
+            c.apply_theme();
+        });
+        wait(700);
+        for (i, (id, _, end)) in TOUR_STEPS.iter().enumerate() {
+            page_js("panel", &format!("tourGo({i}), 1"));
+            wait(500);
+            for ms in [2400, *end] {
+                tour_freeze(ms);
+                wait(200);
+                shot(&format!("90-{theme}-{i}{id}-{ms}"));
+            }
+            log!(
+                "guide {theme} step {i} ({id}): misfits {} | scene {}",
+                page_js("panel", TOUR_FIT),
+                page_js("panel", "document.getElementById('tour-stage').className")
+            );
+        }
+    }
+
+    // every language, in the narrowest panel and the usual one
+    for lang in ["th", "en", "zh", "ja", "de"] {
+        on(move |c| c.set_pref("lang", json!(lang)));
+        wait(700);
+        for width in [340.0, 460.0] {
+            panel_width(width);
+            wait(500);
+            let mut problems = Vec::new();
+            for (i, (_, _, end)) in TOUR_STEPS.iter().enumerate() {
+                page_js("panel", &format!("tourGo({i}), 1"));
+                wait(300);
+                tour_freeze(*end);
+                wait(150);
+                let fit = page_js("panel", TOUR_FIT);
+                if fit != "\"[]\"" {
+                    problems.push(format!("step {i}: {fit}"));
+                }
+                if width < 400.0 {
+                    shot(&format!("91-{lang}-{i}"));
+                }
+            }
+            log!(
+                "guide {lang} at {width} px: {} | height {} (expect fits)",
+                if problems.is_empty() { "fits".to_string() } else { problems.join(" | ") },
+                page_js("panel", "JSON.stringify({ guide: document.querySelector('.tour').scrollHeight, room: document.getElementById('stage').clientHeight, text: document.querySelector('.tour-texts').offsetHeight })")
+            );
+        }
+    }
+    on(|c| c.set_pref("lang", json!("th")));
+    panel_width(460.0);
+
+    // docked on the left: the scenes mirror, their words don't
+    on(|c| {
+        c.settings.set("side", json!("left"));
+        c.broadcast_state();
+    });
+    wait(600);
+    for (i, (_, _, end)) in TOUR_STEPS.iter().enumerate() {
+        page_js("panel", &format!("tourGo({i}), 1"));
+        wait(300);
+        tour_freeze(*end);
+        wait(150);
+        shot(&format!("92-left-{i}"));
+    }
+    log!(
+        "docked left: {} (expect the stage mirrored, the text in it not)",
+        page_js("panel", "JSON.stringify({ stage: document.getElementById('tour-stage').className, body: document.body.classList.contains('left'), uf: getComputedStyle(document.querySelector('#tour-stage .flip .uf')).transform })")
+    );
+    on(|c| {
+        c.settings.set("side", json!("right"));
+        c.broadcast_state();
+    });
+
+    // "reduce motion" in Windows: one still picture per step
+    let emu = page_cdp("panel", "Emulation.setEmulatedMedia", r#"{"features":[{"name":"prefers-reduced-motion","value":"reduce"}]}"#);
+    page_js("panel", "tourGo(2), 1");
+    wait(500);
+    log!(
+        "reduce motion ({emu}): {} (expect every animation paused, no pointer)",
+        page_js(
+            "panel",
+            "(() => { const a = document.getElementById('tour-stage').getAnimations({ subtree: true }); \
+             return JSON.stringify({ n: a.length, paused: a.every((x) => x.playState === 'paused'), pointer: getComputedStyle(document.querySelector('#tour-stage .cur')).display }); })()"
+        )
+    );
+    shot("93-reduce-motion");
+    page_cdp("panel", "Emulation.setEmulatedMedia", r#"{"features":[{"name":"prefers-reduced-motion","value":""}]}"#);
+
+    // the arrow keys and the buttons; what the page would tell ChatDock is caught on the page
+    page_js("panel", "tourGo(0), 1");
+    page_js(
+        "panel",
+        "['ArrowRight', 'ArrowRight', 'ArrowLeft', 'ArrowRight'].forEach((key) => document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))), 1",
+    );
+    let by_keys = page_js("panel", "tourAt()");
+    page_js("panel", "window.__sent = []; window.__send = chatdock.send; chatdock.send = (...a) => window.__sent.push(a); tourGo(0), 1");
+    for _ in 0..4 {
+        js_click("panel", "#tour-next");
+    }
+    let last = page_js(
+        "panel",
+        "JSON.stringify({ at: tourAt(), next: document.querySelector('#tour-next .label').textContent, skip: document.getElementById('tour-skip').hidden, \
+         box: !document.getElementById('autostart-row').hidden, back: !document.getElementById('tour-back').hidden })",
+    );
+    js_click("panel", "#tour-next");
+    let started = page_js("panel", "JSON.stringify(window.__sent.splice(0))");
+    page_js("panel", "tourGo(1), 1");
+    js_click("panel", "#tour-skip");
+    let skipped = page_js("panel", "JSON.stringify(window.__sent.splice(0))");
+    page_js("panel", "chatdock.send = window.__send, 1");
+    log!(
+        "keys → step {by_keys} (expect 2) | last step: {last} (expect 4, เริ่มใช้งานเลย, skip hidden, the box only if Windows start can be set here) | start sends {started} | skip sends {skipped} (expect onboarding:done, the box's tick only with start)"
+    );
+
+    // "How to use" later: from the first step, "Close the guide", and the last button goes back to the
+    // chat (ChatDock itself this time, with the panel hidden so nothing comes to the front)
+    on(|c| {
+        c.help_mode = false;
+        c.settings.set("onboarded", json!(true));
+        c.broadcast_state();
+    });
+    wait(300);
+    tour_show(true);
+    wait(800);
+    let help = page_js(
+        "panel",
+        "JSON.stringify({ at: tourAt(), skip: document.getElementById('tour-skip').textContent, last: (tourGo(4), document.querySelector('#tour-next .label').textContent), \
+         box: !document.getElementById('autostart-row').hidden })",
+    );
+    on(|c| win32::hide(c.panel.hwnd));
+    js_click("panel", "#tour-next");
+    wait(600);
+    log!(
+        "How to use: {help} (expect step 0, ปิดคำแนะนำ, กลับไปที่แชท, no box) | after its last button: help {} onboarded {} (expect false, true)",
+        on(|c| c.help_mode),
+        on(|c| c.settings.bool("onboarded"))
+    );
+
+    // the header: the highlight glides to the app picked, a new unread number pops (pop-ups and the
+    // edge glow off meanwhile, so nothing shows on the screen)
+    let apps = on(|c| c.enabled_apps());
+    on(|c| {
+        c.settings.set("popups", json!(false));
+        c.settings.set("glow", json!(false));
+        let d = c.target_display();
+        let g = c.panel_geometry(&d);
+        win32::set_bounds(c.panel.hwnd, win32::Rect { x: c.hidden_x(&g, &d), ..g });
+        win32::show_inactive(c.panel.hwnd);
+        c.broadcast_state();
+    });
+    wait(600);
+    let (a0, a1) = (apps[0], apps.get(1).copied().unwrap_or(apps[0]));
+    on(move |c| c.set_active(a1, false));
+    let moving = page_js("panel", "(() => { const g = document.querySelector('.apps .glider'); return JSON.stringify([g.style.transform, getComputedStyle(g).transitionDuration]); })()");
+    wait(700);
+    let placed = page_js(
+        "panel",
+        "(() => { const g = document.querySelector('.apps .glider'), b = document.querySelector('.app.active'); \
+         return JSON.stringify({ glider: [g.style.transform, g.style.width, g.hidden], tab: [b.dataset.app, b.offsetLeft, b.offsetWidth], drawn: getComputedStyle(b).backgroundColor }); })()",
+    );
+    shot("94-header-glide");
+    on(move |c| c.set_count(a0, 2));
+    wait(80);
+    let bump = page_js("panel", &format!("document.querySelector('.app[data-app=\"{a0}\"] .badge').className"));
+    on(move |c| c.set_count(a0, 0));
+    log!("header: glider while moving {moving} | in place {placed} (expect the active tab's left and width, the tab itself transparent) | new unread number: {bump} (expect badge bump)");
+    // the volume bar takes the tabs' place; when it closes the highlight is back on the open app
+    js_click("panel", "#vol");
+    wait(300);
+    let open = page_js(
+        "panel",
+        "JSON.stringify([!document.getElementById('volbar').hidden, getComputedStyle(document.querySelector('.apps')).display])",
+    );
+    js_click("panel", "#vol-done");
+    wait(300);
+    log!(
+        "volume bar: open {open} | closed again: {} (expect [true, none], then the glider on the open tab)",
+        page_js(
+            "panel",
+            "(() => { const g = document.querySelector('.apps .glider'), b = document.querySelector('.app.active'); return JSON.stringify({ glider: [g.style.transform, g.style.width, g.hidden], tab: [b.offsetLeft, b.offsetWidth] }); })()"
+        )
+    );
+
+    // Facebook's own logo, in the header and on the edge tab
+    log!(
+        "Facebook's icon: header {} | tab {} (expect #0866ff: the blue f)",
+        page_js("panel", "document.querySelector('.app[data-app=facebook] svg path:last-child')?.getAttribute('fill') || 'none'"),
+        page_js("tab", "document.querySelector('.app[data-app=facebook] svg path:last-child')?.getAttribute('fill') || 'none'")
+    );
+
+    on(move |c| {
+        for (k, v) in was {
+            c.settings.set(k, v);
+        }
+        c.apply_theme();
+        c.help_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
+    });
+}
+
+/// Pictures of the guide for a GIF: each step's scene, one picture per 100 ms (stopped at each
+/// moment, so the frames come out even), as the panel opens the first time. <shots>/tourgif/
+/// s<step>-<ms>.png; the guide's place on the page (CSS px and the scale) goes to the log for
+/// cropping.
+fn tour_gif_frames() {
+    let Some(dir) = on(|c| c.args.shots.clone()) else { return };
+    let dir = dir.join("tourgif");
+    let _ = std::fs::create_dir_all(&dir);
+    // the usual hotkey in the pictures (the test copy can't take it while the real ChatDock holds it:
+    // it only has to show)
+    on(|c| {
+        c.settings.set("hotkey", json!("Control+Alt+C"));
+        c.hotkey_ok = true;
+    });
+    tour_show(false);
+    wait(2500);
+    log!(
+        "guide at {}",
+        page_js("panel", "JSON.stringify((() => { const r = document.querySelector('.tour').getBoundingClientRect(); return [r.left, r.top, r.width, r.height, devicePixelRatio]; })())")
+    );
+    let mut saved = 0;
+    for (i, (_, dur, _)) in TOUR_STEPS.iter().enumerate() {
+        page_js("panel", &format!("tourGo({i}), 1"));
+        wait(500);
+        for t in (0..*dur).step_by(100) {
+            tour_freeze(t);
+            wait(30);
+            let Some(w) = rt::app().get_webview_window("panel") else { return };
+            let (tx, rx) = mpsc::channel::<String>();
+            let path = dir.join(format!("s{i}-{t:05}.png"));
+            let _ = w.with_webview(move |pw| unsafe {
+                if let Ok(wv) = pw.controller().CoreWebView2() {
+                    capture(&wv, path, tx);
+                }
+            });
+            if rx.recv_timeout(Duration::from_secs(5)).is_ok_and(|r| r == "ok") {
+                saved += 1;
+            }
+        }
+    }
+    log!("guide gif frames: {saved} pictures");
+    on(|c| {
+        c.help_mode = false;
+        win32::hide(c.panel.hwnd);
+        c.broadcast_state();
     });
 }
 
@@ -3446,7 +3799,7 @@ fn full_test() {
 
     // Updating: the "Updating ChatDock" window, then the start after an update
     log!(
-        "build names: {} | {} | {} (expect Beta Build 1.7.3, Beta Build 1.6, Beta Build 2.0.1)",
+        "build names: {} | {} | {} (expect Beta Build 1.7.4, Beta Build 1.6, Beta Build 2.0.1)",
         i18n::build_name("en", &rt::version()),
         i18n::build_name("en", "1.6.0"),
         i18n::build_name("en", "2.0.1")

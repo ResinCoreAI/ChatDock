@@ -48,6 +48,8 @@ function render(s) {
     btn.title = i18n.t(a.asleep ? 'tab.sleeping' : 'tab.openApp', { name: a.name });
     const badge = btn.querySelector('.badge');
     const n = s.counts[a.id] || 0;
+    if (n > Number(badge.dataset.n || 0) && pill.classList.contains('in')) bump(badge); // a new one while it's out
+    badge.dataset.n = String(n);
     badge.textContent = n > 9 ? '9+' : String(n);
     badge.hidden = n === 0;
   }
@@ -77,6 +79,13 @@ function render(s) {
   }
 }
 
+// An unread number pops once: as the tab slides out, and when it goes up while the tab is out.
+function bump(badge) {
+  badge.classList.remove('bump');
+  void badge.offsetWidth;
+  badge.classList.add('bump');
+}
+
 chatdock.on('state', render);
 
 chatdock.on('tab:show', (s) => {
@@ -85,6 +94,7 @@ chatdock.on('tab:show', (s) => {
   void pill.offsetWidth; // restart the slide-in transition
   pill.classList.add('in');
   shownAt = performance.now();
+  for (const badge of appsEl.querySelectorAll('.badge:not([hidden])')) bump(badge);
 });
 
 chatdock.on('tab:hide', (instant) => {

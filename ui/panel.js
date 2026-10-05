@@ -5,11 +5,14 @@ const nav = $('.apps');
 let tabsKey = '';
 let side = '';
 let lang = '';
+let glider = null;
+const counted = {}; // each app's unread number as last shown
 
 // One tab per switched-on app: the active one shows its name, the others just the icon + unread count.
 function renderTabs(s) {
   const key = s.apps.map((a) => a.id).join(',');
-  if (key !== tabsKey) {
+  const rebuilt = key !== tabsKey;
+  if (rebuilt) {
     tabsKey = key;
     nav.textContent = '';
     for (const a of s.apps) {
@@ -30,6 +33,9 @@ function renderTabs(s) {
       btn.addEventListener('click', () => chatdock.send('app:select', a.id));
       nav.append(btn);
     }
+    glider = document.createElement('i'); // last, so nav.children[i] stays the i-th app
+    glider.className = 'glider';
+    nav.append(glider);
   }
   s.apps.forEach((a, i) => {
     const btn = nav.children[i];
@@ -43,7 +49,35 @@ function renderTabs(s) {
     const badge = btn.querySelector('.badge');
     badge.textContent = n > 99 ? '99+' : String(n);
     badge.hidden = n === 0;
+    if (n > (counted[a.id] || 0) && s.shown && !rebuilt) bump(badge); // a new message while it's open
+    counted[a.id] = n;
   });
+  placeGlider(rebuilt);
+}
+
+// The open app's highlight glides to the app picked (it jumps into place when there was nothing to
+// glide from: new tabs, a new width, the volume bar closing).
+function placeGlider(jump) {
+  const btn = nav.querySelector('.app.active');
+  if (!glider) return;
+  glider.hidden = !btn || !btn.offsetWidth;
+  if (glider.hidden) return;
+  glider.classList.toggle('still', jump);
+  glider.style.width = `${btn.offsetWidth}px`;
+  glider.style.transform = `translateX(${btn.offsetLeft}px)`;
+  if (jump) {
+    void glider.offsetWidth;
+    glider.classList.remove('still');
+  }
+}
+window.addEventListener('resize', () => placeGlider(true));
+document.fonts.ready.then(() => placeGlider(true));
+
+// An unread number that went up pops once.
+function bump(badge) {
+  badge.classList.remove('bump');
+  void badge.offsetWidth;
+  badge.classList.add('bump');
 }
 
 function renderHotkey(label) {
@@ -84,8 +118,6 @@ function translatePage(s) {
   };
   i18n.apply();
   window.fillIcons();
-  side = ''; // step 1 of the welcome screen depends on the side
-  delete $('#step2').dataset.key; // and step 2 on whether there is a hotkey
 }
 
 // Docked on the left: the page mirrors (grip on the right, hide arrow points left).
@@ -95,7 +127,6 @@ function renderSide(s) {
   const left = side === 'left';
   document.body.classList.toggle('left', left);
   $('#hide .hide-ico').innerHTML = window.iconHTML(left ? 'chevronLeft' : 'chevronRight');
-  $('#step1').innerHTML = i18n.t(left ? 'welcome.step1.left' : 'welcome.step1.right');
 }
 
 function renderUpdate(u) {
@@ -152,13 +183,7 @@ function render(s) {
   document.body.classList.toggle('with-banner', !!s.banner);
   $('#banner').hidden = !s.banner;
 
-  $('#start').textContent = t(s.onboarded ? 'welcome.back' : 'welcome.start');
-  $('#autostart-row').hidden = s.onboarded || !s.canAutostart;
-  const step2 = s.hotkey ? 'welcome.step2' : 'welcome.step2none';
-  if ($('#step2').dataset.key !== step2 || !$('#step2').firstChild) {
-    $('#step2').dataset.key = step2;
-    $('#step2').innerHTML = t(step2, i18n.vars);
-  }
+  if (window.tourRender) window.tourRender(s);
   renderHotkey(s.hotkey);
 }
 
@@ -205,9 +230,11 @@ function setVolume(level) {
   chatdock.send('panel:volume', volState.id, v);
 }
 function openVolume(open) {
+  if ($('#volbar').hidden === !open) return;
   $('#volbar').hidden = !open;
   document.body.classList.toggle('vol-open', open);
   if (open) $('#vol-range').focus();
+  else placeGlider(true); // the tabs are back (measured while they were away)
 }
 // One wheel notch = 5 %; a touchpad's many small steps add up to the same, and sideways does nothing
 const wheelStep = (e) => {
@@ -244,9 +271,6 @@ $('#retry').addEventListener('click', () => chatdock.send('panel:retry'));
 $('#banner-close').addEventListener('click', () => chatdock.send('banner:dismiss'));
 $('#settings-btn').addEventListener('click', () => chatdock.send('panel:settings'));
 $('#update').addEventListener('click', () => chatdock.send('panel:update'));
-$('#start').addEventListener('click', () => {
-  chatdock.send('onboarding:done', { autostart: $('#autostart').checked });
-});
 $('#welcome [data-lang-select]').addEventListener('change', (e) => chatdock.send('settings:set', 'lang', e.target.value));
 
 // Drag the inner edge to resize. ChatDock follows the real cursor itself (in physical pixels, so it
