@@ -85,11 +85,13 @@
     const from = apps.find((a) => a.id === 'instagram') || apps.find((a) => a.id === 'facebook') || apps[0]
       || { id: 'instagram', name: 'Instagram', icon: 'instagram' };
     const name = t('tour.sampleName');
+    const letters = Array.from(name);
     return {
       apps: apps.length ? apps : [from],
       from,
       name,
-      initial: Array.from(name)[0] || '?',
+      // its picture's letter (Thai: past a vowel written before its consonant, เจ → จ)
+      initial: (/^[เแโใไ]$/.test(letters[0] || '') && letters[1] ? letters[1] : letters[0]) || '?',
       msg: t('tour.sampleMsg'),
       reply: t('tour.sampleReply'),
       keys: s.hotkey ? s.hotkey.split(' + ') : [],

@@ -107,6 +107,9 @@ pub fn start() {
             wait(8000); // the pages load
             game_mode_test();
             facebook_count_test();
+        } else if only.as_deref() == Some("gameintro") {
+            wait(4000); // ChatDock's own pages load
+            game_intro_test();
         } else if only.as_deref() == Some("tourgif") {
             wait(4000);
             tour_gif_frames();
@@ -2192,6 +2195,101 @@ fn game_mode_test() {
         c.settings.set("lang", was.2);
     });
     wait(700);
+}
+
+/// Game mode switched on: its explainer opens (off screen here), with its three scenes and "don't
+/// show this again"; ticked, switching it on again opens nothing, but Settings' "How it works" still
+/// does. Pictures of every scene, one per 100 ms, for a GIF: <shots>/gmintro/s<scene>-<ms>.png.
+fn game_intro_test() {
+    let was = on(|c| {
+        let was = (c.settings.get("popupQuietFullscreen").clone(), c.settings.get("gameModeIntro").clone());
+        c.whatsnew.offscreen = true;
+        c.settings.set("popupQuietFullscreen", json!(false));
+        c.settings.set("gameModeIntro", json!(true));
+        was
+    });
+    on(|c| c.set_pref("popupQuietFullscreen", json!(true)));
+    wait(2500);
+    let made = on(|c| c.whatsnew.win.is_some());
+    log!(
+        "game mode switched on: explainer {made} | {} (expect true | intro, the title, 4 lines, 3 scenes, the box shown, no GitHub link)",
+        page_js(
+            "whatsnew",
+            "JSON.stringify({ intro: document.body.classList.contains('intro'), title: document.getElementById('title').textContent, sub: document.getElementById('route').textContent, \
+             lines: document.querySelectorAll('.notes li').length, scenes: document.querySelectorAll('#dots .dot').length, box: !document.getElementById('again').hidden, \
+             boxText: document.querySelector('#again span').textContent, github: !document.getElementById('github').hidden, ok: document.getElementById('ok').textContent, \
+             card: document.querySelector('.card').offsetHeight, fits: document.getElementById('notes').scrollHeight <= document.getElementById('notes').clientHeight + 1 })"
+        )
+    );
+    // every scene, frame by frame (stopped at each moment)
+    let dir = on(|c| c.args.shots.clone()).map(|d| d.join("gmintro"));
+    if let Some(dir) = &dir {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let mut saved = 0;
+    for i in 0..3 {
+        page_js("whatsnew", &format!("showDemo({i}, true), clearTimeout(demoTimer), 1"));
+        wait(400);
+        for t in (0..6000).step_by(100) {
+            page_js(
+                "whatsnew",
+                &format!(
+                    "(() => {{ clearTimeout(demoTimer); const a = document.getAnimations().filter((x) => x.effect && x.effect.target && scene.contains(x.effect.target)); \
+                     a.forEach((x) => {{ x.pause(); x.currentTime = {t}; }}); return a.length; }})()"
+                ),
+            );
+            wait(30);
+            if t % 1500 == 0 {
+                shot(&format!("96-gmintro-{i}-{t:04}"));
+            }
+            let Some(dir) = dir.clone() else { continue };
+            let Some(w) = rt::app().get_webview_window("whatsnew") else { break };
+            let (tx, rx) = mpsc::channel::<String>();
+            let path = dir.join(format!("s{i}-{t:05}.png"));
+            let _ = w.with_webview(move |pw| unsafe {
+                if let Ok(wv) = pw.controller().CoreWebView2() {
+                    capture(&wv, path, tx);
+                }
+            });
+            if rx.recv_timeout(Duration::from_secs(5)).is_ok_and(|r| r == "ok") {
+                saved += 1;
+            }
+        }
+    }
+    log!(
+        "explainer frames: {saved} | card at {}",
+        page_js("whatsnew", "JSON.stringify((() => { const r = document.querySelector('.card').getBoundingClientRect(); return [r.left, r.top, r.width, r.height, devicePixelRatio]; })())")
+    );
+    // "don't show this again", then Got it
+    page_js("whatsnew", "document.getElementById('again-box').checked = true, document.getElementById('ok').click(), 1");
+    wait(800);
+    let after = on(|c| (c.whatsnew.win.is_some(), c.settings.bool("gameModeIntro")));
+    // off and on again: nothing opens now
+    on(|c| {
+        c.set_pref("popupQuietFullscreen", json!(false));
+        c.set_pref("popupQuietFullscreen", json!(true));
+    });
+    wait(1500);
+    let again = on(|c| c.whatsnew.win.is_some());
+    // Settings → Notifications → "How it works": it opens all the same
+    on(|c| c.settings_action_test("game-intro", serde_json::Value::Null));
+    wait(2000);
+    let how = on(|c| c.whatsnew.win.is_some());
+    js_click("whatsnew", "#ok");
+    wait(800);
+    log!(
+        "explainer: after Got it with the box ticked: open {}, show again {} (expect false, false) | switched on again: opens {again} (expect false) | How it works: opens {how}, then closed {} and show again {} (expect true, true, true)",
+        after.0,
+        after.1,
+        on(|c| c.whatsnew.win.is_none()),
+        on(|c| c.settings.bool("gameModeIntro"))
+    );
+    on(move |c| {
+        c.close_whats_new(false);
+        c.whatsnew.offscreen = false;
+        c.settings.set("popupQuietFullscreen", was.0);
+        c.settings.set("gameModeIntro", was.1);
+    });
 }
 
 /// Facebook's number: a blink of its title (gone, then back as high) changes nothing, and a rise

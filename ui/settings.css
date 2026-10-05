@@ -636,6 +636,9 @@ select option { background: var(--card); color: var(--text); }
 }
 .link-btn:hover { color: #c8102e; }
 .link-btn.armed { color: #fff; background: #e11d48; border-radius: 6px; text-decoration: none; padding: 3px 8px; }
+/* "How it works" under a setting (game mode): its explainer window */
+.how-btn { margin-top: 5px; padding: 0; border: 0; background: none; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+.how-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* small on/off chips: per-app notification switches, "sleep when unused" */
 .mini-chip {

@@ -47,7 +47,8 @@ fn defaults() -> Map<String, Value> {
         "popupDuration": 8,         // seconds on screen; 0 = until clicked / closed
         "popupMax": 3,              // cards shown at once (the rest are summed up as "+N more")
         "appPrefs": {},
-        "popupQuietFullscreen": false, // hold pop-ups while a fullscreen game / video is in front
+        "popupQuietFullscreen": false, // game mode: pop-ups wait while a game / video fills the screen, then one card
+        "gameModeIntro": true,      // switching game mode on explains it (until "don't show this again")
         "dndUntil": 0,              // do-not-disturb: 0 = off, -1 = until switched off, else epoch ms
         "updateAutoCheck": true,    // look for new versions on GitHub
         "updateAutoDownload": true, // fetch them in the background (installing always waits for a click)

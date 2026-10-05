@@ -2,13 +2,16 @@
 
 // "What's new" after an update: "ChatDock is now on Beta Build 1.5.3 ✓", then what changed since the
 // version the user had, one section per release. ChatDock sends the texts (already translated),
-// sizes the window to the card and shows it.
+// sizes the window to the card and shows it. The same window explains a feature when it is switched
+// on (kind "intro": game mode), with "don't show this again" where the GitHub link would be.
 const card = document.querySelector('.card');
 const notes = document.getElementById('notes');
 const demoBox = document.getElementById('demo');
 const scene = document.getElementById('scene');
 const dots = document.getElementById('dots');
+const againBox = document.getElementById('again-box');
 let closing = false;
+let intro = false;
 
 // ---------------------------------------------------------------------------------------------
 // Demos: a short animated scene for each line of a release that has them, in the lines' order
@@ -17,6 +20,7 @@ let closing = false;
 // turns stop on the last frame: nothing keeps redrawing a window left open for hours.
 // ---------------------------------------------------------------------------------------------
 const DEMOS = {
+  gameMode: ['gmHold', 'gmCard', 'gmOpen'], // game mode's explainer (intro)
   '1.7.4': ['guide', 'fbIcon', 'glide', 'gameMode'],
   '1.7.1': ['spotify', 'volume', 'dcList'],
   '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'],
@@ -45,7 +49,48 @@ const MESSENGER = (n) => `<svg viewBox="0 0 24 24"><defs><linearGradient id="ms-
   <path d="M12 2.2C6.5 2.2 2.2 6.3 2.2 11.7c0 2.8 1.2 5.3 3.1 7v3.4l3.2-1.8c1.1.3 2.3.5 3.5.5 5.5 0 9.8-4.1 9.8-9.5S17.5 2.2 12 2.2z" fill="url(#ms-old-${n})"/>
   <path d="M6.4 14.3l3.5-5.4 2.9 2.2 4.8-2.5-3.5 5.4-2.9-2.2z" fill="#fff"/></svg>`;
 
+// Game mode's explainer: people (from the texts ChatDock sends) and the real pop-up card, small.
+const PEOPLE = ['instagram', 'discord', 'facebook'];
+const person = (i) => {
+  const gm = texts.gm || {};
+  return { app: PEOPLE[i], name: (gm.names || [])[i] || '', msg: (gm.msgs || [])[i] || '', grad: `pg${i + 1}` };
+};
+// a name's first letter for its picture (Thai: past a vowel written before its consonant, เจ → จ)
+const initialOf = (name) => {
+  const c = Array.from(name || '');
+  return (/^[เแโใไ]$/.test(c[0] || '') && c[1] ? c[1] : c[0]) || '';
+};
+const PAV = (p) => `<span class="pav ${p.grad}">${esc(initialOf(p.name))}<i class="pbd">${icon(p.app)}</i></span>`;
+const GAME2 = (cls = '') => `<div class="gm2${cls ? ` ${cls}` : ''}">${GAME}<i class="hp"><b></b></i><i class="mm"></i><i class="xh"></i></div>`;
+const WAIT = (cls = '') => `<div class="hold${cls ? ` ${cls}` : ''}"><i class="pz"></i><i class="a a1 pg1"></i><i class="a a2 pg2"></i><i class="a a3 pg3"></i></div>`;
+const SUMCARD = (cls, opened = false) => {
+  const gm = texts.gm || {};
+  // (once the first row is opened, the card counts what is left, as the real one does)
+  const count = opened ? `<small class="c4">${esc(gm.count || '')}</small><small class="c2">${esc(gm.countLeft || '')}</small>` : `<small>${esc(gm.count || '')}</small>`;
+  const rows = [0, 1, 2].map((i) => {
+    const p = person(i);
+    const where = i === 1 && gm.where ? `<small> · ${esc(gm.where)}</small>` : '';
+    return `<div class="prow r${i + 1}">${PAV(p)}<span class="ptx"><b>${esc(p.name)}${where}</b><span>${esc(p.msg)}</span></span>${i ? '' : '<em>2</em>'}</div>`;
+  }).join('');
+  return `<div class="pcard ${cls}"><span class="pst"></span>
+    <div class="phd"><i class="plg">${icon('logo')}</i><p><b>${esc(gm.title || '')}</b>${count}</p><i class="px">✕</i></div>${rows}</div>`;
+};
+
 const SCENES = {
+  // game mode, 1: while the game fills the screen, what comes in waits (and the edge's glow lights)
+  gmHold: () => `${GAME2()}<i class="glow"></i>${WAIT()}
+    ${[0, 1, 2].map((i) => `<span class="drop d${i + 1}">${PAV(person(i))}</span>`).join('')}`,
+  // 2: the game is gone, and one card says who wrote
+  gmCard: () => `<div class="desk"><i class="tb"></i></div>${GAME2('off')}${WAIT('out')}${SUMCARD('in')}`,
+  // 3: a name in the card opens that chat (the card moves aside for it)
+  gmOpen: () => {
+    const p = person(0);
+    const gm = texts.gm || {};
+    return `<div class="desk"><i class="tb"></i></div>${SUMCARD('stay', true)}
+      <div class="pnl3"><div class="ph3"><span class="seg3">${['instagram', 'facebook', 'x', 'discord'].map((a, i) => `<i${i ? '' : ' class="on"'}>${icon(a)}</i>`).join('')}</span></div>
+        <div class="ch3"><i class="bk3"></i>${PAV(p)}<b>${esc(p.name)}</b></div>
+        <p class="mi">${esc(p.msg)}</p><p class="mo">${esc(gm.reply || '')}</p></div>${CURSOR}`;
+  },
   // the guide on the first start: Next, step by step
   guide: () => `<div class="gcard"><div class="gt"><i class="lg">${icon('logo')}</i><b></b></div>
     <div class="thumb"><i class="m1"></i><i class="m2"></i><i class="gp"></i><i class="gpn"></i></div>
@@ -170,13 +215,21 @@ function naturalHeight() {
   return h + 33;
 }
 
-chatdock.on('whatsnew:show', ({ locale, title, route, sections, ok, github, close, demo }) => {
+chatdock.on('whatsnew:show', ({ kind, locale, title, route, sections, ok, github, close, demo, again }) => {
   texts = demo || {};
+  intro = kind === 'intro';
+  closing = false; // (shown again in place: the explainer over What's new)
+  card.classList.remove('out');
+  document.body.classList.toggle('intro', intro);
   document.documentElement.lang = locale;
   document.getElementById('title').textContent = title;
   document.getElementById('route').textContent = route;
   document.getElementById('ok').textContent = ok;
   document.getElementById('github').textContent = github;
+  document.getElementById('github').hidden = intro;
+  document.getElementById('again').hidden = !intro;
+  document.querySelector('#again span').textContent = again || '';
+  againBox.checked = false;
   const x = document.getElementById('x');
   x.title = close;
   x.setAttribute('aria-label', close);
@@ -214,7 +267,9 @@ function close(action) {
   closing = true;
   card.classList.remove('in');
   card.classList.add('out');
-  setTimeout(() => chatdock.send(action), 150);
+  // the explainer: show it again next time, unless "don't show this again" is ticked
+  const said = intro ? { introAgain: !againBox.checked } : undefined;
+  setTimeout(() => (said ? chatdock.send(action, said) : chatdock.send(action)), 150);
 }
 
 document.getElementById('ok').addEventListener('click', () => close('whatsnew:close'));

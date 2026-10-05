@@ -562,7 +562,13 @@ impl Core {
                     self.whats_new_size(h);
                 }
             }
-            ("whatsnew:close", "whatsnew") => self.close_whats_new(false),
+            ("whatsnew:close", "whatsnew") => {
+                // game mode's explainer: "don't show this again" ticked or not
+                if let Some(again) = args.first().and_then(|o| o.get("introAgain")).and_then(Value::as_bool) {
+                    self.set_setting("gameModeIntro", json!(again));
+                }
+                self.close_whats_new(false);
+            }
             ("whatsnew:releases", "whatsnew") => self.close_whats_new(true),
             _ => {
                 if !panel {
@@ -909,6 +915,14 @@ impl Core {
                     self.toasts_dismiss_all();
                 }
             }
+            "popupQuietFullscreen" => {
+                let was = self.settings.bool(key);
+                self.set_setting(key, value);
+                // switched on: how it works, in a window of its own (until "don't show this again")
+                if !was && self.settings.bool(key) && self.settings.bool("gameModeIntro") {
+                    self.show_game_mode_intro(self.settings_mode);
+                }
+            }
             "popupPosition" | "popupMax" => {
                 self.set_setting(key, value);
                 self.toasts_refresh();
@@ -932,6 +946,7 @@ impl Core {
         match name {
             "close" => self.close_settings(),
             "test-popup" => self.test_popup(),
+            "game-intro" => self.show_game_mode_intro(true),
             "dnd" => {
                 if let Some(m) = arg.as_i64().filter(|m| [0, 30, 60, 120, 480, -1].contains(m)) {
                     self.set_dnd(m);

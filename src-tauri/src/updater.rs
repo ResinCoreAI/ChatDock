@@ -44,6 +44,8 @@ pub struct WhatsNew {
     watch: u64,
     /// opened from Settings ("See what's new"), not after an update
     pub manual: bool,
+    /// it explains game mode (just switched on) instead
+    pub intro: bool,
     /// self-test: put it off screen
     pub offscreen: bool,
 }
@@ -687,9 +689,59 @@ impl Core {
         });
     }
 
+    /// Game mode was switched on (or "How it works" in Settings): the same window explains it, with
+    /// three little scenes, and "don't show this again" for the next time it is switched on.
+    pub fn show_game_mode_intro(&mut self, from_settings: bool) {
+        self.whatsnew.intro = true;
+        self.whatsnew.manual = from_settings;
+        if self.whatsnew.win.is_some() {
+            self.whats_new_window_ready(); // over What's new, in the same window
+            if let Some(w) = self.whatsnew.win.as_ref() {
+                win32::raise(w.hwnd);
+            }
+            return;
+        }
+        log!("game mode explained");
+        self.show_whats_new_window();
+    }
+
+    fn game_mode_intro_texts(&self) -> Value {
+        let names = [self.t("tour.sampleName"), self.t("gmIntro.n2"), self.t("gmIntro.n3")];
+        let msgs = [self.t("tour.sampleMsg"), self.t("gmIntro.m2"), self.t("gmIntro.m3")];
+        let lines = ["gmIntro.l1", "gmIntro.l2", "gmIntro.l3", "gmIntro.l4"].map(|k| self.t(k));
+        json!([{
+            "kind": "intro",
+            "locale": i18n::locale(&self.lang),
+            "title": self.t("gmIntro.title"),
+            "route": self.t("gmIntro.sub"),
+            "demo": {
+                "gm": {
+                    "title": self.t("game.title"),
+                    "count": self.tv("game.count", &[("n", "4".to_string())]),
+                    "countLeft": self.tv("game.count", &[("n", "2".to_string())]),
+                    "names": names,
+                    "msgs": msgs,
+                    "reply": self.t("tour.sampleReply"),
+                    "where": "Gamers · #general",
+                },
+            },
+            // "gameMode" picks the scenes in the page (whatsnew.js DEMOS)
+            "sections": [{ "title": "", "build": "gameMode", "lines": lines }],
+            "ok": self.t("wn.ok"),
+            "github": "",
+            "close": self.t("toast.close"),
+            "again": self.t("gmIntro.again"),
+        }])
+    }
+
     /// Its page is ready: send it the texts. It measures the card and asks for its size (below).
     pub fn whats_new_window_ready(&mut self) {
         if self.whatsnew.win.is_none() {
+            return;
+        }
+        if self.whatsnew.intro {
+            let texts = self.game_mode_intro_texts();
+            self.emit("whatsnew", "whatsnew:show", texts);
             return;
         }
         let now = rt::version();
@@ -773,6 +825,7 @@ impl Core {
         let Some(w) = self.whatsnew.win.take() else { return };
         let in_front = win32::foreground_window() == w.hwnd;
         let manual = std::mem::take(&mut self.whatsnew.manual);
+        self.whatsnew.intro = false;
         self.own_hwnds.retain(|h| *h != w.hwnd);
         self.ready.remove("whatsnew");
         let _ = w.w.destroy();
