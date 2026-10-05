@@ -1646,6 +1646,32 @@ const TOUR_FIT: &str = "(() => { const out = []; const st = document.getElementB
   const page = document.getElementById('stage'); if (page.scrollWidth > page.clientWidth + 1) out.push('the panel scrolls sideways'); \
   return JSON.stringify(out); })()";
 
+/// The clicks in the scenes: step, the moment of the press (ms), its ripple.
+const TOUR_CLICKS: [(usize, u32, &str); 7] =
+    [(0, 5120, "r1"), (2, 3060, "r1"), (3, 1755, "r1"), (3, 2745, "r2"), (4, 1080, "r1"), (4, 2200, "r2"), (4, 3640, "r3")];
+
+/// How far the pointer's tip is from each click's ripple at the moment of the press, in px on the
+/// page: "0,0" everywhere when the pointer clicks where the click shows.
+fn tour_pointer() -> String {
+    let mut out = Vec::new();
+    for (step, ms, rip) in TOUR_CLICKS {
+        page_js("panel", &format!("tourGo({step}), 1"));
+        wait(250);
+        tour_freeze(ms);
+        wait(80);
+        let off = page_js(
+            "panel",
+            &format!(
+                "(() => {{ const st = document.getElementById('tour-stage'); const p = st.querySelector('.cur svg').getBoundingClientRect(); \
+                 const r = st.querySelector('.rip.{rip}').getBoundingClientRect(); const k = p.width / 18; \
+                 return Math.round(p.left + 2.25 * k - (r.left + r.width / 2)) + ',' + Math.round(p.top + 1.7 * k - (r.top + r.height / 2)); }})()"
+            ),
+        );
+        out.push(format!("{step}@{ms}: {}", off.trim_matches('"')));
+    }
+    out.join(" | ")
+}
+
 /// A DevTools call in one of ChatDock's own pages (the self-test only: emulating "reduce motion").
 fn page_cdp(label: &str, method: &str, params: &str) -> String {
     let Some(w) = rt::app().get_webview_window(label) else { return "err:no such window".into() };
@@ -1689,10 +1715,25 @@ fn tour_test() {
             "panel",
             "JSON.stringify({ shown: !document.getElementById('welcome').hidden, at: tourAt(), texts: document.querySelectorAll('.tour-text').length, \
              dots: document.querySelectorAll('.tour-dot').length, scene: document.getElementById('tour-stage').className, next: document.querySelector('#tour-next .label').textContent, \
-             skip: document.getElementById('tour-skip').textContent, back: document.getElementById('tour-back').hidden, box: document.getElementById('autostart-row').hidden, \
+             skip: document.getElementById('tour-skip').textContent, back: document.getElementById('tour-back').hidden, \
+             box: ((r) => !r.hidden && !r.classList.contains('away'))(document.getElementById('autostart-row')), \
              k: getComputedStyle(document.getElementById('tour-stage')).getPropertyValue('--k') })"
         )
     );
+    // Settings opened from the guide (to pick a hotkey, say) and closed again: the same step
+    page_js("panel", "tourGo(2), 1");
+    on(|c| {
+        c.settings_mode = true;
+        c.broadcast_state();
+    });
+    wait(400);
+    on(|c| {
+        c.settings_mode = false;
+        c.broadcast_state();
+    });
+    wait(400);
+    log!("back from Settings: step {} (expect 2)", page_js("panel", "tourAt()"));
+    log!("pointer on the clicks, docked right: {} (expect 0,0 each, give or take 1)", tour_pointer());
 
     // every step at a moment in the middle and at its end, in both themes
     for theme in ["dark", "light"] {
@@ -1765,6 +1806,21 @@ fn tour_test() {
         "docked left: {} (expect the stage mirrored, the text in it not)",
         page_js("panel", "JSON.stringify({ stage: document.getElementById('tour-stage').className, body: document.body.classList.contains('left'), uf: getComputedStyle(document.querySelector('#tour-stage .flip .uf')).transform })")
     );
+    log!("pointer on the clicks, docked left: {} (expect 0,0 each, give or take 1)", tour_pointer());
+    // the pointer held against the (left) edge while the line grows
+    page_js("panel", "tourGo(0), 1");
+    wait(250);
+    tour_freeze(3000);
+    wait(100);
+    shot("92-left-hold");
+    log!(
+        "docked left, holding the edge: pointer {} (expect inside the stage, its tip at the left edge)",
+        page_js(
+            "panel",
+            "(() => { const st = document.getElementById('tour-stage').getBoundingClientRect(), p = document.querySelector('#tour-stage .cur svg').getBoundingClientRect(); \
+             return JSON.stringify({ tipFromEdge: Math.round(p.left + 2.25 * p.width / 18 - st.left), inside: p.left >= st.left - 1 && p.right <= st.right + 1 }); })()"
+        )
+    );
     on(|c| {
         c.settings.set("side", json!("right"));
         c.broadcast_state();
@@ -1792,15 +1848,23 @@ fn tour_test() {
         "['ArrowRight', 'ArrowRight', 'ArrowLeft', 'ArrowRight'].forEach((key) => document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))), 1",
     );
     let by_keys = page_js("panel", "tourAt()");
+    // past the last step an arrow key does nothing (the scene doesn't start over)
+    page_js("panel", "tourGo(4), document.querySelector('#tour-stage > *').dataset.mark = '1', 1");
+    page_js("panel", "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })), 1");
+    let past_end = page_js("panel", "tourAt() + ' ' + !!document.querySelector('#tour-stage > [data-mark]')");
     page_js("panel", "window.__sent = []; window.__send = chatdock.send; chatdock.send = (...a) => window.__sent.push(a); tourGo(0), 1");
-    for _ in 0..4 {
+    for _ in 0..3 {
         js_click("panel", "#tour-next");
     }
+    let before_last = page_js("panel", "document.getElementById('tour-screen').getBoundingClientRect().top");
+    js_click("panel", "#tour-next");
     let last = page_js(
         "panel",
-        "JSON.stringify({ at: tourAt(), next: document.querySelector('#tour-next .label').textContent, skip: document.getElementById('tour-skip').hidden, \
-         box: !document.getElementById('autostart-row').hidden, back: !document.getElementById('tour-back').hidden })",
+        "JSON.stringify({ at: tourAt(), next: document.querySelector('#tour-next .label').textContent, skip: document.getElementById('tour-skip').classList.contains('away'), \
+         box: ((r) => !r.hidden && !r.classList.contains('away'))(document.getElementById('autostart-row')), back: !document.getElementById('tour-back').hidden, \
+         top: document.getElementById('tour-screen').getBoundingClientRect().top })",
     );
+    log!("an arrow key past the last step: {past_end} (expect 4 true) | the stage's top on steps 4 and 5: {before_last} / {last} (expect the same)");
     js_click("panel", "#tour-next");
     let started = page_js("panel", "JSON.stringify(window.__sent.splice(0))");
     page_js("panel", "tourGo(1), 1");
@@ -1823,14 +1887,15 @@ fn tour_test() {
     wait(800);
     let help = page_js(
         "panel",
-        "JSON.stringify({ at: tourAt(), skip: document.getElementById('tour-skip').textContent, last: (tourGo(4), document.querySelector('#tour-next .label').textContent), \
-         box: !document.getElementById('autostart-row').hidden })",
+        "JSON.stringify({ at: tourAt(), skip: document.getElementById('tour-skip').textContent, top4: (tourGo(3), document.getElementById('tour-screen').getBoundingClientRect().top), \
+         last: (tourGo(4), document.querySelector('#tour-next .label').textContent), top5: document.getElementById('tour-screen').getBoundingClientRect().top, \
+         box: ((r) => !r.hidden && !r.classList.contains('away'))(document.getElementById('autostart-row')) })",
     );
     on(|c| win32::hide(c.panel.hwnd));
     js_click("panel", "#tour-next");
     wait(600);
     log!(
-        "How to use: {help} (expect step 0, ปิดคำแนะนำ, กลับไปที่แชท, no box) | after its last button: help {} onboarded {} (expect false, true)",
+        "How to use: {help} (expect step 0, ปิดคำแนะนำ, top4 = top5, กลับไปที่แชท, no box) | after its last button: help {} onboarded {} (expect false, true)",
         on(|c| c.help_mode),
         on(|c| c.settings.bool("onboarded"))
     );
@@ -1860,9 +1925,20 @@ fn tour_test() {
     shot("94-header-glide");
     on(move |c| c.set_count(a0, 2));
     wait(80);
-    let bump = page_js("panel", &format!("document.querySelector('.app[data-app=\"{a0}\"] .badge').className"));
+    let badge = format!("document.querySelector('.app[data-app=\"{a0}\"] .badge').className");
+    let bump = page_js("panel", &badge);
+    wait(700);
+    let after = page_js("panel", &badge);
+    // the tabs come back from behind the volume bar: nothing pops again
+    js_click("panel", "#vol");
+    wait(200);
+    js_click("panel", "#vol-done");
+    wait(100);
+    let again = page_js("panel", &badge);
     on(move |c| c.set_count(a0, 0));
-    log!("header: glider while moving {moving} | in place {placed} (expect the active tab's left and width, the tab itself transparent) | new unread number: {bump} (expect badge bump)");
+    log!(
+        "header: glider while moving {moving} | in place {placed} (expect the active tab's left and width, the tab itself transparent) | new unread number: {bump} → {after} → after the volume bar {again} (expect badge bump, badge, badge)"
+    );
     // the volume bar takes the tabs' place; when it closes the highlight is back on the open app
     js_click("panel", "#vol");
     wait(300);
@@ -1879,6 +1955,23 @@ fn tour_test() {
             "(() => { const g = document.querySelector('.apps .glider'), b = document.querySelector('.app.active'); return JSON.stringify({ glider: [g.style.transform, g.style.width, g.hidden], tab: [b.offsetLeft, b.offsetWidth] }); })()"
         )
     );
+
+    // the zoom chip beside the tabs can make the open tab narrower: the highlight follows
+    let zoomed = on(|c| c.active());
+    let z2 = zoomed.clone();
+    on(move |c| {
+        c.zoom_step(&zoomed, 1);
+        c.zoom_step(&zoomed, 1);
+    });
+    wait(500);
+    let with_chip = page_js(
+        "panel",
+        "(() => { const g = document.querySelector('.apps .glider'), b = document.querySelector('.app.active'); \
+         return JSON.stringify({ chip: !document.getElementById('zoom').hidden, glider: [g.style.transform, g.style.width], tab: [b.offsetLeft, b.offsetWidth] }); })()",
+    );
+    on(move |c| c.zoom_step(&z2, 0));
+    wait(300);
+    log!("zoom chip shown: {with_chip} (expect the glider = the open tab)");
 
     // Facebook's own logo, in the header and on the edge tab
     log!(

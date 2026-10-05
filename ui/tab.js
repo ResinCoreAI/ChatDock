@@ -84,6 +84,7 @@ function bump(badge) {
   badge.classList.remove('bump');
   void badge.offsetWidth;
   badge.classList.add('bump');
+  badge.addEventListener('animationend', () => badge.classList.remove('bump'), { once: true });
 }
 
 chatdock.on('state', render);

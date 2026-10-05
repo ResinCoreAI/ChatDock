@@ -81,6 +81,7 @@ body.left .tour-replay { left: auto; right: 8px; }
 .tour-text p.more { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 
 .tour .check { margin: 14px 0 0; }
+.tour .away { visibility: hidden; }
 .tour-nav { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
 .tour-btn {
   height: 40px;
@@ -107,7 +108,8 @@ body.left .tour-replay { left: auto; right: 8px; }
 }
 .tour-btn.go:hover { filter: brightness(1.1); }
 .tour-btn.go svg { display: block; width: 17px; height: 17px; }
-.tour-btn.go.start { flex: 1; height: auto; min-height: 44px; padding: 8px 18px; font-size: 15px; line-height: 1.3; }
+/* as tall as Next (a long label may wrap): nothing above it moves on the last step */
+.tour-btn.go.start { flex: 1; height: auto; min-height: 40px; padding: 8px 18px; font-size: 15px; line-height: 1.3; }
 .tour-btn.go.start .go-ico { display: none; }
 .tour-skip {
   align-self: center;
@@ -153,8 +155,8 @@ body.left .tour-replay { left: auto; right: 8px; }
 .tour-stage .game b::after { left: 0; top: 8px; width: 18px; height: 2px; }
 @keyframes drift { 0% { transform: none; } 50% { transform: translate(46px, 20px); } 100% { transform: none; } }
 
-.tour-stage .cur { left: 0; top: 0; width: 18px; height: 18px; z-index: 5; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
-.tour-stage .cur .uf { inset: 0; }
+.tour-stage .cur { left: 0; top: 0; width: 18px; height: 18px; z-index: 5; transform-origin: 2.25px 1.7px; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
+.tour-stage .cur .uf { inset: 0; transform-origin: 2.25px 1.7px; }
 .tour-stage .cur svg { width: 18px; height: 18px; }
 .tour-stage .rip { width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 2px solid rgba(255, 255, 255, .9); border-radius: 50%; z-index: 4; animation: rip .5s ease-out both; }
 @keyframes rip { 0% { opacity: 0; transform: scale(.3); } 12% { opacity: .9; } 100% { opacity: 0; transform: scale(1.5); } }
@@ -172,9 +174,9 @@ body.left .tour-replay { left: auto; right: 8px; }
 }
 .tour-stage .pnl > .uf { inset: 0; }
 .tour-stage .ph { left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center; padding: 0 8px; border-bottom: 1px solid var(--line); }
-.tour-stage .ph .seg { position: relative; display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--seg); }
-.tour-stage .ph .seg i { position: relative; width: 26px; height: 22px; display: grid; place-items: center; border-radius: 7px; }
-.tour-stage .ph .seg i.on { background: var(--seg-active); box-shadow: var(--seg-shadow); }
+.tour-stage .ph .sg { position: relative; display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--seg); }
+.tour-stage .ph .sg i { position: relative; width: 26px; height: 22px; display: grid; place-items: center; border-radius: 7px; }
+.tour-stage .ph .sg i.on { background: var(--seg-active); box-shadow: var(--seg-shadow); }
 .tour-stage .ph svg { width: 13px; height: 13px; color: var(--text); }
 .tour-stage .bb { left: 10px; height: 14px; border-radius: 8px; }
 .tour-stage .bb.in { width: 62%; background: color-mix(in srgb, var(--text) 13%, transparent); }
@@ -198,8 +200,8 @@ body.left .tour-replay { left: auto; right: 8px; }
 .s-edge .pill { right: 0; top: 36px; width: 30px; border-radius: 15px 0 0 15px; background: #fff; box-shadow: -3px 0 14px rgba(0, 0, 0, .4); animation-name: e-pill; }
 .s-edge .pill .uf { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 10px 0; }
 .s-edge .pill .uf > * { position: relative; flex: none; }
-.s-edge .pill .chev { width: 9px; height: 9px; }
-.s-edge .pill .chev::before { content: ""; position: absolute; left: 3px; top: 1px; width: 6px; height: 6px; border-left: 2px solid #a1a1ab; border-bottom: 2px solid #a1a1ab; transform: rotate(45deg); }
+.s-edge .pill .chv { width: 9px; height: 9px; }
+.s-edge .pill .chv::before { content: ""; position: absolute; left: 3px; top: 1px; width: 6px; height: 6px; border-left: 2px solid #a1a1ab; border-bottom: 2px solid #a1a1ab; transform: rotate(45deg); }
 .s-edge .pill .ap { width: 17px; height: 17px; color: #111; }
 .s-edge .pill svg { width: 17px; height: 17px; }
 @keyframes e-pill {
@@ -235,6 +237,7 @@ body.left .tour-replay { left: auto; right: 8px; }
   min-width: 40px;
   height: 30px;
   padding: 0 9px;
+  border: 0;
   border-radius: 8px;
   background: linear-gradient(#f5f5f9, #d8d8e2);
   color: #26262e;
@@ -418,15 +421,15 @@ body.left .tour-replay { left: auto; right: 8px; }
 .s-ready .btn { left: 16px; right: 16px; top: 118px; height: 26px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 10.5px; line-height: 26px; text-align: center; white-space: nowrap; overflow: hidden; animation-name: r-btn; }
 @keyframes r-btn { 0%, 44% { transform: none; } 45.5% { transform: scale(.95); } 47%, 100% { transform: none; } }
 /* the chat list after logging in: a picture, a name, the last message */
-.s-ready .row { left: 10px; right: 10px; height: 30px; animation: bub .4s cubic-bezier(.2, .9, .25, 1.2) both; }
+.s-ready .it { left: 10px; right: 10px; height: 30px; animation: bub .4s cubic-bezier(.2, .9, .25, 1.2) both; }
 .s-ready .w1 { top: 44px; animation-delay: 4.3s; }
 .s-ready .w2 { top: 80px; animation-delay: 4.5s; }
 .s-ready .w3 { top: 116px; animation-delay: 4.7s; }
-.s-ready .row .av { left: 0; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ec4899); }
+.s-ready .it .av { left: 0; top: 3px; width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b, #ec4899); }
 .s-ready .w2 .av { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
 .s-ready .w3 .av { background: linear-gradient(135deg, #a78bfa, #ec4899); }
-.s-ready .row .l1 { left: 32px; top: 7px; width: 58px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 45%, transparent); }
-.s-ready .row .l2 { left: 32px; top: 18px; width: 96px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+.s-ready .it .l1 { left: 32px; top: 7px; width: 58px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 45%, transparent); }
+.s-ready .it .l2 { left: 32px; top: 18px; width: 96px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 18%, transparent); }
 .s-ready .w2 .l2 { width: 76px; }
 .s-ready .w3 .l1 { width: 46px; }
 .s-ready .safe { left: 26px; top: 96px; animation: pop .45s cubic-bezier(.2, .9, .25, 1.35) 5.1s both; }

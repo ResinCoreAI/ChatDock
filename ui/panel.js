@@ -9,6 +9,7 @@ let glider = null;
 const counted = {}; // each app's unread number as last shown
 
 // One tab per switched-on app: the active one shows its name, the others just the icon + unread count.
+// Whether the tabs were made anew.
 function renderTabs(s) {
   const key = s.apps.map((a) => a.id).join(',');
   const rebuilt = key !== tabsKey;
@@ -52,11 +53,12 @@ function renderTabs(s) {
     if (n > (counted[a.id] || 0) && s.shown && !rebuilt) bump(badge); // a new message while it's open
     counted[a.id] = n;
   });
-  placeGlider(rebuilt);
+  return rebuilt;
 }
 
 // The open app's highlight glides to the app picked (it jumps into place when there was nothing to
-// glide from: new tabs, a new width, the volume bar closing).
+// glide from: new tabs, a new width, the volume bar closing). Measured once the whole header is
+// drawn: the update and zoom chips beside the tabs can make the open tab narrower.
 function placeGlider(jump) {
   const btn = nav.querySelector('.app.active');
   if (!glider) return;
@@ -73,11 +75,13 @@ function placeGlider(jump) {
 window.addEventListener('resize', () => placeGlider(true));
 document.fonts.ready.then(() => placeGlider(true));
 
-// An unread number that went up pops once.
+// An unread number that went up pops once (the class goes again, or the pop would play once more
+// each time the tabs come back from behind the volume bar).
 function bump(badge) {
   badge.classList.remove('bump');
   void badge.offsetWidth;
   badge.classList.add('bump');
+  badge.addEventListener('animationend', () => badge.classList.remove('bump'), { once: true });
 }
 
 function renderHotkey(label) {
@@ -146,7 +150,7 @@ function render(s) {
     translatePage(s);
   }
   renderSide(s);
-  renderTabs(s);
+  const rebuilt = renderTabs(s);
   renderVolume(s);
   renderUpdate(s.update);
   renderLangSelects(s.langPref);
@@ -185,6 +189,7 @@ function render(s) {
 
   if (window.tourRender) window.tourRender(s);
   renderHotkey(s.hotkey);
+  placeGlider(rebuilt);
 }
 
 // This app's volume (on top of the site's own): the speaker, its wheel, and the slider that takes

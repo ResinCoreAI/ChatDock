@@ -28,6 +28,7 @@
 
   let s = null; // ChatDock's last state
   let at = 0; // the step on screen
+  let wanted = false; // the guide is asked for (the first start, or "How to use"), Settings open or not
   let on = false; // the guide is the panel's screen
   let live = false; // ... and the panel is on screen: the scene plays
   let plays = 0;
@@ -40,14 +41,16 @@
   const GAME = '<div class="game"><i></i><i></i><i></i><b></b></div>';
   const CLOCK = '<i class="clock"></i>';
   const RIPS = (n) => Array.from({ length: n }, (_, i) => `<i class="rip r${i + 1}"></i>`).join('');
-  // the chat panel: its header with the user's apps (the first one open), and a few messages
-  const head = (c) => `<div class="ph"><span class="seg">${c.apps.map((a, i) => `<i${i ? '' : ' class="on"'}>${icon(a.icon)}</i>`).join('')}</span></div>`;
+  // the chat panel: its header with the user's apps (the first one open), and a few messages. (The
+  // scenes' class names stay clear of the panel's and Settings' own: .row, .chev, .seg there would
+  // style them too.)
+  const head = (c) => `<div class="ph"><span class="sg">${c.apps.map((a, i) => `<i${i ? '' : ' class="on"'}>${icon(a.icon)}</i>`).join('')}</span></div>`;
   const chat = (c) => `<div class="pnl"><div class="uf">${head(c)}<i class="bb in b1"></i><i class="bb out b2"></i><i class="bb in b3"></i></div></div>`;
 
   const SCENES = {
     // hold the pointer on the edge: the line grows, the tab comes out, click an app, the chat slides in
     edge: (c) => `${GAME}<div class="flip"><i class="track"></i><i class="ln up"></i><i class="ln dn"></i>
-      <div class="pill"><div class="uf"><i class="chev"></i>${c.apps.map((a) => `<i class="ap">${icon(a.icon)}</i>`).join('')}</div></div>
+      <div class="pill"><div class="uf"><i class="chv"></i>${c.apps.map((a) => `<i class="ap">${icon(a.icon)}</i>`).join('')}</div></div>
       ${RIPS(1)}${chat(c)}${CUR}</div>${CLOCK}`,
     // the hotkey brings the chat over the game, and takes it away again
     hotkey: (c) => `${GAME}<div class="flip">${chat(c)}</div>
@@ -71,7 +74,7 @@
     // logging in on the app's own page, once, and it stays on this PC
     ready: (c) => `${GAME}<div class="flip"><div class="pnl"><div class="uf">${head(c)}
         <div class="login"><i class="lg">${icon(c.from.icon)}</i><i class="f f1"><i class="ty"></i></i><i class="f f2"><i class="ty"></i></i><b class="btn">${esc(t('tour.ready.login'))}</b></div>
-        ${[1, 2, 3].map((n) => `<p class="row w${n}"><i class="av"></i><i class="l1"></i><i class="l2"></i></p>`).join('')}</div></div>
+        ${[1, 2, 3].map((n) => `<p class="it w${n}"><i class="av"></i><i class="l1"></i><i class="l2"></i></p>`).join('')}</div></div>
       <div class="safe"><p class="uf">${icon('shield')}<span>${esc(t('tour.ready.local'))}</span></p></div>
       ${RIPS(3)}${CUR}</div>${CLOCK}`,
   };
@@ -158,8 +161,10 @@
     next.querySelector('.label').textContent = last ? t(s.onboarded ? 'welcome.back' : 'tour.start') : t('tour.next');
     next.classList.toggle('start', last);
     skip.textContent = t(s.onboarded ? 'tour.close' : 'tour.skip');
-    skip.hidden = last;
-    autoRow.hidden = !last || s.onboarded || !s.canAutostart;
+    // out of sight but keeping their room, so the guide doesn't shift on the last step
+    skip.classList.toggle('away', last);
+    autoRow.hidden = s.onboarded || !s.canAutostart;
+    autoRow.classList.toggle('away', !last);
     screen.title = t('tour.replay');
   }
 
@@ -199,7 +204,8 @@
 
   function finish(started) {
     // the "start with Windows" box is on the last step, the first time only
-    chatdock.send('onboarding:done', started && !autoRow.hidden ? { autostart: $('#autostart').checked } : {});
+    const box = started && !autoRow.hidden && !autoRow.classList.contains('away');
+    chatdock.send('onboarding:done', box ? { autostart: $('#autostart').checked } : {});
   }
 
   next.addEventListener('click', () => (at < STEPS.length - 1 ? go(at + 1) : finish(true)));
@@ -214,7 +220,8 @@
     if (!on || e.altKey || e.ctrlKey || e.metaKey || typing) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
-      go(at + (e.key === 'ArrowRight' ? 1 : -1));
+      const to = at + (e.key === 'ArrowRight' ? 1 : -1);
+      if (to >= 0 && to < STEPS.length) go(to); // past either end: nothing (a held key doesn't keep restarting the scene)
     }
   });
   // drawn for 400 px across, scaled to the panel's width
@@ -222,9 +229,11 @@
 
   window.tourRender = (state) => {
     s = state;
+    const want = !!(s.help || !s.onboarded);
+    if (want && !wanted) at = 0; // asked for anew ("How to use"): from the start. Back from Settings: where it was
+    wanted = want;
     const was = on;
-    on = !s.settingsOpen && (s.help || !s.onboarded);
-    if (on && !was) at = 0; // shown again ("How to use"): from the start
+    on = want && !s.settingsOpen;
     renderTexts();
     renderDots();
     renderButtons();
