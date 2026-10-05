@@ -2306,12 +2306,23 @@ fn facebook_count_test() {
     wait(3800);
     log!("Facebook message the list doesn't show yet: {} (expect unread 2 seen 9: still counted)", state());
 
-    // 5. an unread chat in the list: counted
+    // 5. one unread chat in the list: the number is that one (the rest are notifications)
     view_js(fb, &list([400, 700, 400, 400]));
     on(start);
     on(move |c| c.on_title(fb, "(11) Facebook"));
     wait(3800);
-    log!("Facebook with an unread chat: {} (expect unread 2 seen 9)", state());
+    log!("Facebook with an unread chat: {} (expect unread 1 seen 10)", state());
+
+    // 6. 10-05 15:39, at the start: Facebook counts 3, nothing seen yet, one chat unread
+    on(move |c| {
+        start(c);
+        c.site_counts.insert(fb.into(), 0);
+        c.settings.set_in("seenCounts", fb, json!(0));
+        c.counts.insert(fb.into(), 0);
+        c.on_title(fb, "(3) Facebook");
+    });
+    wait(3800);
+    log!("Facebook at the start, 3 counted, one chat unread: {} (expect unread 1 seen 2)", state());
     view_js(fb, "document.getElementById('cd-list')?.remove(), 1");
     on(move |c| {
         c.settings.set("popups", popups_were);

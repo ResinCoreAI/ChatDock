@@ -41,9 +41,10 @@ pub struct Latest {
 /// What the chat list said.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ListRead {
-    /// the newest unread conversation
-    Unread(Latest),
-    /// the list is there (three rows or more) and nothing in it looks unread
+    /// the newest unread conversation, and how many look unread (0: the list isn't sure enough to
+    /// count by, see list_read)
+    Unread(Latest, u32),
+    /// the list is there and nothing in it looks unread
     NothingUnread,
     /// no list to read: another page, one still loading, or one not understood
     Unknown,
@@ -52,7 +53,7 @@ pub enum ListRead {
 impl ListRead {
     pub fn latest(self) -> Option<Latest> {
         match self {
-            ListRead::Unread(l) => Some(l),
+            ListRead::Unread(l, _) => Some(l),
             _ => None,
         }
     }
@@ -168,17 +169,17 @@ fn latest_of(v: &Value) -> Option<Latest> {
     })
 }
 
-/// The conversation read, or that the list has nothing unread, or that there was no list. "Nothing
-/// unread" only when the page is sure to be the chat list: on a chats page, three rows or more that
-/// link to their conversations, and a normal (not bold) weight to tell unread rows from (with every
-/// row bold, they could all be unread).
+/// The conversation read, or that the list has nothing unread, or that there was no list. Counted
+/// ("nothing unread", or how many are) only when the page is sure to be the chat list: on a chats
+/// page, three rows or more that link to their conversations, and a normal (not bold) weight to
+/// tell unread rows from (with every row bold, they could all be unread).
 fn list_read(v: &Value) -> ListRead {
-    if let Some(l) = latest_of(v) {
-        return ListRead::Unread(l);
-    }
     let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
     let page = v.get("page").and_then(Value::as_str).unwrap_or("");
     let sure = n("rows") >= 3 && n("links") >= 3 && matches!(page, "list" | "conversation") && (1..600).contains(&n("base"));
+    if let Some(l) = latest_of(v) {
+        return ListRead::Unread(l, if sure { n("unread").max(0) as u32 } else { 0 });
+    }
     if sure && n("unread") == 0 {
         ListRead::NothingUnread
     } else {
@@ -322,7 +323,13 @@ mod tests {
         // something unread that couldn't be read whole isn't "nothing unread"
         let half = json!({ "how": "none", "page": "list", "rows": 9, "links": 9, "base": 400, "unread": 1 });
         assert_eq!(list_read(&half), ListRead::Unknown);
-        assert!(matches!(list_read(&json!({ "how": "list", "rows": 9, "unread": 1, "name": "Nok", "text": "hi" })), ListRead::Unread(_)));
+        // one unread: counted on a list it is sure of (Facebook 10-05 15:39: its number 3, one chat)
+        let one = json!({ "how": "list", "page": "conversation", "rows": 11, "links": 11, "base": 400, "unread": 1, "name": "Nok", "text": "hi" });
+        assert!(matches!(list_read(&one), ListRead::Unread(_, 1)));
+        assert!(matches!(
+            list_read(&json!({ "how": "list", "rows": 9, "unread": 1, "name": "Nok", "text": "hi" })),
+            ListRead::Unread(_, 0)
+        ));
     }
 
     #[test]

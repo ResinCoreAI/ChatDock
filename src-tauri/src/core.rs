@@ -1646,12 +1646,15 @@ impl Core {
         self.read_list(
             app,
             Box::new(move |c, read| {
-                if checks && c.counts.get(&a).copied().unwrap_or(0) > 0 {
+                let shown = c.counts.get(&a).copied().unwrap_or(0);
+                if checks && shown > 0 {
                     match &read {
                         inbox::ListRead::NothingUnread if !c.flashed_lately(&a) => {
-                            c.not_a_chat(&a, site);
+                            c.not_a_chat(&a, site, 0);
                             return;
                         }
+                        // more than the chats that look unread: the rest are its other notifications
+                        inbox::ListRead::Unread(_, chats) if *chats > 0 && shown > *chats => c.not_a_chat(&a, site, *chats),
                         inbox::ListRead::Unknown if tries < 4 && c.loaded_lately(&a) => {
                             let b = a.clone();
                             timer(3000, move |c| c.count_rise_checked(&b, tries + 1));
@@ -1677,12 +1680,16 @@ impl Core {
         rt::epoch_ms() - self.load_started_at.get(app).copied().unwrap_or(0) < 30_000
     }
 
-    /// What the site counted (`site`, when its list was read) isn't a chat (count_rise_checked): it
-    /// counts as seen, so the number stays the chats' own.
-    fn not_a_chat(&mut self, app: &str, site: u32) {
+    /// Of what the site counted (`site`, when its list was read) only `chats` are unread chats
+    /// (count_rise_checked): the rest counts as seen, so the number stays the chats' own.
+    fn not_a_chat(&mut self, app: &str, site: u32, chats: u32) {
         let site = site.min(self.site_counts.get(app).copied().unwrap_or(0));
-        site_log!(app, "{app}: its number went up without an unread chat (one of its other notifications): not counted");
-        self.settings.set_in("seenCounts", app, json!(site.max(self.seen_count(app))));
+        if chats == 0 {
+            site_log!(app, "{app}: its number went up without an unread chat (one of its other notifications): not counted");
+        } else {
+            site_log!(app, "{app}: {chats} of its number are unread chats, the rest are its other notifications");
+        }
+        self.settings.set_in("seenCounts", app, json!(site.saturating_sub(chats).max(self.seen_count(app))));
         self.save_soon();
         self.refresh_count(app);
     }
