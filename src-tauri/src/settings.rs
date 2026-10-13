@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use crate::{apps, log};
+use crate::{apps, core::version_less, log};
 
 /// Per-app switches (Settings → Notifications → Per app, and Apps). Missing = these defaults.
 pub const APP_PREF_KEYS: [&str; 6] = [
@@ -33,7 +33,7 @@ fn defaults() -> Map<String, Value> {
         "hotkey": "Control+Alt+C",  // global toggle
         "side": "right",            // which screen edge the dock lives on: 'right' | 'left'
         "edgeMode": "always",       // 'always' | 'no-fullscreen' | 'off'
-        "edgeHold": 3,              // seconds the cursor is held on the edge before the tab comes out (0 = right away)
+        "edgeHold": 0.5,            // seconds the cursor is held on the edge before the tab comes out (0 = right away)
         "edgeWheel": true,          // the mouse wheel turning on the edge = scrolling a page there: no tab
         "displayId": null,          // null = automatic, else the monitor the chat opens on (its device path)
         "displayLabel": "",         // that monitor's name, for Settings while it isn't connected
@@ -69,6 +69,12 @@ fn defaults() -> Map<String, Value> {
         Value::Object(m) => m,
         _ => Map::new(),
     }
+}
+
+/// A settings file from before 1.7.5 with the hold time at the edge still at 3 s, the default until then.
+fn old_hold_default(saved: &Map<String, Value>) -> bool {
+    let last = saved.get("lastVersion").and_then(Value::as_str).unwrap_or("");
+    saved.get("edgeHold").and_then(Value::as_f64) == Some(3.0) && version_less(last, "1.7.5")
 }
 
 pub struct Settings {
@@ -133,7 +139,14 @@ impl Settings {
         for gone in ["notifications", "popupApps", "cookiesMigrated"] {
             data.remove(gone);
         }
-        Settings { data, file, dirty: false }
+        // 1.7.5: the hold time at the edge became 0.5 s. From 1.4 to 1.7.4 it was 3 s, so a 3 in a
+        // file those versions wrote is almost surely that default, never picked: it moves along,
+        // once (this start records the new version in lastVersion).
+        let old_hold = old_hold_default(&saved);
+        if old_hold {
+            data.insert("edgeHold".into(), json!(0.5));
+        }
+        Settings { data, file, dirty: old_hold }
     }
 
     pub fn get(&self, key: &str) -> &Value {
@@ -210,5 +223,36 @@ impl Settings {
             log!("settings save failed: {err}");
             self.dirty = true; // tried again with the next change, and at quit
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::Settings;
+
+    #[test]
+    fn the_old_three_second_hold_moves_to_half_a_second_once() {
+        let dir = std::env::temp_dir().join(format!("chatdock-settings-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let load = |saved: Value| {
+            std::fs::write(dir.join("settings.json"), saved.to_string()).unwrap();
+            let s = Settings::load(&dir);
+            (s.f64("edgeHold"), s.dirty)
+        };
+        // a new install
+        let _ = std::fs::remove_file(dir.join("settings.json"));
+        assert_eq!(Settings::load(&dir).f64("edgeHold"), 0.5);
+        // never changed on 1.4 - 1.7.4 (or a file without a version): 0.5 s, written back
+        assert_eq!(load(json!({ "edgeHold": 3, "lastVersion": "1.7.4", "onboarded": true })), (0.5, true));
+        assert_eq!(load(json!({ "edgeHold": 3.0, "lastVersion": "1.4.0" })), (0.5, true));
+        assert_eq!(load(json!({ "edgeHold": 3 })), (0.5, true));
+        // picked by the user: kept
+        assert_eq!(load(json!({ "edgeHold": 1, "lastVersion": "1.7.4" })), (1.0, false));
+        assert_eq!(load(json!({ "edgeHold": 0, "lastVersion": "1.7.4" })), (0.0, false));
+        assert_eq!(load(json!({ "edgeHold": 3, "lastVersion": "1.7.5" })), (3.0, false));
+        assert_eq!(load(json!({ "edgeHold": 3, "lastVersion": "1.8.0" })), (3.0, false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
