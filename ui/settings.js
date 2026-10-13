@@ -107,12 +107,14 @@
   // Risky buttons: the first click turns the button red and asks again; the second one runs it.
   function arm(btn) {
     if (btn.classList.contains('armed')) {
+      if (performance.now() - btn.armedAt < 500) return false; // a double-click's second click isn't a yes
       disarm(btn);
       return true;
     }
     btn.dataset.label = btn.textContent;
     btn.textContent = t(btn.dataset.confirm);
     btn.classList.add('armed');
+    btn.armedAt = performance.now();
     btn.armTimer = setTimeout(() => disarm(btn), 4000);
     return false;
   }
@@ -165,6 +167,13 @@
     const en = window.CHATDOCK_I18N.STRINGS.en;
     return key && window.i18n.lang !== 'en' && en[key] ? en[key] : '';
   };
+  // a row's title as it reads (without the " · Language" hint English doesn't show)
+  const textOf = (node) => {
+    if (!node) return '';
+    const copy = node.cloneNode(true);
+    for (const hint of copy.querySelectorAll('.en-hint[hidden]')) hint.remove();
+    return copy.textContent.trim();
+  };
 
   function searchIndex() {
     const out = [];
@@ -179,7 +188,7 @@
         if (hidden && hidden !== p) continue; // e.g. monitor choices with a single monitor
         const head = node.matches('.sec-title') ? node : node.querySelector('.label b, .txt b, :scope > span:first-child');
         const small = node.querySelector('.label small, .txt small');
-        const title = ((head || {}).textContent || '').trim();
+        const title = textOf(head);
         const desc = ((small || {}).textContent || '').trim();
         if (title) out.push({ page: p.dataset.page, where, title, desc, alt: `${english(head)} ${english(small)}`, node });
       }
@@ -230,6 +239,8 @@
       h.node.classList.remove('flash');
       void h.node.offsetWidth;
       h.node.classList.add('flash');
+      // (left on, it would flash again each time its page is shown)
+      h.node.addEventListener('animationend', () => h.node.classList.remove('flash'), { once: true });
     });
   }
 

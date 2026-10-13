@@ -627,6 +627,9 @@ impl Core {
         let to = version.to_string();
         self.ready.remove("update");
         own_window("update".into(), "update.html", (452.0, 196.0), true, self.args.clone(), move |c, made| match made {
+            Ok(w) if c.upd.status != "installing" => {
+                let _ = w.w.destroy(); // made after the install already failed: it would stay up for good
+            }
             Ok(w) => {
                 c.update_win = Some(w);
                 c.pending_update_to = to;

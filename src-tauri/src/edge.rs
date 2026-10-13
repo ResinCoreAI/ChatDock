@@ -117,7 +117,12 @@ impl Core {
             if let Some(m) = self.display_at(px, py) {
                 let reach = (EDGE_PX * m.scale).round().max(1.0) as i32;
                 let at = if self.on_left() { px < m.bounds.x + reach } else { px >= m.bounds.right() - reach };
-                if at && m.id != self.target_display().id && self.outer_edge_at(&m, py) {
+                // (not for a game panning its camera at that edge, nor a window being dragged there)
+                if at
+                    && m.id != self.target_display().id
+                    && self.outer_edge_at(&m, py)
+                    && !test_captured.unwrap_or_else(|| win32::mouse_captured() || win32::mouse_button_down())
+                {
                     self.use_display(&m);
                 }
             }
@@ -168,6 +173,9 @@ impl Core {
             if fg != self.edge.tab_last_foreground {
                 // e.g. a topmost game was clicked and rose above the tab
                 self.edge.tab_last_foreground = fg;
+                if fg != 0 && !self.is_ours(fg) {
+                    self.edge.tab_foreground = fg; // where the user is now: focus goes back there
+                }
                 win32::raise(self.tab.hwnd);
             }
             let r = win32::window_rect(self.tab.hwnd);
@@ -183,11 +191,16 @@ impl Core {
                 self.hide_tab(false);
             }
             self.glide_tab();
-            return if self.edge.tab_shown { 0 } else { 16 };
+            // every screen refresh while it glides; resting, a look every 16 ms is enough (or a 300 Hz
+            // screen has the edge looked at 300 times a second while the tab just sits there)
+            let gliding = (self.edge.tab_target_y - self.edge.tab_y).abs() >= 0.5;
+            return if self.edge.tab_shown && gliding { 0 } else { 16 };
         }
 
-        let busy_mouse = test_captured.is_none() && win32::mouse_button_down(); // dragging a window or a scrollbar
-        if on_edge && !captured && !busy_mouse && !(mode == "no-fullscreen" && win32::is_fullscreen_app_active()) {
+        // dragging a window or a scrollbar
+        let busy_mouse = test_captured.is_none() && win32::mouse_button_down();
+        // "not during games": a game or video filling the screen, not any maximized window
+        if on_edge && !captured && !busy_mouse && !(mode == "no-fullscreen" && win32::game_in_front()) {
             if self.edge.dwell_start == 0 {
                 self.edge.dwell_start = now;
             }

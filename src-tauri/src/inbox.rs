@@ -10,12 +10,17 @@
 //! line is bolder than a read one's. What was read is only put in the pop-up, never in the log (the
 //! log says how the page looked: how many rows, how many unread, the lengths).
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde_json::Value;
 
 use crate::{
     core::{later, timer, Core, PanelState},
-    log,
+    log, rt,
 };
+
+/// The wait before pages go back to their lists (schedule_back_to_list).
+static BACK_TIMER: AtomicU64 = AtomicU64::new(0);
 
 /// Apps whose chat list is read for the pop-ups.
 pub fn reads_list(app: &str) -> bool {
@@ -71,6 +76,8 @@ const HELPERS: &str = r#"
     .map((e) => ({ e, t: e.textContent.trim().replace(/\s+/g, ' ') }));
   const picture = (row) => { const i = row.querySelector('img[src^="https:"], image'); return i ? (i.getAttribute('src') || i.getAttribute('href') || i.getAttribute('xlink:href') || '') : ''; };
   const innermost = (list) => list.filter((r) => !list.some((o) => o !== r && r.contains(o)));
+  const cut = (s, n) => Array.from(s).slice(0, n).join(''); // whole characters: half an emoji isn't JSON Rust reads
+  const isTime = (t) => /^(\d+\s*[a-z฀-๿぀-ヿ一-鿿.]{1,10}|\d{1,2}[:.]\d{2}(\s*[ap]\.?m\.?)?|now|just now|yesterday|ตอนนี้|เมื่อสักครู่|เมื่อวาน)$/i.test(t);
   const rowsOf = () => {
     let rows = [...document.querySelectorAll('a[href*="/t/"]')].filter((r) => shown(r) && texts(r).length >= 2);
     if (rows.length >= 2) return { rows, links: rows.length };
@@ -93,7 +100,9 @@ const LATEST_JS: &str = r#"((open) => {
   const mine = /^(you|คุณ)\s*:/i;
   const info = rows.map((r) => {
     const ts = texts(r);
-    const line = ts.slice(1).find((x) => x.t.length > 2 && !/^[·•|]/.test(x.t)) || ts[1];
+    let line = ts.slice(1).find((x) => x.t.length > 2 && !/^[·•|]/.test(x.t)) || ts[1];
+    // a short message ("ok", "55", one emoji) is passed over above, and what comes next is its time
+    if (line !== ts[1] && isTime(line.t) && !/^[·•|]/.test(ts[1].t)) line = ts[1];
     return { r, name: ts[0].t, text: line.t, w: weight(line.e) };
   });
   const base = Math.min(...info.map((i) => i.w));
@@ -104,8 +113,10 @@ const LATEST_JS: &str = r#"((open) => {
   if (!unread.length) return JSON.stringify(out);
   const top = unread[0];
   const link = top.r.closest('a[href]') || top.r.querySelector('a[href*="/t/"]');
-  Object.assign(out, { how: 'list', name: top.name.slice(0, 80), text: top.text.slice(0, 300), avatar: picture(top.r).slice(0, 2000), href: link ? link.getAttribute('href') : '' });
-  if (open) {
+  Object.assign(out, { how: 'list', name: cut(top.name, 80), text: cut(top.text, 300), avatar: picture(top.r).slice(0, 2000), href: link ? link.getAttribute('href') : '' });
+  // (not away from a conversation with a half-written message in it: that stays where it is)
+  const typing = [...document.querySelectorAll('[contenteditable="true"], textarea')].some((b) => (b.value || b.textContent || '').trim());
+  if (open && !(out.page === 'conversation' && typing)) {
     top.r.click();
     out.opened = true;
   }
@@ -263,16 +274,29 @@ impl Core {
     /// The chat was hidden: a while later, pages left on a conversation go back to their list (so
     /// the next message can be read there).
     pub fn schedule_back_to_list(&mut self) {
-        timer(BACK_AFTER_MS, |c| {
+        // the chat hidden again: 20 s from now, not from an earlier time it was hidden
+        rt::cancel(BACK_TIMER.swap(0, Ordering::SeqCst));
+        let t = timer(BACK_AFTER_MS, |c| {
+            BACK_TIMER.store(0, Ordering::SeqCst);
             if c.panel_state != PanelState::Hidden {
                 return; // out again meanwhile
             }
+            let mut playing = false;
             for app in c.enabled_apps() {
-                if reads_list(app) && c.chats.has(app) && !c.chats.page_call_live(app) {
-                    c.back_to_list_now(app);
+                if !reads_list(app) || !c.chats.has(app) || c.chats.page_call_live(app) || c.chats.in_call(app) {
+                    continue;
                 }
+                if c.chats.playing_audio(app) {
+                    playing = true; // a voice message or a video still playing: it would stop
+                    continue;
+                }
+                c.back_to_list_now(app);
+            }
+            if playing {
+                c.schedule_back_to_list();
             }
         });
+        BACK_TIMER.store(t, Ordering::SeqCst);
     }
 
     pub fn back_to_list_now(&mut self, app: &str) {

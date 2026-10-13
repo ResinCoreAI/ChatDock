@@ -233,9 +233,10 @@ body.vol-open .apps { display: none; }
 .chip.update:hover { color: #fff; filter: brightness(1.1); }
 .chip.update svg { display: block; flex: none; width: 14px; height: 14px; }
 .chip.update .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* while this app's volume is open: just the arrow, so the bar's % and ✕ stay clear */
-body.vol-open .chip.update { padding: 0 5px; }
-body.vol-open .chip.update .label { display: none; }
+/* while this app's volume is open: just the arrow, so the bar's % and ✕ stay clear; the same when
+   the app tabs would be cut off otherwise (panel.js fitHeader) */
+body.vol-open .chip.update, .chip.update.short { padding: 0 5px; }
+body.vol-open .chip.update .label, .chip.update.short .label { display: none; }
 @keyframes chip-in { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 
 #progress {

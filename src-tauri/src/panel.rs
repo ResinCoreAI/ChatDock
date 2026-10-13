@@ -264,6 +264,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         asleep: HashMap::new(),
         last_used: HashMap::new(),
         zero_timers: HashMap::new(),
+        settle_timers: HashMap::new(),
         retry_timers: HashMap::new(),
         fallback_timers: HashMap::new(),
         last_flash: HashMap::new(),
@@ -497,6 +498,7 @@ impl Core {
         log!("dock moves to {}", d.id);
         self.dock_display = d.id.clone();
         self.edge.scrolling = false; // that was on another monitor's edge
+        self.edge.tab_center_y = None; // so was the tab (the glow goes to the middle of this one)
         frames::set_display(&d.id, d.hz);
         if self.panel_state == PanelState::Hidden {
             let g = self.panel_geometry(d);

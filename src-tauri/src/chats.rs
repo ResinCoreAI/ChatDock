@@ -1109,7 +1109,7 @@ impl Core {
             return;
         }
         self.chats.close(id);
-        for timers in [&mut self.retry_timers, &mut self.zero_timers, &mut self.fallback_timers] {
+        for timers in [&mut self.retry_timers, &mut self.zero_timers, &mut self.fallback_timers, &mut self.settle_timers] {
             if let Some(t) = timers.remove(id) {
                 rt::cancel(t);
             }
@@ -1205,6 +1205,9 @@ impl Core {
                 if let Some(t) = self.retry_timers.remove(id) {
                     rt::cancel(t);
                 }
+            }
+            if ok {
+                self.settle_after_load(id);
             }
             return;
         }
@@ -1396,10 +1399,15 @@ impl Core {
             })));
         }
         if self.settings_mode {
-            timer(4000, |c| c.refresh_memory());
+            // one round of these only (Settings closed and opened again within 4 s started another)
+            rt::cancel(MEMORY_TIMER.swap(0, std::sync::atomic::Ordering::SeqCst));
+            MEMORY_TIMER.store(timer(4000, |c| c.refresh_memory()), std::sync::atomic::Ordering::SeqCst);
         }
     }
 }
+
+/// The next per-app RAM reading while Settings is open (refresh_memory).
+static MEMORY_TIMER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn renderer_app(info: &ICoreWebView2ProcessExtendedInfo, pages: &[(String, String)]) -> Option<String> {
     unsafe {
@@ -1567,6 +1575,7 @@ unsafe fn configure(
             later(move |c| {
                 c.on_call(&a, false, false, false); // a new page: the old one's call ended with it
                 c.counted_pages.remove(&a); // and its unread number has to show again (seen_after)
+                c.cancel_settle(&a);
             });
             Ok(())
         })),

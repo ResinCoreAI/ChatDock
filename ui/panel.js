@@ -60,6 +60,7 @@ function renderTabs(s) {
 // glide from: new tabs, a new width, the volume bar closing). Measured once the whole header is
 // drawn: the update and zoom chips beside the tabs can make the open tab narrower.
 function placeGlider(jump) {
+  fitHeader();
   const btn = nav.querySelector('.app.active');
   if (!glider) return;
   glider.hidden = !btn || !btn.offsetWidth;
@@ -71,6 +72,15 @@ function placeGlider(jump) {
     void glider.offsetWidth;
     glider.classList.remove('still');
   }
+}
+// A crowded header (a long "Update to Build …" in a narrow panel): the update chip keeps only its
+// arrow rather than an app tab being cut off. The tabs are what the header is for.
+function fitHeader() {
+  const chip = $('#update');
+  chip.classList.remove('short');
+  if (chip.hidden || document.body.classList.contains('vol-open')) return;
+  const box = nav.getBoundingClientRect();
+  chip.classList.toggle('short', [...nav.querySelectorAll('.app')].some((t) => t.getBoundingClientRect().right > box.right + 1));
 }
 window.addEventListener('resize', () => placeGlider(true));
 document.fonts.ready.then(() => placeGlider(true));

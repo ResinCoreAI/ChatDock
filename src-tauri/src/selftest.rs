@@ -666,7 +666,7 @@ fn whats_new_test() {
             "JSON.stringify({ title: document.getElementById('title').textContent, route: document.getElementById('route').textContent, \
              sections: [...document.querySelectorAll('.notes h3')].map(h => h.textContent), lines: document.querySelectorAll('.notes li').length, \
              first: document.querySelector('.notes li')?.textContent.slice(0, 50), scrolls: document.getElementById('notes').scrollHeight > document.getElementById('notes').clientHeight + 1, \
-             lang: document.documentElement.lang, ok: document.getElementById('ok').textContent,              sizes: (() => { const c = document.querySelector('.card'), n = document.getElementById('notes');                const now = [innerWidth, innerHeight, devicePixelRatio, c.offsetHeight, n.clientHeight, n.scrollHeight, n.offsetWidth - n.clientWidth];                c.classList.add('measure'); const m = [c.offsetHeight, n.offsetHeight, n.scrollHeight]; c.classList.remove('measure'); return now.concat(m); })() })",
+             lang: document.documentElement.lang, ok: document.getElementById('ok').textContent, again: getComputedStyle(document.getElementById('again')).display,              sizes: (() => { const c = document.querySelector('.card'), n = document.getElementById('notes');                const now = [innerWidth, innerHeight, devicePixelRatio, c.offsetHeight, n.clientHeight, n.scrollHeight, n.offsetWidth - n.clientWidth];                c.classList.add('measure'); const m = [c.offsetHeight, n.offsetHeight, n.scrollHeight]; c.classList.remove('measure'); return now.concat(m); })() })",
         );
         let centred = d.as_ref().is_some_and(|(_, work, _)| {
             ((rect.x + rect.w / 2) - (work.x + work.w / 2)).abs() <= 2 && ((rect.y + rect.h / 2) - (work.y + work.h / 2)).abs() <= 2
@@ -1126,6 +1126,20 @@ fn counts_test() {
     log!(
         "counts ({app}) on a new page: seen while it loads {seen_while_loading:?}, the same number again {same_again} | after a restart: the same number {restart_same}, a lower one {restart_lower} (expect Some(1), 0 | 0, 2)"
     );
+    // A page that loaded and has shown no number since: nothing is unread, so what was seen before
+    // (read on the phone while the PC was off) doesn't hide the next message
+    on(move |c| {
+        c.counted_pages.remove(app); // a restart
+        c.site_counts.insert(app.to_string(), 0);
+        c.settings.set_in("seenCounts", app, json!(1));
+        c.on_title(app, "Instagram");
+        c.page_settled(app);
+    });
+    let seen_settled = on(move |c| c.settings.get("seenCounts").get(app).cloned());
+    on(move |c| c.on_title(app, "(1) Instagram"));
+    let after_settled = count();
+    on(|c| c.toasts_dismiss_all());
+    log!("counts ({app}) after its page settled with no number: seen {seen_settled:?}, a new message {after_settled} (expect Some(0), 1)");
     // Discord without a notification of its own yet (its desktop notifications off): its count
     // pop-up says where to turn them on
     let dc = on(|c| c.is_enabled("discord"));
@@ -2088,7 +2102,7 @@ fn game_mode_test() {
     wait(2500);
     let still = on(|c| (c.toasts_count(), c.held_count()));
     on(|c| c.toasts.test_game = Some(false));
-    wait(3200);
+    wait(3800); // (a look every second, then gone 1.5 s: up to 3 s, a little more in a debug build)
     let after = on(|c| (c.toasts_count(), c.held_count(), win32::is_visible(c.toastwin.hwnd)));
     shot("95-game-summary");
     log!(
@@ -2337,6 +2351,23 @@ fn facebook_count_test() {
         "Facebook blink: number gone → {gone} (expect unread 0 seen 0) | back as (10) → {} (expect unread 1 seen 9, no pop-up coming)",
         state()
     );
+
+    // 1b. the same blink while Facebook is on screen, the panel closed before the number is back:
+    // all of it was seen there, nothing comes back as new
+    on(start);
+    let active_was = on(|c| c.active());
+    on(move |c| {
+        c.set_setting("active", json!(fb));
+        c.panel_state = PanelState::Open;
+        c.counts_seen_in_view();
+        c.on_title(fb, "Facebook");
+    });
+    wait(3400);
+    on(|c| c.panel_state = PanelState::Hidden);
+    on(move |c| c.on_title(fb, "(10) Facebook"));
+    wait(200);
+    log!("Facebook blink on screen, closed before it was back: {} (expect unread 0 seen 10, no pop-up coming)", state());
+    on(move |c| c.set_setting("active", json!(active_was)));
 
     // 2. gone, then read on the phone and one new message: "(1)" is news
     on(start);
@@ -2908,6 +2939,28 @@ fn inbox_test() {
         "history.pushState({}, '', '/messages/t/3/'); window.__cdBack = false; const b = document.createElement('div'); b.contentEditable = 'true'; b.textContent = 'half a message'; document.getElementById('cd-list').append(b); 1",
     );
     let typing = run_back("facebook");
+
+    // Rows with the time after the message: a short message ("ok") isn't passed over for its time,
+    // and a long one cut in the middle of an emoji is still read
+    let timed = |beam_unread: bool| {
+        format!(
+            "(() => {{ document.getElementById('cd-list')?.remove(); const box = document.createElement('div'); box.id = 'cd-list'; box.style.cssText = 'position:fixed;left:0;top:0;width:320px;z-index:2147483647;background:#fff;font:14px sans-serif'; \
+             const span = (t, w) => {{ const s = document.createElement('span'); s.textContent = t; s.style.fontWeight = w; return s; }}; \
+             const rows = [['Somchai Jaidee', 'You: ok', 400, '2 ชม.'], ['Nok', 'ok', {nok}, '1 นาที'], ['Beam', 'x'.repeat(299) + '😂😂', {beam}, '3 วัน'], ['Old friend', 'long ago', 400, '1 สัปดาห์']]; \
+             rows.forEach(([name, text, w, time], i) => {{ const r = document.createElement('a'); r.href = '/messages/t/' + (i + 1) + '/'; r.style.cssText = 'display:flex;gap:8px;height:64px;align-items:center'; \
+               const img = document.createElement('img'); img.src = 'https://example.com/p' + i + '.jpg'; img.width = 44; img.height = 44; \
+               const col = document.createElement('div'); const line = document.createElement('div'); line.append(span(text, w), span('·', 400), span(time, 400)); \
+               col.append(span(name, 400), line); r.append(img, col); box.append(r); }}); \
+             document.body.append(box); return 1; }})()",
+            nok = if beam_unread { 400 } else { 700 },
+            beam = if beam_unread { 700 } else { 400 },
+        )
+    };
+    view_js("facebook", &timed(false));
+    let short = read("facebook").map(|l| (l.name, l.text));
+    view_js("facebook", &timed(true));
+    let long = read("facebook").map(|l| (l.name, l.text.chars().count(), l.text.ends_with('😂')));
+    log!("inbox: a short message before its time {short:?} | a long one cut at an emoji {long:?} (expect Nok + ok | Beam, 300, true)");
     on(move |c| {
         c.settings.set("popups", popups_were);
         c.toasts.offscreen = false;
@@ -3029,9 +3082,30 @@ fn fixes173_test() {
     wait(1200);
     let chip = page_js(
         "panel",
-        "(() => { const c = document.getElementById('update'), l = c.querySelector('.label'); return JSON.stringify({ shown: !c.hidden, lines: l.getClientRects().length, fits: c.scrollHeight <= c.clientHeight + 1, width: Math.round(c.getBoundingClientRect().width), text: l.textContent }); })()",
+        "(() => { const c = document.getElementById('update'), l = c.querySelector('.label'); const apps = document.querySelector('.apps').getBoundingClientRect(); \
+         const cut = [...document.querySelectorAll('.apps .app')].filter((t) => t.getBoundingClientRect().right > apps.right + 1).length; \
+         return JSON.stringify({ shown: !c.hidden, lines: l.getClientRects().length, fits: c.scrollHeight <= c.clientHeight + 1, width: Math.round(c.getBoundingClientRect().width), text: l.textContent, labelCut: l.scrollWidth > l.clientWidth, tabsCut: cut, panel: innerWidth }); })()",
     );
     shot("95-update-chip");
+    // downloaded: the longer "Update to Build …" (its text gives way before the app tabs do)
+    on(|c| {
+        c.upd.status = "ready";
+        c.broadcast_state();
+    });
+    wait(600);
+    let ready_chip = page_js(
+        "panel",
+        "(() => { const c = document.getElementById('update'), l = c.querySelector('.label'); const apps = document.querySelector('.apps').getBoundingClientRect(); \
+         const cut = [...document.querySelectorAll('.apps .app')].filter((t) => t.getBoundingClientRect().right > apps.right + 1).length; \
+         return JSON.stringify({ text: l.textContent, width: Math.round(c.getBoundingClientRect().width), labelCut: l.scrollWidth > l.clientWidth, tabsCut: cut }); })()",
+    );
+    log!("update chip when downloaded: {ready_chip} (expect tabsCut 0)");
+    shot("95-update-chip-ready");
+    on(|c| {
+        c.upd.status = "available";
+        c.broadcast_state();
+    });
+    wait(400);
     js_click("panel", "#vol");
     wait(400);
     let bar = page_js(
@@ -3065,7 +3139,7 @@ fn fixes173_test() {
     js_click("whatsnew", "#ok");
     wait(800);
     log!(
-        "1.7.3 fixes: window.open without a click gives null {blocked} | tray Hide while hidden -> {hide} | switch off the app on screen (facebook asleep, now active, asleep after) {woke:?} | crashes (before the 3rd, after, retry set) {crashes:?} | pop-up made before its page (unstarted, after ready) {early:?} | muted pages and a call (before, in the call, after) {call:?} | zoom keys from 175 % down, from 50 % up {zoom:?} | update chip {chip} | volume bar {bar} | What's new at the top {top}, scrolled by itself {later} times (expect true | hidden | (true, \"facebook\", false) | (Some(\"ready\"), Some(\"error\"), true) | (1, 0) | (true, false, true) | (1.5, 0.67) | shown, 1 line, fits | close + percent true | 0, 0)"
+        "1.7.3 fixes: window.open without a click gives null {blocked} | tray Hide while hidden -> {hide} | switch off the app on screen (facebook asleep, now active, asleep after) {woke:?} | crashes (before the 3rd, after, retry set) {crashes:?} | pop-up made before its page (unstarted, after ready) {early:?} | muted pages and a call (before, in the call, after) {call:?} | zoom keys from 175 % down, from 50 % up {zoom:?} | update chip {chip} | volume bar {bar} | What's new at the top {top}, scrolled by itself {later} times (expect true | hidden | (true, \"facebook\", false) | (Some(\"ready\"), Some(\"error\"), true) | (1, 0) | (true, false, true) | (1.5, 0.67) | shown, fits, tabsCut 0 (1 line, or only its arrow when the tabs need the room) | close + percent true | 0, 0)"
     );
 }
 
@@ -3417,8 +3491,22 @@ fn perf_test() {
         )
     );
     wait(22000);
+    // C: the panel open on the app in use, nobody touching it; D: Settings open
+    let active = on(|c| c.settings.str("active").to_string());
+    on(move |c| c.open_panel(Some(&active), "selftest"));
+    wait(3000);
+    log!("perf: C (panel open, idle; running: {}) for 20 s", page_js("panel", RUNNING_ANIMATIONS));
+    wait(20000);
+    on(|c| c.open_settings("", "selftest"));
+    wait(3000);
+    log!("perf: D (Settings open, idle; running: {}) for 20 s", page_js("panel", RUNNING_ANIMATIONS));
+    wait(20000);
+    close_panel();
     log!("perf: done");
 }
+
+/// The animations running in a page, by name.
+const RUNNING_ANIMATIONS: &str = "document.getAnimations().filter((a) => a.playState === 'running').map((a) => a.animationName || a.constructor.name).join(' ') || 'none'";
 
 /// A DevTools protocol call in an app's page; its JSON answer.
 fn cdp_call(id: &'static str, method: &'static str, params: String) -> String {

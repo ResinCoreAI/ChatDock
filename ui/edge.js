@@ -15,6 +15,7 @@ const FOLLOW_MS = 45; // the line's centre catches up with the cursor in about t
 
 let W = 0;
 let H = 0;
+let DPR = 0;
 let grad = null;
 let mode = 'idle'; // hold | done | cancel | idle
 let side = 'right';
@@ -30,6 +31,7 @@ let raf = 0;
 
 function fit() {
   const dpr = window.devicePixelRatio || 1;
+  DPR = dpr;
   W = window.innerWidth;
   H = window.innerHeight;
   canvas.width = Math.round(W * dpr);
@@ -96,7 +98,8 @@ function paint(p, alpha, flash) {
 
 function frame(t) {
   raf = 0;
-  if (window.innerWidth !== W || window.innerHeight !== H) fit(); // moved to another screen / resized
+  // moved to another screen (its scale too: 1080p at 100% and 4K at 200% are the same size here) / resized
+  if (window.innerWidth !== W || window.innerHeight !== H || (window.devicePixelRatio || 1) !== DPR) fit();
   const dt = lastT ? Math.min(50, t - lastT) : 1000 / 60;
   lastT = t;
   y += (target - y) * (1 - Math.exp(-dt / FOLLOW_MS));

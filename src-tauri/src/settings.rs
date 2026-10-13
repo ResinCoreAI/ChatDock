@@ -71,6 +71,34 @@ fn defaults() -> Map<String, Value> {
     }
 }
 
+/// What settings.json holds; nothing for a new install. A file that can't be read (locked for a
+/// moment at sign-in) is tried again; one that still can't, or isn't settings (cut short, edited by
+/// hand), is kept as settings.json.bad before the defaults replace it. A BOM from an editor is fine.
+fn read_saved(file: &Path) -> Map<String, Value> {
+    for attempt in 1..=3 {
+        match std::fs::read_to_string(file) {
+            Ok(text) => {
+                if let Ok(Value::Object(m)) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) {
+                    return m;
+                }
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Map::new(),
+            Err(e) if attempt < 3 => {
+                log!("settings.json not readable ({e}): trying again");
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+            Err(e) => {
+                log!("settings.json not readable ({e})");
+                break;
+            }
+        }
+    }
+    let kept = std::fs::copy(file, file.with_extension("json.bad")).is_ok();
+    log!("settings.json isn't usable: starting from the defaults (the old file kept as settings.json.bad: {kept})");
+    Map::new()
+}
+
 /// A settings file from before 1.7.5 with the hold time at the edge still at 3 s, the default until then.
 fn old_hold_default(saved: &Map<String, Value>) -> bool {
     let last = saved.get("lastVersion").and_then(Value::as_str).unwrap_or("");
@@ -86,14 +114,7 @@ pub struct Settings {
 impl Settings {
     pub fn load(dir: &Path) -> Self {
         let file = dir.join("settings.json");
-        let saved: Map<String, Value> = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .and_then(|v| match v {
-                Value::Object(m) => Some(m),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let saved = read_saved(&file);
         let mut data = defaults();
         for (k, v) in &saved {
             data.insert(k.clone(), v.clone());
@@ -253,6 +274,23 @@ mod tests {
         assert_eq!(load(json!({ "edgeHold": 0, "lastVersion": "1.7.4" })), (0.0, false));
         assert_eq!(load(json!({ "edgeHold": 3, "lastVersion": "1.7.5" })), (3.0, false));
         assert_eq!(load(json!({ "edgeHold": 3, "lastVersion": "1.8.0" })), (3.0, false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_that_isnt_settings_is_kept_aside_not_lost() {
+        let dir = std::env::temp_dir().join(format!("chatdock-settings-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        // saved by an editor with a BOM: still read
+        std::fs::write(&file, "\u{feff}{\"hotkey\": \"Control+Alt+Z\", \"onboarded\": true}").unwrap();
+        let s = Settings::load(&dir);
+        assert_eq!((s.str("hotkey"), s.bool("onboarded")), ("Control+Alt+Z", true));
+        // cut short: the defaults, and the old file kept beside them
+        std::fs::write(&file, "{\"hotkey\": \"Control+Alt+Z\", \"onbo").unwrap();
+        let s = Settings::load(&dir);
+        assert_eq!((s.str("hotkey"), s.bool("onboarded")), ("Control+Alt+C", false));
+        assert_eq!(std::fs::read_to_string(dir.join("settings.json.bad")).unwrap(), "{\"hotkey\": \"Control+Alt+Z\", \"onbo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

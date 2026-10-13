@@ -42,6 +42,9 @@ pub const AUTO_RETRY_MS: u64 = 15_000;
 /// How soon after its zero was trusted (3 s without a number) a site's number has to be back to
 /// count as a blink (Facebook's: 0.8 s on 10-05). Later, it may be a reply after reading elsewhere.
 const BLINK_MS: i64 = 15_000;
+/// How long a page that has loaded has to go without a number in its title for that to be its
+/// real count, nothing unread (its number comes a few seconds after the page, if it has one).
+const SETTLED_MS: u64 = 60_000;
 
 /// A site's number fell to nothing while ChatDock was watching: what it was, for a while.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -249,6 +252,8 @@ pub struct Core {
     pub asleep: HashMap<String, bool>,
     pub last_used: HashMap<String, i64>,
     pub zero_timers: HashMap<String, u64>,
+    /// a page that finished loading: when it may count as having nothing unread (page_settled)
+    pub settle_timers: HashMap<String, u64>,
     pub retry_timers: HashMap<String, u64>,
     pub fallback_timers: HashMap<String, u64>,
     pub last_flash: HashMap<String, (String, i64)>,
@@ -444,7 +449,13 @@ impl Core {
             ("ui:ready", _) => {
                 self.ready.insert(from.to_string());
                 match from {
-                    "panel" | "tab" | "glow" => self.emit(from, "state", json!([self.ui_state()])),
+                    "panel" | "tab" => {
+                        let mut s = self.ui_state();
+                        if from == "panel" && self.settings_mode {
+                            s["settings"] = self.settings_state(); // Settings already open: not blank until the next refresh
+                        }
+                        self.emit(from, "state", json!([s]));
+                    }
                     "update" => self.update_window_ready(),
                     "whatsnew" => self.whats_new_window_ready(),
                     "toasts" => self.toasts_ready(),
@@ -1110,6 +1121,12 @@ impl Core {
                 self.last_used.insert(id.to_string(), now); // on screen, playing sound, or in a call
                 continue;
             }
+            // something unread, or a pop-up of it up or waiting for a game to end: asleep, those
+            // would go without a word
+            let unread = self.counts.get(id).copied().unwrap_or(0) > 0;
+            if unread || self.has_popups(id) {
+                continue;
+            }
             if now - self.last_used.get(id).copied().unwrap_or(now) >= SLEEP_AFTER_MS {
                 self.sleep_app(id);
             }
@@ -1345,18 +1362,20 @@ impl Core {
 
     fn set_site_count(&mut self, id: &str, n: u32) {
         let was = self.site_counts.insert(id.to_string(), n).unwrap_or(0);
-        if self.chat_in_view(id) || !inbox::counts_notifications(id) {
+        let in_view = self.chat_in_view(id);
+        if !inbox::counts_notifications(id) || (in_view && n > 0) {
             self.count_drops.remove(id);
         } else if n == 0 && was > 0 && self.counted_pages.contains(id) {
-            // kept a while: it may come straight back (count_blink)
-            let drop =
-                CountDrop { site: was, seen: self.seen_count(id), unread: self.counts.get(id).copied().unwrap_or(0), at: rt::epoch_ms() };
-            self.count_drops.insert(id.to_string(), drop);
+            // kept a while: it may come straight back (count_blink). On screen all of it was seen,
+            // also when the panel closes before it is back.
+            let (seen, unread) = if in_view { (was, 0) } else { (self.seen_count(id), self.counts.get(id).copied().unwrap_or(0)) };
+            self.count_drops.insert(id.to_string(), CountDrop { site: was, seen, unread, at: rt::epoch_ms() });
         } else if n > 0 {
             if let Some(d) = self.count_drops.remove(id) {
                 if self.counted_pages.contains(id) && count_blink(&d, n, rt::epoch_ms()) {
                     // what was seen before the blink stays seen, and what was shown doesn't pop up again
                     self.settings.set_in("seenCounts", id, json!(d.seen));
+                    self.save_soon();
                     self.quiet_rises.insert(id.to_string(), d.unread);
                     site_log!(id, "{id}: its number came back ({} -> 0 -> {n}): nothing was read meanwhile", d.site);
                 }
@@ -1382,6 +1401,34 @@ impl Core {
             self.save_soon();
         }
         self.set_count(id, site.saturating_sub(seen_now));
+    }
+
+    /// A page finished loading: if it never shows a number, it has nothing unread (page_settled).
+    pub fn settle_after_load(&mut self, id: &str) {
+        self.cancel_settle(id);
+        let app = id.to_string();
+        let t = timer(SETTLED_MS, move |c| {
+            if c.settle_timers.remove(&app).is_some() {
+                c.page_settled(&app);
+            }
+        });
+        self.settle_timers.insert(id.to_string(), t);
+    }
+
+    pub fn cancel_settle(&mut self, id: &str) {
+        if let Some(t) = self.settle_timers.remove(id) {
+            rt::cancel(t);
+        }
+    }
+
+    /// A page that loaded a while ago and has shown no number all along has nothing unread. What
+    /// was remembered as seen is from before (read elsewhere meanwhile, say on the phone while the
+    /// PC was off), so the next number it shows is all new instead of hiding behind it (seen_after).
+    pub fn page_settled(&mut self, id: &str) {
+        if !self.counted_pages.contains(id) && self.site_counts.get(id).copied().unwrap_or(0) == 0 {
+            self.counted_pages.insert(id.to_string());
+            self.refresh_count(id);
+        }
     }
 
     /// The chat on screen changed (the panel came out, another app, back from Settings): what its

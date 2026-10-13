@@ -171,7 +171,9 @@ impl Core {
         if apps::get(id).is_none() {
             return;
         }
-        if self.game_holds() {
+        // (the game just ended and what waited hasn't come out yet: this comes out with it, in the
+        // same card, instead of showing first and being replaced or repeated by it)
+        if self.game_holds() || !self.toasts.held.is_empty() {
             self.hold_popup(id, f);
             return;
         }
@@ -197,6 +199,11 @@ impl Core {
         item.target = f.target;
         item.chime = self.settings.bool("popupSound") && self.settings.app_pref(id, "chime");
         self.toasts_push(item);
+    }
+
+    /// A pop-up of this app is on screen or waiting for the end of a game.
+    pub fn has_popups(&self, id: &str) -> bool {
+        self.toasts.held.iter().any(|h| h.app == id) || self.toasts.items.iter().any(|it| it.app_id == id)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -454,7 +461,12 @@ impl Core {
                 // The last cards slide away first; the page says 'toast:empty' when they are gone.
                 self.toasts_send(&[], 0, false);
                 rt::cancel(self.toasts.hide_fallback);
-                self.toasts.hide_fallback = timer(900, |c| c.toasts_hide());
+                self.toasts.hide_fallback = timer(900, |c| {
+                    // (a timer already on its way can't be cancelled: a new card may have come meanwhile)
+                    if c.toasts.items.is_empty() {
+                        c.toasts_hide();
+                    }
+                });
             } else {
                 self.toasts_hide();
             }
@@ -592,7 +604,8 @@ impl Core {
                 if it.timer != 0 {
                     rt::cancel(it.timer);
                     it.timer = 0;
-                    it.remaining -= now - it.started_at;
+                    // (its time may be up already, the timer just not run yet: still a card that goes)
+                    it.remaining = (it.remaining - (now - it.started_at)).max(1);
                 }
             } else {
                 let it = &mut self.toasts.items[i];

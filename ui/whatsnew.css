@@ -9,6 +9,7 @@ html, body {
   font-family: "Segoe UI Variable Text", "Segoe UI", "Leelawadee UI", "Noto Sans Thai", Tahoma, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+[hidden] { display: none !important; } /* the "don't show again" box (display: flex) only in an explainer */
 html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
 html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif; }
 
