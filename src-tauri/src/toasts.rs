@@ -201,9 +201,11 @@ impl Core {
         self.toasts_push(item);
     }
 
-    /// A pop-up of this app is on screen or waiting for the end of a game.
+    /// A pop-up of this app is on screen (its own, or a row of the card after a game) or waiting
+    /// for the end of a game.
     pub fn has_popups(&self, id: &str) -> bool {
-        self.toasts.held.iter().any(|h| h.app == id) || self.toasts.items.iter().any(|it| it.app_id == id)
+        self.toasts.held.iter().any(|h| h.app == id)
+            || self.toasts.items.iter().any(|it| it.app_id == id || it.rows.iter().any(|h| h.app == id))
     }
 
     // -----------------------------------------------------------------------------------------

@@ -2352,8 +2352,8 @@ fn facebook_count_test() {
         state()
     );
 
-    // 1b. the same blink while Facebook is on screen, the panel closed before the number is back:
-    // all of it was seen there, nothing comes back as new
+    // 1b. read on screen (its number gone), the panel closed, and a reply within seconds: that is
+    // news, not a blink
     on(start);
     let active_was = on(|c| c.active());
     on(move |c| {
@@ -2364,10 +2364,16 @@ fn facebook_count_test() {
     });
     wait(3400);
     on(|c| c.panel_state = PanelState::Hidden);
-    on(move |c| c.on_title(fb, "(10) Facebook"));
+    on(move |c| c.on_title(fb, "(1) Facebook"));
     wait(200);
-    log!("Facebook blink on screen, closed before it was back: {} (expect unread 0 seen 10, no pop-up coming)", state());
-    on(move |c| c.set_setting("active", json!(active_was)));
+    log!("Facebook read on screen, closed, then a reply 4 s later: {} (expect unread 1 seen 0, pop-up coming true)", state());
+    on(move |c| {
+        c.set_setting("active", json!(active_was));
+        c.set_count(fb, 0);
+        if let Some(t) = c.fallback_timers.remove(fb) {
+            rt::cancel(t);
+        }
+    });
 
     // 2. gone, then read on the phone and one new message: "(1)" is news
     on(start);

@@ -189,11 +189,15 @@ pub fn away() -> bool {
 
 /// A game (or a video) fills the screen in front: exclusive fullscreen, a presentation, or a window
 /// without a title bar covering its whole monitor (borderless games, F11 in a browser). Not a
-/// maximized window: with the taskbar set to hide, one of those covers its monitor too.
+/// maximized window: with the taskbar set to hide, one of those covers its monitor too. Not the lock
+/// screen either (LockApp is a captionless window covering the screen): that is away(), not a game.
 pub fn game_in_front() -> bool {
     let s = notification_state();
     if s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE {
         return true;
+    }
+    if s == QUNS_NOT_PRESENT {
+        return false;
     }
     unsafe {
         let fg = GetForegroundWindow();

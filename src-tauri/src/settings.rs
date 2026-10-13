@@ -71,32 +71,34 @@ fn defaults() -> Map<String, Value> {
     }
 }
 
-/// What settings.json holds; nothing for a new install. A file that can't be read (locked for a
-/// moment at sign-in) is tried again; one that still can't, or isn't settings (cut short, edited by
-/// hand), is kept as settings.json.bad before the defaults replace it. A BOM from an editor is fine.
-fn read_saved(file: &Path) -> Map<String, Value> {
+/// What settings.json holds; nothing for a new install. A file that isn't settings (cut short,
+/// edited by hand) is kept as settings.json.bad and the defaults take its place; a BOM from an
+/// editor is fine. A file that can't be read at all (locked for a moment at sign-in) is tried
+/// again, and if it still can't be: None, and this run leaves it alone (Settings::keep_file).
+fn read_saved(file: &Path) -> Option<Map<String, Value>> {
+    let not_settings = |why: &str| {
+        let kept = std::fs::copy(file, file.with_extension("json.bad")).is_ok();
+        log!("settings.json {why}: starting from the defaults (the old file kept as settings.json.bad: {kept})");
+        Some(Map::new())
+    };
     for attempt in 1..=3 {
         match std::fs::read_to_string(file) {
             Ok(text) => {
-                if let Ok(Value::Object(m)) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) {
-                    return m;
-                }
-                break;
+                return match serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) {
+                    Ok(Value::Object(m)) => Some(m),
+                    _ => not_settings("isn't settings"),
+                };
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Map::new(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Map::new()),
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => return not_settings("isn't text"),
             Err(e) if attempt < 3 => {
                 log!("settings.json not readable ({e}): trying again");
                 std::thread::sleep(std::time::Duration::from_millis(300));
             }
-            Err(e) => {
-                log!("settings.json not readable ({e})");
-                break;
-            }
+            Err(e) => log!("settings.json not readable ({e}): the defaults for now, the file is left as it is"),
         }
     }
-    let kept = std::fs::copy(file, file.with_extension("json.bad")).is_ok();
-    log!("settings.json isn't usable: starting from the defaults (the old file kept as settings.json.bad: {kept})");
-    Map::new()
+    None
 }
 
 /// A settings file from before 1.7.5 with the hold time at the edge still at 3 s, the default until then.
@@ -109,12 +111,17 @@ pub struct Settings {
     data: Map<String, Value>,
     file: PathBuf,
     pub dirty: bool,
+    /// settings.json couldn't be read: this run goes on the defaults and never writes over it
+    keep_file: bool,
 }
 
 impl Settings {
     pub fn load(dir: &Path) -> Self {
         let file = dir.join("settings.json");
-        let saved = read_saved(&file);
+        let (saved, keep_file) = match read_saved(&file) {
+            Some(m) => (m, false),
+            None => (Map::new(), true),
+        };
         let mut data = defaults();
         for (k, v) in &saved {
             data.insert(k.clone(), v.clone());
@@ -167,7 +174,7 @@ impl Settings {
         if old_hold {
             data.insert("edgeHold".into(), json!(0.5));
         }
-        Settings { data, file, dirty: old_hold }
+        Settings { data, file, dirty: old_hold, keep_file }
     }
 
     pub fn get(&self, key: &str) -> &Value {
@@ -235,6 +242,9 @@ impl Settings {
             return;
         }
         self.dirty = false;
+        if self.keep_file {
+            return; // (keep_file: the file is still the user's real settings)
+        }
         let text = serde_json::to_string_pretty(&Value::Object(self.data.clone())).unwrap_or_default();
         let tmp = self.file.with_extension("json.tmp");
         let result = std::fs::create_dir_all(self.file.parent().unwrap_or(Path::new(".")))
@@ -291,6 +301,19 @@ mod tests {
         let s = Settings::load(&dir);
         assert_eq!((s.str("hotkey"), s.bool("onboarded")), ("Control+Alt+C", false));
         assert_eq!(std::fs::read_to_string(dir.join("settings.json.bad")).unwrap(), "{\"hotkey\": \"Control+Alt+Z\", \"onbo");
+        // locked by another program the whole time: the defaults for now, and the file never written over
+        let good = "{\"hotkey\": \"Control+Alt+Z\", \"onboarded\": true}";
+        std::fs::write(&file, good).unwrap();
+        let lock = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).unwrap()
+        };
+        let mut s = Settings::load(&dir);
+        assert_eq!(s.str("hotkey"), "Control+Alt+C");
+        s.set("hotkey", serde_json::json!("Control+Alt+X"));
+        drop(lock);
+        s.flush();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), good);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

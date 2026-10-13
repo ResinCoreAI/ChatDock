@@ -1362,14 +1362,14 @@ impl Core {
 
     fn set_site_count(&mut self, id: &str, n: u32) {
         let was = self.site_counts.insert(id.to_string(), n).unwrap_or(0);
-        let in_view = self.chat_in_view(id);
-        if !inbox::counts_notifications(id) || (in_view && n > 0) {
+        // (on screen a drop is the user reading: what comes after it is news, never a blink)
+        if self.chat_in_view(id) || !inbox::counts_notifications(id) {
             self.count_drops.remove(id);
         } else if n == 0 && was > 0 && self.counted_pages.contains(id) {
-            // kept a while: it may come straight back (count_blink). On screen all of it was seen,
-            // also when the panel closes before it is back.
-            let (seen, unread) = if in_view { (was, 0) } else { (self.seen_count(id), self.counts.get(id).copied().unwrap_or(0)) };
-            self.count_drops.insert(id.to_string(), CountDrop { site: was, seen, unread, at: rt::epoch_ms() });
+            // kept a while: it may come straight back (count_blink)
+            let drop =
+                CountDrop { site: was, seen: self.seen_count(id), unread: self.counts.get(id).copied().unwrap_or(0), at: rt::epoch_ms() };
+            self.count_drops.insert(id.to_string(), drop);
         } else if n > 0 {
             if let Some(d) = self.count_drops.remove(id) {
                 if self.counted_pages.contains(id) && count_blink(&d, n, rt::epoch_ms()) {
