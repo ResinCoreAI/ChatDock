@@ -2179,7 +2179,7 @@ impl Core {
             if r.contains("ok") {
                 return;
             }
-            later(move |c| {
+            later(move |_| {
                 if tries >= 20 {
                     log!("push-to-talk: Discord's mic switch not found or not changing");
                     return;
