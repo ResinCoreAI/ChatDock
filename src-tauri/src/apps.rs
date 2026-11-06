@@ -250,13 +250,66 @@ pub fn is_this_pc(url: &str) -> bool {
     let Some(host) = u.host_str() else { return false };
     let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        let v4 = match ip {
-            std::net::IpAddr::V4(v4) => Some(v4),
-            std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped(),
-        };
-        return ip.is_loopback() || ip.is_unspecified() || v4.is_some_and(|v| v.is_loopback() || v.is_unspecified());
+        return addr_is_local(ip);
     }
     host == "localhost" || host.ends_with(".localhost")
+}
+
+/// An address of this PC: loopback or unspecified, also written as IPv4 inside IPv6 (the LAN is
+/// not "this PC").
+pub fn addr_is_local(ip: std::net::IpAddr) -> bool {
+    let v4 = match ip {
+        std::net::IpAddr::V4(v4) => Some(v4),
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped(),
+    };
+    ip.is_loopback() || ip.is_unspecified() || v4.is_some_and(|v| v.is_loopback() || v.is_unspecified())
+}
+
+/// What a chat page's request needs before it may go.
+#[derive(Debug, PartialEq)]
+pub enum HttpCheck {
+    /// this PC however it is written
+    Block,
+    Allow,
+    /// plain http to a name: a name can point at this PC (127.0.0.1.nip.io), so it is looked up
+    Resolve(String),
+}
+
+pub fn http_check(url: &str) -> HttpCheck {
+    if is_this_pc(url) {
+        return HttpCheck::Block;
+    }
+    let Ok(u) = Url::parse(url) else { return HttpCheck::Allow };
+    let host = u.host_str().unwrap_or("").trim_start_matches('[').trim_end_matches(']');
+    if u.scheme() != "http" || host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() {
+        return HttpCheck::Allow; // an address (not this PC, checked above) needs no lookup
+    }
+    HttpCheck::Resolve(host.trim_end_matches('.').to_ascii_lowercase())
+}
+
+type LocalCache = std::collections::HashMap<String, (bool, std::time::Instant)>;
+static LOCAL_NAMES: std::sync::Mutex<Option<LocalCache>> = std::sync::Mutex::new(None);
+const LOCAL_NAME_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// What a lookup of `host` said in the last 5 minutes (None: not asked lately).
+pub fn cached_local(host: &str) -> Option<bool> {
+    let names = LOCAL_NAMES.lock().ok()?;
+    names.as_ref()?.get(host).filter(|(_, at)| at.elapsed() < LOCAL_NAME_TTL).map(|(local, _)| *local)
+}
+
+/// `host` points at this PC (looked up; blocking, so never on the UI thread). A name that
+/// doesn't resolve isn't this PC. Remembered for 5 minutes.
+pub fn resolves_local(host: &str) -> bool {
+    use std::net::ToSocketAddrs;
+    let local = (host, 80).to_socket_addrs().map(|mut a| a.any(|s| addr_is_local(s.ip()))).unwrap_or(false);
+    if let Ok(mut names) = LOCAL_NAMES.lock() {
+        let names = names.get_or_insert_with(Default::default);
+        if names.len() > 500 {
+            names.retain(|_, (_, at)| at.elapsed() < LOCAL_NAME_TTL);
+        }
+        names.insert(host.to_string(), (local, std::time::Instant::now()));
+    }
+    local
 }
 
 /// Voice / video call pages open in their own small window.
@@ -317,6 +370,36 @@ pub fn content_only_origins(id: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn this_pc_is_loopback_and_unspecified_not_the_lan() {
+        for a in ["127.0.0.1", "127.9.9.9", "::1", "::ffff:127.0.0.1", "0.0.0.0", "::"] {
+            assert!(addr_is_local(a.parse().unwrap()), "{a}");
+        }
+        for a in ["192.168.1.1", "10.0.0.1", "8.8.8.8", "2001:4860:4860::8888"] {
+            assert!(!addr_is_local(a.parse().unwrap()), "{a}");
+        }
+    }
+
+    #[test]
+    fn plain_http_by_name_is_looked_up_before_it_goes() {
+        assert_eq!(http_check("http://127.0.0.1:8080/"), HttpCheck::Block);
+        assert_eq!(http_check("https://localhost/"), HttpCheck::Block);
+        assert_eq!(http_check("http://127.0.0.1.nip.io:8080/x"), HttpCheck::Resolve("127.0.0.1.nip.io".into()));
+        assert_eq!(http_check("http://Example.COM/"), HttpCheck::Resolve("example.com".into()));
+        // https cannot reach a local plain service under a borrowed name (its certificate won't match)
+        assert_eq!(http_check("https://127.0.0.1.nip.io/"), HttpCheck::Allow);
+        // an address that isn't this PC needs no lookup
+        assert_eq!(http_check("http://192.168.1.10/"), HttpCheck::Allow);
+        assert_eq!(http_check("data:text/plain,x"), HttpCheck::Allow);
+    }
+
+    #[test]
+    fn a_name_for_this_pc_is_found_and_remembered() {
+        assert!(resolves_local("localhost"));
+        assert_eq!(cached_local("localhost"), Some(true));
+        assert_eq!(cached_local("never-asked.invalid"), None);
+    }
 
     #[test]
     fn notifications_only_from_the_apps_own_pages() {

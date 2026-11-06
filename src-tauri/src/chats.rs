@@ -57,9 +57,14 @@ const SITE_SCRIPT: &str = r#"(() => {
         return h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '::' || h === '0.0.0.0' || /^127\./.test(h) || /^::ffff:(7f[0-9a-f]{2}:|0:0$)/.test(h);
       } catch (e) { return false; }
     };
+    // plain ws:// is refused too: a name can point at this PC (127.0.0.1.nip.io) and a socket
+    // can't be looked up from here; the chat sites use wss://. (A worker's own socket isn't
+    // covered by this; the README says so.)
     const WebSocket = function WebSocket(url, protocols) {
       if (!new.target) throw new TypeError("Failed to construct 'WebSocket': Please use the 'new' operator.");
-      const target = thisPc(url) ? 'wss://local-blocked.invalid/' : url;
+      let abs = '';
+      try { abs = new URL(String(url), location.href).href; } catch (e) {}
+      const target = /^ws:/i.test(abs) || thisPc(abs) ? 'wss://local-blocked.invalid/' : url;
       return protocols === undefined ? new Real(target) : new Real(target, protocols);
     };
     WebSocket.prototype = Real.prototype;
@@ -1831,7 +1836,8 @@ pub(crate) unsafe fn apply_settings(wv: &ICoreWebView2, debug: bool, own_error_p
 /// parsed host (a filter also matches an address that merely mentions one).
 pub(crate) unsafe fn block_this_pc(wv: &ICoreWebView2) -> windows::core::Result<()> {
     let wv22 = wv.cast::<ICoreWebView2_22>().ok();
-    for f in ["*://127.*", "*://localhost*", "*://*.localhost*", "*://[::1]*", "*://[::]*", "*://0.0.0.0*", "*://[::ffff:*"] {
+    // (and every plain http request: a name may point at this PC, so it is looked up)
+    for f in ["*://127.*", "*://localhost*", "*://*.localhost*", "*://[::1]*", "*://[::]*", "*://0.0.0.0*", "*://[::ffff:*", "http://*"] {
         match &wv22 {
             Some(w) => w.AddWebResourceRequestedFilterWithRequestSourceKinds(
                 &HSTRING::from(f),
@@ -1847,15 +1853,54 @@ pub(crate) unsafe fn block_this_pc(wv: &ICoreWebView2) -> windows::core::Result<
             let (Some(args), Some(env)) = (args, env()) else { return Ok(()) };
             let mut p = PWSTR::null();
             args.Request()?.Uri(&mut p)?;
-            if apps::is_this_pc(&take_pwstr(p)) {
-                let resp = env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))?;
-                args.SetResponse(&resp)?;
-                LOCAL_BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let host = match apps::http_check(&take_pwstr(p)) {
+                apps::HttpCheck::Allow => return Ok(()),
+                apps::HttpCheck::Block => return refuse_local(&env, &args),
+                apps::HttpCheck::Resolve(host) => host,
+            };
+            match apps::cached_local(&host) {
+                Some(true) => return refuse_local(&env, &args),
+                Some(false) => return Ok(()),
+                None => {}
+            }
+            // looked up off the UI thread; the request waits for the answer
+            let deferral = args.GetDeferral()?;
+            let held = UiOnly((env, args.clone(), deferral));
+            let started = std::thread::Builder::new().name("chatdock-lookup".into()).spawn(move || {
+                let local = apps::resolves_local(&host);
+                rt::post(move || {
+                    let (env, args, deferral) = held.take();
+                    if local {
+                        let _ = refuse_local(&env, &args);
+                        log!("a request to {host} (this PC) refused");
+                    }
+                    let _ = deferral.Complete();
+                });
+            });
+            if started.is_err() {
+                log!("lookup: no thread");
             }
             Ok(())
         })),
         &mut token,
     )?;
+    Ok(())
+}
+
+/// WebView2 objects carried to another thread and back: only touched again on the UI thread
+/// (rt::post), never on the one carrying them.
+struct UiOnly<T>(T);
+unsafe impl<T> Send for UiOnly<T> {}
+impl<T> UiOnly<T> {
+    fn take(self) -> T {
+        self.0
+    }
+}
+
+fn refuse_local(env: &ICoreWebView2Environment, args: &ICoreWebView2WebResourceRequestedEventArgs) -> windows::core::Result<()> {
+    let resp = unsafe { env.CreateWebResourceResponse(None, 403, &HSTRING::from("Blocked"), &HSTRING::from(""))? };
+    unsafe { args.SetResponse(&resp)? };
+    LOCAL_BLOCKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 
@@ -2020,6 +2065,12 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pages_open_no_plain_sockets_and_none_to_this_pc() {
+        let s = super::SITE_SCRIPT;
+        assert!(s.contains("/^ws:/i.test(abs)"), "plain ws:// refused");
+        assert!(s.contains("thisPc(abs)"), "this PC refused");
+    }
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
     use super::{cdp_value, opens_outside, own_navigation, passkey_line, permission_allowed, rate_ok, site_script, volume_key, OWN_NAV};

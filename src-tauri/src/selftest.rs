@@ -3839,6 +3839,24 @@ fn this_pc_check() {
     );
     wait(500);
     let blocked = refused() - before;
+    // DeepSeek F2: a name that points at this PC (needs the internet for the lookup), from a plain
+    // http page (an https page may not fetch http at all): refused; a plain ws:// socket: refused
+    on(|c| c.chats.navigate("discord", "http://neverssl.com/"));
+    for _ in 0..40 {
+        wait(250);
+        if view_js("discord", "location.protocol") == "\"http:\"" {
+            break;
+        }
+    }
+    wait(500);
+    let before_name = refused();
+    let by_name =
+        view_js_async("discord", "fetch('http://127.0.0.1.nip.io:9/', { mode: 'no-cors' }).then(() => 'answered', () => 'failed')");
+    let plain_ws = view_js("discord", "new WebSocket('ws://example.com/').url");
+    wait(300);
+    let name_refused = refused() - before_name;
+    let proto = view_js("discord", "location.href");
+    log!("security (review): from {proto}: a name for this PC {by_name}, refused {name_refused} | a plain ws:// socket goes to {plain_ws} (expect \"http://neverssl.com/\": answered (our 403), refused 1 | wss://local-blocked.invalid/)");
     on(|c| c.load_home("discord"));
     log!(
         "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
