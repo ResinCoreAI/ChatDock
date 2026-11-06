@@ -941,7 +941,8 @@ impl Core {
         self.toasts.reply_timer = 0;
         self.emit("toasts", "toast:reply-closed", json!([{ "key": key }]));
         let fg = self.toasts.reply_fg;
-        if fg != 0 && !self.is_ours(fg) {
+        let now = win32::foreground_window();
+        if !self.is_ours(fg) && hand_back_focus(fg, now, now != 0 && self.is_ours(now)) {
             win32::restore_foreground(fg);
             if win32::is_visible(self.toastwin.hwnd) {
                 win32::raise(self.toastwin.hwnd);
@@ -1089,5 +1090,29 @@ fn toast_watch_tick() {
     });
     if ran.is_none() {
         rt::after(50, toast_watch_tick); // the app state was busy: look again in a moment
+    }
+}
+
+/// The reply box closing: the window that had focus before it (`saved`) gets it back only while
+/// focus is still with ChatDock or nowhere; a window the user went to meanwhile keeps it.
+fn hand_back_focus(saved: isize, now: isize, now_ours: bool) -> bool {
+    saved != 0 && saved != now && (now == 0 || now_ours)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hand_back_focus;
+
+    #[test]
+    fn the_reply_box_hands_focus_back_only_while_it_still_has_it() {
+        // the game had focus; the reply box (ours) has it now: back to the game
+        assert!(hand_back_focus(100, 7, true));
+        // nothing in front (the box just closed): back to the game
+        assert!(hand_back_focus(100, 0, false));
+        // the user clicked another window meanwhile: leave it there
+        assert!(!hand_back_focus(100, 55, false));
+        // nothing was saved, or the saved window is that one already
+        assert!(!hand_back_focus(0, 7, true));
+        assert!(!hand_back_focus(100, 100, false));
     }
 }

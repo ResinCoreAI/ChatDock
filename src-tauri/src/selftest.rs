@@ -3232,6 +3232,30 @@ fn ptt_test() {
     wait(1500);
     let late_switch = mic();
     log!("push-to-talk (review): released during a reload {reload_release:?} | switched off while held {switched_off:?} | the switch came late {late_switch} (expect (muted, false) | (muted, false) | muted)");
+    // DeepSeek F10: a Discord that takes 600 ms to show the new state: one click, no flapping
+    view_js(
+        "discord",
+        "(() => { window.__clicks = 0; document.querySelectorAll('section.panels_test button').forEach((b) => { b.setAttribute('aria-checked', 'true'); \
+         const get = Element.prototype.getAttribute; let flips = [];          b.getAttribute = (n) => { if (n === 'aria-checked') { const now = Date.now(); flips.filter((f) => f.at <= now).forEach((f) => b.setAttribute('aria-checked', f.v)); flips = flips.filter((f) => f.at > now); } return get.call(b, n); };          b.onclick = () => { window.__clicks++; const last = flips.length ? flips[flips.length - 1].v : get.call(b, 'aria-checked'); flips.push({ at: Date.now() + 600, v: last === 'true' ? 'false' : 'true' }); }; }); return 1; })()",
+    );
+    crate::wheel::test_hold(true); // the key held (no real key here)
+    on(|c| c.ptt(true));
+    wait(2500);
+    let slow = (mic(), view_js("discord", "String(window.__clicks)"));
+    crate::wheel::test_hold(false);
+    on(|c| c.ptt(false));
+    wait(2500);
+    let slow_off = (mic(), view_js("discord", "String(window.__clicks)"));
+    // a tap shorter than Discord's lag: the release comes before Discord shows the press
+    view_js("discord", "(window.__clicks = 0, 1)");
+    crate::wheel::test_hold(true);
+    on(|c| c.ptt(true));
+    wait(300);
+    crate::wheel::test_hold(false);
+    on(|c| c.ptt(false));
+    wait(3000);
+    let tap = (mic(), view_js("discord", "String(window.__clicks)"));
+    log!("push-to-talk (slow Discord): held {slow:?} | released {slow_off:?} | a quick tap {tap:?} (expect (open, 1) | (muted, 2) | (muted, 2))");
     let refused = on(|c| c.set_pref("pttKey", json!("KeyW")));
     on(|c| {
         c.on_call("discord", false, false, false);

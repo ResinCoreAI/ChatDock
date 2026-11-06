@@ -294,6 +294,8 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         settings_timer: 0,
         toast_foreground: 0,
         edge: Default::default(),
+        mic_gen: 0,
+        mic_click_at: None,
         toasts: Default::default(),
         upd: Default::default(),
         update_announced: String::new(),

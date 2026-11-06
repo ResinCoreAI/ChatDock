@@ -284,6 +284,10 @@ pub struct Core {
     pub toast_foreground: isize,
     // edge, pop-ups, updates
     pub edge: edge::EdgeState,
+    /// push-to-talk: bumped by each press or release (an older one's retries stop), and when the
+    /// mic switch was last clicked (Discord may take a moment to show it)
+    pub mic_gen: u32,
+    pub mic_click_at: Option<(std::time::Instant, bool)>,
     pub toasts: toasts::Toasts,
     pub upd: updater::UpdState,
     pub update_announced: String,
@@ -2163,28 +2167,53 @@ impl Core {
     /// clicked only when it isn't that way already, so it never toggles the wrong way; looked at
     /// again a moment later and tried again until it is (the switch may not be on the page yet).
     pub fn discord_mic(&mut self, on: bool) {
-        self.discord_mic_try(on, 0);
+        self.mic_gen = self.mic_gen.wrapping_add(1);
+        self.discord_mic_try(on, self.mic_gen, 0, 0);
     }
 
-    fn discord_mic_try(&mut self, on: bool, tries: u32) {
-        if tries > 0 && on != self.edge.talking {
-            return; // pressed or released since: that one decides now
+    /// `tries`: looks so far; `clicks`: clicks made for this press or release. Only the newest
+    /// press or release acts. For up to a second after a click nothing more is clicked until the
+    /// switch shows that click (Discord can be slow to, and a click made on the old state would
+    /// flip it back), and at most two clicks per change.
+    fn discord_mic_try(&mut self, on: bool, gen: u32, tries: u32, clicks: u32) {
+        if gen != self.mic_gen {
+            return;
         }
+        let pending = match self.mic_click_at {
+            Some((at, muted)) if at.elapsed().as_millis() < 1000 => {
+                if muted {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
+            _ => "null",
+        };
         let want_muted = !on;
+        let may_click = clicks < 2;
         let js = format!(
-            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2]; \
-             if (!b) return 'none'; if ((b.getAttribute('aria-checked') === 'true') === {want_muted}) return 'ok'; b.click(); return 'clicked'; }})()"
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2];              if (!b) return 'none'; const m = b.getAttribute('aria-checked') === 'true'; if ({pending} !== null && m !== {pending}) return 'wait';              if (m === {want_muted}) return 'ok'; if (!{may_click}) return 'wrong'; b.click(); return 'clicked'; }})()"
         );
         self.chats.execute("discord", &js, move |r| {
-            if r.contains("ok") {
-                return;
-            }
-            later(move |_| {
-                if tries >= 20 {
+            later(move |c| {
+                if r.contains("wait") {
+                    timer(150, move |c| c.discord_mic_try(on, gen, tries, clicks));
+                    return;
+                }
+                if r.contains("clicked") {
+                    c.mic_click_at = Some((std::time::Instant::now(), want_muted));
+                } else if !r.contains("none") {
+                    c.mic_click_at = None; // the last click shows (or a second went by)
+                }
+                if r.contains("ok") || gen != c.mic_gen {
+                    return;
+                }
+                if tries >= 20 || r.contains("wrong") {
                     log!("push-to-talk: Discord's mic switch not found or not changing");
                     return;
                 }
-                timer(if r.contains("none") { 500 } else { 300 }, move |c| c.discord_mic_try(on, tries + 1));
+                let clicks = clicks + u32::from(r.contains("clicked"));
+                timer(if r.contains("clicked") { 150 } else { 500 }, move |c| c.discord_mic_try(on, gen, tries + 1, clicks));
             });
         });
     }

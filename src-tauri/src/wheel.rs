@@ -39,6 +39,13 @@ static LAST: AtomicI64 = AtomicI64::new(0);
 /// the push-to-talk key (key_code), 0 = none; whether it is held right now
 static PTT: AtomicU32 = AtomicU32::new(0);
 static PTT_DOWN: AtomicBool = AtomicBool::new(false);
+/// self-test only: the push-to-talk key counts as held
+static TEST_HELD: AtomicBool = AtomicBool::new(false);
+
+/// Self-test: the push-to-talk key held or not (no real key in a test run).
+pub fn test_hold(held: bool) {
+    TEST_HELD.store(held, Ordering::Relaxed);
+}
 
 /// The mouse's side buttons, as push-to-talk "keys" (above any virtual-key code)
 pub const MOUSE4: u32 = 0x105;
@@ -84,6 +91,9 @@ pub fn set_ptt(code: u32) {
 
 /// The push-to-talk key is held right now (for when a key-up went missing).
 pub fn ptt_held() -> bool {
+    if TEST_HELD.load(Ordering::Relaxed) {
+        return true;
+    }
     let vk = match PTT.load(Ordering::Relaxed) {
         0 => return false,
         MOUSE4 => 0x05, // VK_XBUTTON1
