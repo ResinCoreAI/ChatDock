@@ -35,12 +35,31 @@ static ROTATE: AtomicBool = AtomicBool::new(false);
 
 pub fn init(dir: &Path, echo: bool) {
     ECHO.store(echo, Ordering::Relaxed);
-    let _ = std::fs::create_dir_all(dir);
-    let path = dir.join("chatdock.log");
-    let file = OpenOptions::new().create(true).append(true).open(&path).ok();
+    let (file, path) = open_log(dir);
     let size = file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
     PATH.set(path).ok();
     OUT.set(Mutex::new(Out { file, size, next_try: MAX_BYTES })).ok();
+}
+
+/// The log file: in the data folder, or (that folder can't be written: locked down, full, a
+/// roaming profile not there yet) in LOCALAPPDATA\ChatDock, else the temp folder, so a start that
+/// fails still says why somewhere.
+fn open_log(dir: &Path) -> (Option<std::fs::File>, PathBuf) {
+    let mut places = vec![dir.to_path_buf()];
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        places.push(PathBuf::from(local).join("ChatDock"));
+    }
+    places.push(std::env::temp_dir());
+    let mut last = dir.join("chatdock.log");
+    for place in places {
+        let _ = std::fs::create_dir_all(&place);
+        let path = place.join("chatdock.log");
+        if let Ok(f) = OpenOptions::new().create(true).append(true).open(&path) {
+            return (Some(f), path);
+        }
+        last = path;
+    }
+    (None, last)
 }
 
 /// Called once the single-instance lock is held. From then on the log moves to chatdock.log.old
@@ -201,7 +220,25 @@ macro_rules! site_log {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{redact, site_minute, SITE_LINES};
+    use super::{open_log, redact, site_minute, SITE_LINES};
+
+    #[test]
+    fn a_log_that_cant_be_written_where_asked_goes_elsewhere() {
+        // a "folder" that is really a file: nothing can be made in it
+        let blocker = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("log-blocker-{}", std::process::id()));
+        std::fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+        std::fs::write(&blocker, "not a folder").unwrap();
+        let (_, path) = open_log(&blocker);
+        assert_ne!(path, blocker.join("chatdock.log"));
+        let _ = std::fs::remove_file(&blocker);
+        // a folder that can be written: the log is there
+        let ok = blocker.with_extension("dir");
+        let (file, path) = open_log(&ok);
+        assert!(file.is_some());
+        assert_eq!(path, ok.join("chatdock.log"));
+        drop(file);
+        let _ = std::fs::remove_dir_all(&ok);
+    }
 
     #[test]
     fn a_page_cant_flood_the_log() {

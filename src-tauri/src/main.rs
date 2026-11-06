@@ -66,6 +66,7 @@ fn main() {
             crate::core::later(|c| c.open_panel(None, "launch"));
         }));
     }
+    let selftest = args.selftest;
     let app = builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -88,11 +89,17 @@ fn main() {
                 migrate::electron_leftovers();
             }
             rt::init(app.handle().clone());
-            panel::init(app, args)?;
+            // (Tauri would panic on an error from here, with nothing on screen)
+            if let Err(err) = panel::init(app, args) {
+                cannot_start(&err.to_string(), selftest);
+            }
             Ok(())
         })
-        .build(context())
-        .expect("ChatDock could not start");
+        .build(context());
+    let app = match app {
+        Ok(app) => app,
+        Err(err) => cannot_start(&err.to_string(), selftest),
+    };
 
     app.run(|handle, event| match event {
         // Closing windows never quits: ChatDock lives in the tray until "Quit".
@@ -107,6 +114,33 @@ fn main() {
         }
         _ => {}
     });
+}
+
+/// ChatDock couldn't start (its data folder can't be written, WebView2 is missing or broken):
+/// say so, and where the log is, instead of vanishing without a word.
+fn cannot_start(why: &str, selftest: bool) -> ! {
+    log!("could not start: {why}");
+    let log = log::path().map(|p| p.display().to_string()).unwrap_or_default();
+    let text = format!(
+        "ChatDock could not start.
+
+{why}
+
+Log: {log}
+
+ChatDock เปิดไม่ได้ (รายละเอียดอยู่ในไฟล์ log ด้านบน)"
+    );
+    eprintln!("{text}");
+    if !selftest {
+        use windows::{
+            core::HSTRING,
+            Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK},
+        };
+        unsafe {
+            MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("ChatDock"), MB_OK | MB_ICONERROR);
+        }
+    }
+    std::process::exit(1);
 }
 
 /// Windows keeps variable names in any case (WebView2_... is the same variable).
