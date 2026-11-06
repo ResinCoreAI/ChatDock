@@ -747,3 +747,60 @@ body.intro .notes li { margin-bottom: 8px; }
 .s-lighter .done { left: 326px; top: 76px; width: 36px; height: 36px; border-radius: 50%; background: #22c55e; box-shadow: 0 6px 16px rgba(34, 197, 94, .4); animation-name: done; }
 .s-lighter .done::after { content: ""; position: absolute; left: 12px; top: 8px; width: 9px; height: 16px; border-right: 3px solid #fff; border-bottom: 3px solid #fff; transform: rotate(45deg); }
 @keyframes done { 0%, 50% { transform: scale(0); } 56% { transform: scale(1.12); } 60%, 100% { transform: none; } }
+
+/* 1.8: a pop-up about one conversation, its quick replies, its reply box; important people; push-to-talk */
+.scene .qcard { right: 12px; top: 14px; width: 236px; padding: 9px 10px 9px 13px; border-radius: 12px; background: rgba(27, 28, 38, .97); border: 1px solid rgba(255, 255, 255, .1); box-shadow: 0 10px 26px rgba(0, 0, 0, .5); }
+.scene .qcard > * { position: relative; }
+.scene .qcard > .pst { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 12px 0 0 12px; background: linear-gradient(#feda75, #d62976 60%, #962fbf); }
+.scene .qh { display: flex; align-items: center; gap: 8px; }
+.scene .qchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.scene .qc { position: relative; padding: 2px 8px; border-radius: 999px; background: #262733; border: 1px solid rgba(255, 255, 255, .14); color: #ececf3; font-size: 9px; font-style: normal; line-height: 1.5; white-space: nowrap; }
+.scene .qsent { position: absolute; left: 13px; bottom: 9px; padding: 2px 8px; border-radius: 999px; background: #1f3b2c; border: 1px solid #2f6b4b; color: #b7f0cf; font-size: 9px; font-style: normal; line-height: 1.5; white-space: nowrap; opacity: 0; }
+.scene .qcard .cur { left: 92px; top: 46px; }
+.s-quickReply .qcard, .s-replyBox .qcard, .s-vip .qcard { animation-name: q-in; }
+@keyframes q-in { 0%, 6% { transform: translateX(270px); } 16%, 100% { transform: none; } }
+.s-quickReply .qcard .cur { animation-name: q-cur; }
+@keyframes q-cur { 0%, 22% { transform: translate(60px, 50px); opacity: 0; } 28% { opacity: 1; } 42% { transform: none; } 46% { transform: scale(.82); } 50% { transform: none; opacity: 1; } 62%, 100% { opacity: 0; } }
+.s-quickReply .q2 { animation-name: q-press; }
+@keyframes q-press { 0%, 45% { transform: none; background: #262733; } 47% { transform: scale(.9); background: #3a3b4c; } 50%, 100% { transform: none; } }
+.s-quickReply .qchips { animation-name: q-chips-out; }
+@keyframes q-chips-out { 0%, 52% { opacity: 1; } 57%, 100% { opacity: 0; } }
+.s-quickReply .qsent { animation-name: q-sent; }
+@keyframes q-sent { 0%, 54% { opacity: 0; transform: translateY(4px); } 60%, 100% { opacity: 1; transform: none; } }
+.scene .rbox { position: relative; display: flex; align-items: center; height: 24px; margin-top: 8px; padding: 0 8px; border-radius: 8px; border: 1px solid #8b5cf6; background: #11121a; }
+.scene .rbox > * { position: relative; }
+.scene .rtx { overflow: hidden; white-space: nowrap; color: #f2f2f7; font-size: 9.5px; max-width: 0; }
+.scene .caret { width: 1px; height: 11px; margin-left: 1px; background: #fff; }
+.scene .ent { right: 10px; top: -22px; padding: 1px 6px; border-radius: 4px; border: 1px solid #555667; border-bottom-width: 3px; background: #2a2b36; color: #e6e6ef; font: 600 8.5px/1.4 "Segoe UI", sans-serif; opacity: 0; }
+.s-replyBox .rtx { animation-name: r-type; animation-timing-function: steps(18, end); }
+@keyframes r-type { 0%, 22% { max-width: 0; } 55%, 100% { max-width: 190px; } }
+.s-replyBox .caret { animation-name: r-caret; }
+@keyframes r-caret { 0%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+.s-replyBox .ent { animation-name: r-enter; }
+@keyframes r-enter { 0%, 56% { opacity: 0; } 59% { opacity: 1; transform: none; } 62% { transform: translateY(2px); } 65% { transform: none; opacity: 1; } 72%, 100% { opacity: 0; } }
+.s-replyBox .rbox { animation-name: r-box-out; }
+@keyframes r-box-out { 0%, 64% { opacity: 1; } 68%, 100% { opacity: 0; } }
+.s-replyBox .qsent { animation-name: q-sent2; }
+@keyframes q-sent2 { 0%, 66% { opacity: 0; transform: translateY(4px); } 72%, 100% { opacity: 1; transform: none; } }
+.scene .vtag { position: relative; margin-left: 5px; padding: 0 5px; border-radius: 5px; background: rgba(255, 200, 80, .14); color: #ffd27a; font-size: 8px; font-style: normal; font-weight: 700; }
+.s-vip .hold { top: auto; bottom: 14px; }
+.s-vip .qcard { animation-name: v-in; }
+@keyframes v-in { 0%, 26% { transform: translateX(270px); } 36%, 100% { transform: none; } }
+.s-vip .vtag { animation-name: v-tag; }
+@keyframes v-tag { 0%, 38% { box-shadow: 0 0 0 0 rgba(255, 210, 122, 0); } 44% { box-shadow: 0 0 0 4px rgba(255, 210, 122, .35); } 52%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 122, 0); } }
+.scene .pglow { right: 0; top: 18px; bottom: 18px; width: 3px; border-radius: 3px 0 0 3px; background: linear-gradient(#23a55a, #3ad17a); box-shadow: 0 0 9px 1px rgba(58, 209, 122, .75); opacity: 0; }
+.scene .pk { left: 50%; top: 58px; margin-left: -18px; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 7px; border: 1px solid #5a5b6c; border-bottom-width: 4px; background: #2a2b36; color: #f2f2f7; font: 700 15px/1 "Segoe UI", sans-serif; }
+.scene .mic { left: 50%; top: 112px; margin-left: -13px; width: 26px; height: 26px; border-radius: 50%; background: #3a3b48; }
+.scene .mbar { left: 10px; top: 6px; width: 6px; height: 11px; border-radius: 3px; background: #cfcfe0; }
+.scene .ptalk { left: 0; right: 0; top: 146px; text-align: center; color: #b7f0cf; font-size: 10px; font-weight: 600; opacity: 0; }
+.s-ptt .pk { animation-name: p-key; }
+@keyframes p-key { 0%, 20% { transform: none; border-bottom-width: 4px; } 24%, 70% { transform: translateY(3px); border-bottom-width: 1px; } 74%, 100% { transform: none; border-bottom-width: 4px; } }
+.s-ptt .mic { animation-name: p-mic; }
+@keyframes p-mic { 0%, 22% { background: #3a3b48; box-shadow: 0 0 0 0 rgba(35, 165, 90, 0); } 26%, 68% { background: #23a55a; box-shadow: 0 0 0 6px rgba(35, 165, 90, .25); } 72%, 100% { background: #3a3b48; box-shadow: 0 0 0 0 rgba(35, 165, 90, 0); } }
+.s-ptt .pglow, .s-ptt .ptalk { animation-name: p-on; }
+@keyframes p-on { 0%, 22% { opacity: 0; } 26%, 68% { opacity: 1; } 72%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .s-quickReply .qchips, .s-replyBox .rbox, .s-replyBox .ent { display: none; }
+  .s-quickReply .qsent, .s-replyBox .qsent, .s-ptt .pglow, .s-ptt .ptalk { opacity: 1; }
+  .s-replyBox .rtx { max-width: 190px; }
+}

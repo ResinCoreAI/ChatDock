@@ -21,6 +21,7 @@ let intro = false;
 // ---------------------------------------------------------------------------------------------
 const DEMOS = {
   gameMode: ['gmHold', 'gmCard', 'gmOpen'], // game mode's explainer (intro)
+  '1.8': ['quickReply', 'replyBox', 'vip', 'ptt'],
   '1.7.4': ['guide', 'fbIcon', 'glide', 'gameMode'],
   '1.7.1': ['spotify', 'volume', 'dcList'],
   '1.7': ['dcPage', 'dcServers', 'dcVoice', 'dcShare', 'dockCalls', 'dcAwake', 'lighter'],
@@ -151,7 +152,28 @@ const SCENES = {
   // lighter while hidden
   lighter: () => `<div class="meters"><p><span>CPU</span><i class="bar"><b class="b1"></b></i></p><p><span>GPU</span><i class="bar"><b class="b2"></b></i></p></div>
     <i class="tuck"></i><i class="done"></i>`,
+  // 1.8: a quick reply clicked on a pop-up during a game: sent, and the game never stops
+  quickReply: () => {
+    const q = texts.quick || [];
+    return `${GAME2()}${QCARD(person(0), `<div class="qchips">${q.slice(0, 3).map((t, i) => `<i class="qc q${i + 1}">${esc(t)}</i>`).join('')}</div>
+      <i class="qsent">✓ ${esc(q[1] || '')}</i>${CURSOR}`)}`;
+  },
+  // the reply box: written in the card, Enter, sent
+  replyBox: () => {
+    const reply = (texts.gm || {}).reply || '';
+    return `${GAME2()}${QCARD(person(1), `<div class="rbox"><span class="rtx">${esc(reply)}</span><i class="caret"></i></div>
+      <kbd class="ent">Enter</kbd><i class="qsent">✓ ${esc(reply)}</i>`)}`;
+  },
+  // important people: in a game the others wait, theirs shows at once
+  vip: () => `${GAME2()}${WAIT()}${QCARD(person(2), '', `<em class="vtag">★ ${esc(texts.vipLabel || '')}</em>`)}`,
+  // push-to-talk: while the key is held the mic is on and the edge glows green
+  ptt: () => `${GAME2()}<i class="pglow"></i><kbd class="pk">V</kbd><div class="mic"><i class="mbar"></i></div><span class="ptalk">${esc(texts.talk || '')}</span>`,
 };
+
+// a pop-up about one conversation (1.8's scenes): who, what, and what goes under it
+function QCARD(p, below, tag = '') {
+  return `<div class="qcard"><span class="pst"></span><div class="qh">${PAV(p)}<span class="ptx"><b>${esc(p.name)}${tag}</b><span>${esc(p.msg)}</span></span></div>${below}</div>`;
+}
 
 function setupDemos(list) {
   demoList = list;

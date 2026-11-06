@@ -787,6 +787,15 @@ impl Core {
                     "keepAwake": self.t("dc.keepAwake"),
                     "gameTitle": self.t("game.title"),
                     "gameCount": self.tv("game.count", &[("n", "3".to_string())]),
+                    // 1.8's scenes: the same sample people as game mode's explainer
+                    "gm": {
+                        "names": [self.t("tour.sampleName"), self.t("gmIntro.n2"), self.t("gmIntro.n3")],
+                        "msgs": [self.t("tour.sampleMsg"), self.t("gmIntro.m2"), self.t("gmIntro.m3")],
+                        "reply": self.t("tour.sampleReply"),
+                    },
+                    "quick": [self.t("quick.later"), self.t("quick.gaming"), self.t("quick.ok")],
+                    "vipLabel": self.t("toast.vip"),
+                    "talk": self.t("ptt.title"),
                 },
                 "sections": sections,
                 "ok": self.t("wn.ok"),

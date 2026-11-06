@@ -45,6 +45,9 @@ Reading a message while you play usually means Alt+Tab, a browser, and a game th
 | 🖥️ **Several monitors** | *Settings → Monitors & position* shows a map of your monitors (with their own names, e.g. “DELL U2720Q” or “Built-in screen”). *Automatic* (the default): the edge works wherever the mouse really stops — the outer edge of any monitor, lit up on the map — and the chat opens on that monitor; the hotkey opens it on the monitor the mouse is on. Or click one monitor to always open the chat there: it is remembered by the monitor itself, so it survives unplugging and Windows renumbering its screens. *Show numbers on the screens* tells them apart, and pop-ups can go on the chat's monitor, where the mouse is, or the main monitor. |
 | 🖱️ **Open it your way** | Hold the cursor on the edge (a line grows to the top and bottom; 0.5 s by default, adjustable) → white tab → click (or click an app icon on the tab). Or the global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>, the tray icon, or a pop-up. |
 | 🔔 **Pop-ups over games** | Sender picture + name + message, stacked, click to open that exact conversation. |
+| ⚡ **Reply without opening it** | Instagram and Facebook pop-ups have **quick replies** (one click, e.g. “Gaming right now ✌”) and a **Reply…** box (Enter sends, Esc goes back to your game, or a hotkey opens it). It goes into that exact conversation and the pop-up says when it shows there; if it can't be sent, it says so and offers to open the chat. Replies only ever go when you click or press Enter. |
+| ⭐ **Important people** | Star someone on a pop-up (or in *Settings → Notifications → Important people*): their messages show at once, even in game mode. |
+| 🎙️ **Push to talk (Discord)** | Hold a key or a mouse side button to speak in a voice channel, even in a game; the mic is off otherwise and the screen edge glows green while you talk. *Settings → Discord*. Keys a game moves with (W A S D) aren't offered. |
 | 🎮 **Game mode** | Rather not be disturbed? While a game or a video fills the screen, pop-ups wait; when you leave it, one card shows who wrote (a row per conversation, click one to open it). Tray menu → *Game mode*, or *Settings → Notifications*. |
 | ⚙️ **Fully adjustable pop-ups** | Any screen corner · which monitor · how long they stay (or until closed) · how many at once · show/hide message text · show/hide pictures · chime · do-not-disturb timer · game mode. |
 | 🔎 **Settings that are easy to find** | A home page with search (in your language or English) and a one-line summary under each category, then a short page per category. |
@@ -97,7 +100,7 @@ installer replaces the old copy, and your logins, settings and "start with Windo
 |---|---|
 | **Open the chat** | Hold the cursor on the screen edge (middle part) until the line reaches the top and bottom; a white tab slides out → click it. The hold time is under *Settings → Opening the chat* (or *Right away*). Turning the mouse wheel there (say, on a maximized browser's scrollbar) just scrolls the page: no tab until you move away from the edge |
 | Open a specific app | Click that app's icon on the white tab |
-| **Reply to a pop-up** | Click the pop-up → the panel opens on that conversation |
+| **Reply to a pop-up** | Click a quick reply on it, or **Reply…** to write one in the card (Instagram, Facebook). Or click the pop-up → the panel opens on that conversation |
 | Open / hide from anywhere | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> (works in games; changeable) |
 | **Hide the chat** | Click anywhere else · the hotkey again · <kbd>Esc</kbd> twice · <kbd>Ctrl</kbd>+<kbd>W</kbd> · the arrow button |
 | Keep it open | Pin 📌 in the header |
