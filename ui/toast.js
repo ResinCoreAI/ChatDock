@@ -187,8 +187,65 @@ function quickChips(it) {
     });
     row.append(b);
   });
+  if (it.replyLabel) {
+    const r = document.createElement('button');
+    r.className = 'qchip reply';
+    r.textContent = it.replyLabel;
+    r.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!row.classList.contains('busy')) chatdock.send('toast:reply-open', it.key);
+    });
+    row.append(r);
+  }
+  row.card = it; // (to put the chips back after the reply box)
   return row;
 }
+
+// The reply box: the pop-ups have the keyboard while it is open. Enter sends, Shift+Enter is a new
+// line, Esc closes it (the main process gives the keyboard back to the game either way).
+chatdock.on('toast:reply-box', ({ key, hint }) => {
+  const card = stack.querySelector(`.card[data-key="${CSS.escape(key)}"]:not(.leaving)`);
+  const row = card && card.querySelector('.chips');
+  if (!row) return;
+  row.textContent = '';
+  const box = document.createElement('textarea');
+  box.className = 'reply-box';
+  box.rows = 2;
+  box.maxLength = 2000;
+  const tip = document.createElement('span');
+  tip.className = 'reply-tip';
+  tip.textContent = hint;
+  let alive = 0;
+  for (const ev of ['click', 'mousedown']) box.addEventListener(ev, (e) => e.stopPropagation());
+  box.addEventListener('input', () => {
+    if (Date.now() - alive > 5000) {
+      alive = Date.now();
+      chatdock.send('toast:reply-alive');
+    }
+  });
+  box.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // Thai and other input methods choosing a character
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (box.value.trim()) chatdock.send('toast:reply-send', key, box.value);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      chatdock.send('toast:reply-cancel', key);
+    }
+  });
+  row.append(box, tip);
+  reportSize();
+  box.focus();
+});
+
+// The box closed: the quick replies come back (a reply that was sent then says how it went).
+chatdock.on('toast:reply-closed', ({ key }) => {
+  const card = stack.querySelector(`.card[data-key="${CSS.escape(key)}"]:not(.leaving)`);
+  const row = card && card.querySelector('.chips');
+  if (!row || !row.querySelector('textarea')) return;
+  row.replaceWith(quickChips(row.card));
+  reportSize();
+});
 
 // How a reply went: sending (the chips wait), sent (one green chip), or not sent (why, and a way
 // into the chat).

@@ -142,6 +142,13 @@ pub struct Toasts {
     /// self-test: a pretend game in front (or not), and the pop-ups shown off screen
     pub test_game: Option<bool>,
     pub offscreen: bool,
+    /// the reply box is open on this card: the pop-ups keep the keyboard until it closes
+    pub replying: Option<String>,
+    reply_timer: u64,
+    /// the window that had the keyboard before the reply box took it
+    reply_fg: isize,
+    /// self-test: the reply box closes after this long untouched (30 s otherwise)
+    pub test_idle_ms: Option<u64>,
 }
 
 pub fn base64(bytes: &[u8]) -> String {
@@ -434,8 +441,10 @@ impl Core {
                 let more = it.rows.len().saturating_sub(SUMMARY_ROWS);
                 // one-click replies: a card about one conversation of an app that takes replies
                 let quick = if it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id) { self.quick_replies() } else { vec![] };
+                let reply_label = if quick.is_empty() { String::new() } else { self.t("toast.reply") };
                 json!({
                     "quick": quick,
+                    "replyLabel": reply_label,
                     "key": it.key, "appId": it.app_id, "appName": it.app_name, "iconName": it.icon_name, "accent": it.accent,
                     "title": it.title, "body": it.body, "icon": it.icon, "meta": it.meta, "hint": it.hint,
                     "rows": rows, "moreRows": more, "moreLabel": self.tv("game.more", &[("n", more.to_string())]),
@@ -625,6 +634,9 @@ impl Core {
 
     fn toast_remove(&mut self, key: &str, rerender: bool) -> Option<Item> {
         let i = self.toasts.items.iter().position(|x| x.key == key)?;
+        if self.toasts.replying.as_deref() == Some(key) {
+            self.close_reply_box(false); // its card went (read elsewhere, closed): so does the box
+        }
         let it = self.toasts.items.remove(i);
         rt::cancel(it.timer);
         if rerender {
@@ -715,8 +727,8 @@ impl Core {
     /// a click elsewhere would never reach the chat, and it would stay over the game.
     pub fn on_toast_focus(&mut self) {
         timer(250, |c| {
-            if win32::foreground_window() != c.toastwin.hwnd {
-                return;
+            if win32::foreground_window() != c.toastwin.hwnd || c.toasts.replying.is_some() {
+                return; // (the reply box has the keyboard on purpose)
             }
             if c.panel_state == crate::core::PanelState::Open {
                 c.focus_panel();
@@ -815,6 +827,20 @@ impl Core {
                 let on = args.first().and_then(Value::as_bool).unwrap_or(false);
                 self.set_hovered(on);
             }
+            "toast:reply-open" => {
+                let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
+                self.open_reply_box(&key);
+            }
+            "toast:reply-alive" => self.reply_idle_restart(),
+            "toast:reply-send" => {
+                let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
+                let text = args.get(1).and_then(Value::as_str).unwrap_or("").trim().to_string();
+                self.close_reply_box(false);
+                if !text.is_empty() {
+                    self.reply_from_card(&key, text);
+                }
+            }
+            "toast:reply-cancel" => self.close_reply_box(true),
             "toast:quick" => {
                 let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
                 let i = args.get(1).and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -828,6 +854,77 @@ impl Core {
 
     /// A quick reply clicked (or the reply box's Enter): the card waits on screen while it goes,
     /// then says how it went; once sent it closes a moment later.
+    /// "Reply" on a card (or the reply hotkey): the pop-ups take the keyboard for the text box,
+    /// remembering who had it (the game) to give it back.
+    pub fn open_reply_box(&mut self, key: &str) {
+        let Some(i) = self.toasts.items.iter().position(|x| x.key == key) else { return };
+        if self.toasts.items[i].target.is_none() || !crate::inbox::can_reply(&self.toasts.items[i].app_id) {
+            return;
+        }
+        if self.toasts.replying.is_some() {
+            self.close_reply_box(false);
+        }
+        let it = &mut self.toasts.items[i];
+        rt::cancel(it.timer); // no timing out while writing
+        it.timer = 0;
+        let fg = win32::foreground_window();
+        self.toasts.reply_fg = if fg != 0 && !self.is_ours(fg) { fg } else { self.toasts.fg_before };
+        self.toasts.replying = Some(key.to_string());
+        let hint = self.t("toast.replyHint");
+        self.emit("toasts", "toast:reply-box", json!([{ "key": key, "hint": hint }]));
+        win32::force_foreground(self.toastwin.hwnd);
+        self.reply_idle_restart();
+        log!("reply box open");
+    }
+
+    /// Something was typed: the box stays another while (it closes by itself when left alone).
+    fn reply_idle_restart(&mut self) {
+        rt::cancel(self.toasts.reply_timer);
+        if self.toasts.replying.is_none() {
+            return;
+        }
+        let ms = self.toasts.test_idle_ms.unwrap_or(30_000);
+        self.toasts.reply_timer = timer(ms, |c| {
+            c.toasts.reply_timer = 0;
+            log!("reply box left alone: closed");
+            c.close_reply_box(true);
+        });
+    }
+
+    /// The reply box closes (sent, Esc, or left alone): the keyboard goes back to whoever had it.
+    /// `cancelled`: the card shows its quick replies again and times out as usual.
+    pub fn close_reply_box(&mut self, cancelled: bool) {
+        let Some(key) = self.toasts.replying.take() else { return };
+        rt::cancel(self.toasts.reply_timer);
+        self.toasts.reply_timer = 0;
+        self.emit("toasts", "toast:reply-closed", json!([{ "key": key }]));
+        let fg = self.toasts.reply_fg;
+        if fg != 0 && !self.is_ours(fg) {
+            win32::restore_foreground(fg);
+            if win32::is_visible(self.toastwin.hwnd) {
+                win32::raise(self.toastwin.hwnd);
+            }
+        }
+        if cancelled {
+            if let Some(i) = self.toasts.items.iter().position(|x| x.key == key) {
+                self.toasts.items[i].remaining = self.lifetime_ms();
+                self.toast_start(i);
+            }
+        }
+    }
+
+    /// The reply hotkey: the reply box of the newest card that can take a reply.
+    pub fn reply_to_newest(&mut self) {
+        let key = self.toasts.items.iter().find(|it| it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id)).map(|it| it.key.clone());
+        match key {
+            Some(k) => self.open_reply_box(&k),
+            None => {
+                let title = self.t("toast.nothingToReply");
+                self.notice_brief(&title, "", 1800);
+            }
+        }
+    }
+
     pub fn reply_from_card(&mut self, key: &str, text: String) {
         let Some(i) = self.toasts.items.iter().position(|x| x.key == key) else { return };
         let it = &mut self.toasts.items[i];

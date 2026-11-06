@@ -927,7 +927,7 @@ impl Core {
                     self.apply_audio(id);
                 }
             }
-            "hotkey" | "discordMuteKey" | "discordDeafenKey" => {
+            "hotkey" | "discordMuteKey" | "discordDeafenKey" | "replyKey" => {
                 self.set_setting(key, value);
                 self.register_hotkey();
             }
@@ -1989,6 +1989,7 @@ impl Core {
             ("panel", acc.clone()),
             ("discord-mute", if discord { self.settings.str("discordMuteKey").to_string() } else { String::new() }),
             ("discord-deafen", if discord { self.settings.str("discordDeafenKey").to_string() } else { String::new() }),
+            ("reply", self.settings.str("replyKey").to_string()),
         ];
         self.hotkeys = tray::register_hotkeys(&keys);
         self.hotkey_ok = self.hotkeys.iter().any(|(_, a)| *a == "panel");
@@ -2020,6 +2021,7 @@ impl Core {
             Some("panel") => self.on_hotkey(),
             Some("discord-mute") => self.discord_voice(0),
             Some("discord-deafen") => self.discord_voice(1),
+            Some("reply") => self.reply_to_newest(),
             _ => {}
         }
     }

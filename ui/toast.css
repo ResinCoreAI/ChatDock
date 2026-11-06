@@ -186,3 +186,6 @@ body.left .card.enter { animation-name: slide-in-left; }
 .chips.busy .qchip { opacity: .55; cursor: progress; }
 .qchip.sent { background: #1f3b2c; border-color: #2f6b4b; color: #b7f0cf; cursor: default; }
 .reply-why { flex-basis: 100%; font-size: 12px; color: #ffb4a8; }
+.qchip.reply { background: transparent; border-style: dashed; color: #c9c9d6; }
+.reply-box { flex-basis: 100%; box-sizing: border-box; resize: none; min-height: 44px; max-height: 120px; padding: 7px 9px; border-radius: 9px; border: 1px solid #8b5cf6; background: #11121a; color: #f2f2f7; font: inherit; font-size: 13.5px; line-height: 1.4; outline: none; }
+.reply-tip { flex-basis: 100%; font-size: 11.5px; color: #8f90a2; }

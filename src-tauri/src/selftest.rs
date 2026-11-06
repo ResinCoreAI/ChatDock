@@ -3069,6 +3069,106 @@ fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
         c.counts.insert("facebook".into(), 0);
     });
     log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} (expect the language's three | ✓ + the first | the first | 0)");
+    reply_box_test(page);
+}
+
+/// A plain window standing in for a game in front (made on the main thread, which pumps its messages).
+fn stand_in_game() -> isize {
+    use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, ShowWindow, SW_SHOW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE};
+    on(|_| unsafe {
+        let h = CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            &windows::core::HSTRING::from("STATIC"),
+            &windows::core::HSTRING::from("ChatDock self-test game"),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            100,
+            100,
+            300,
+            200,
+            None,
+            None,
+            None,
+            None,
+        )
+        .map(|h| h.0 as isize)
+        .unwrap_or(0);
+        let _ = ShowWindow(win32::h(h), SW_SHOW);
+        win32::force_foreground(h);
+        h
+    })
+}
+
+/// 1.8: the reply box: Enter sends and the keyboard goes back to the game; Esc and 30 s untouched
+/// (2 s in the test) close it and give the keyboard back too.
+fn reply_box_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
+    let game = stand_in_game();
+    let popups_were = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(true));
+        c.toasts.offscreen = true;
+        c.toasts.test_idle_ms = Some(2000);
+        c.toasts_dismiss_all();
+        was
+    });
+    let pop = || {
+        view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+        view_js(
+            "facebook",
+            "(() => { const a = document.createElement('a'); a.href = '/messages/t/1/'; a.textContent = 'Nok'; a.style.cssText = 'display:block;width:200px;height:40px'; \
+             a.addEventListener('click', (e) => e.preventDefault()); document.body.prepend(a); return 1; })()",
+        );
+        on(move |c| {
+            win32::force_foreground(game);
+            c.toasts_dismiss_all();
+            c.counts.insert("facebook".into(), 1);
+            let nok = crate::inbox::Latest { name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into() };
+            c.count_popup_for_test("facebook", Some(nok));
+        });
+        wait(1200);
+        js_click("toasts", ".card .qchip.reply");
+        wait(600);
+    };
+    let front = |name: &str| {
+        let fg = win32::foreground_window();
+        if fg == game {
+            "game".to_string()
+        } else if on(move |c| c.is_ours(fg)) {
+            format!("ChatDock ({name})")
+        } else {
+            win32::class_name(fg)
+        }
+    };
+    // Enter
+    pop();
+    let open = (front("box"), page_js("toasts", "String(document.activeElement && document.activeElement.tagName)"));
+    page_js(
+        "toasts",
+        "(() => { const t = document.querySelector('.card textarea'); t.value = 'ส่งจากกล่อง'; t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return 1; })()",
+    );
+    wait(2500);
+    let sent = (view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent).join('|'))"), front("after Enter"));
+    // Esc
+    pop();
+    page_js("toasts", "(() => { document.querySelector('.card textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return 1; })()");
+    wait(600);
+    let esc = (front("after Esc"), page_js("toasts", "String(document.querySelectorAll('.card textarea').length + '/' + document.querySelectorAll('.card .qchip').length)"));
+    // left alone
+    pop();
+    wait(2800);
+    let idle = (front("after idle"), page_js("toasts", "String(document.querySelectorAll('.card textarea').length)"));
+    on(move |c| {
+        c.settings.set("popups", popups_were);
+        c.toasts.offscreen = false;
+        c.toasts.test_idle_ms = None;
+        c.toasts_dismiss_all();
+        c.counts.insert("facebook".into(), 0);
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(win32::h(game));
+        }
+    });
+    log!(
+        "reply box: opened {open:?} | Enter: in the conversation, keyboard {sent:?} | Esc: keyboard, boxes/chips {esc:?} | left alone: keyboard, boxes {idle:?} (expect (ChatDock (box), TEXTAREA) | (ส่งจากกล่อง, game) | (game, 0/4) | (game, 0))"
+    );
 }
 
 /// inbox.rs's way back to the list, on its own (it normally waits until the chat has been hidden a while).
