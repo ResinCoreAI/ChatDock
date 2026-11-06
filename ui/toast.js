@@ -151,6 +151,12 @@ function createCard(it) {
   const title = document.createElement('div');
   title.className = 'title';
   title.textContent = it.title;
+  if (it.vip) {
+    const tag = document.createElement('span');
+    tag.className = 'vip';
+    tag.textContent = `★ ${it.vipLabel}`;
+    title.append(tag);
+  }
   text.append(meta, title);
   if (it.body) {
     const body = document.createElement('div');
@@ -165,6 +171,18 @@ function createCard(it) {
   if (it.quick && it.quick.length) text.append(quickChips(it));
 
   card.append(avatar, text, closeButton(it));
+  if (it.star) {
+    // the sender as one of the important people (their pop-ups come through game mode)
+    const star = document.createElement('button');
+    star.className = `star${it.vip ? ' on' : ''}`;
+    star.title = it.star;
+    star.textContent = it.vip ? '★' : '☆';
+    star.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chatdock.send('toast:star', it.key);
+    });
+    card.append(star);
+  }
   card.addEventListener('click', () => chatdock.send('toast:click', it.key));
   card.addEventListener('animationend', () => card.classList.remove('enter'), { once: true });
   return card;
@@ -280,6 +298,26 @@ chatdock.on('toast:reply-state', ({ key, state, text, line, open }) => {
   reportSize();
 });
 
+// A card already on screen whose sender was starred (or no longer is): its tag and its star follow.
+function syncVip(card, it) {
+  const title = card.querySelector('.title');
+  const tag = title && title.querySelector('.vip');
+  if (it.vip && !tag && title) {
+    const t = document.createElement('span');
+    t.className = 'vip';
+    t.textContent = `★ ${it.vipLabel}`;
+    title.append(t);
+  } else if (!it.vip && tag) {
+    tag.remove();
+  }
+  const star = card.querySelector('.star');
+  if (star) {
+    star.classList.toggle('on', !!it.vip);
+    star.textContent = it.vip ? '★' : '☆';
+    star.title = it.star || '';
+  }
+}
+
 const liveCards = () => [...stack.querySelectorAll('.card:not(.leaving)')];
 
 // Distance from the edge the stack grows away from. It stays put on screen while the window
@@ -336,6 +374,7 @@ function render(state) {
   state.items.forEach((it, i) => {
     const el = stack.querySelector(`.card[data-key="${it.key}"]:not(.leaving)`) || createCard(it);
     if (el.classList.contains('summary') && it.rows) fillRows(el, it);
+    else syncVip(el, it);
     const cards = liveCards();
     if (cards[i] !== el) stack.insertBefore(el, cards[i] || moreEl);
   });

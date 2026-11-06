@@ -75,6 +75,8 @@ pub struct Item {
     pub target: Option<crate::inbox::Latest>,
     /// the card after a game: who wrote meanwhile, one row each
     pub rows: Vec<Held>,
+    /// from one of the important people (settings vips): shown through game mode, tagged
+    pub vip: bool,
     remaining: i64,
     timer: u64,
     started_at: i64,
@@ -111,6 +113,7 @@ impl Item {
             action: action.into(),
             target: None,
             rows: Vec::new(),
+            vip: false,
             remaining: 0,
             timer: 0,
             started_at: 0,
@@ -149,6 +152,8 @@ pub struct Toasts {
     reply_fg: isize,
     /// self-test: the reply box closes after this long untouched (30 s otherwise)
     pub test_idle_ms: Option<u64>,
+    /// who wrote lately: (app, name), newest first (note_sender)
+    pub recent: Vec<(String, String)>,
 }
 
 pub fn base64(bytes: &[u8]) -> String {
@@ -181,11 +186,25 @@ impl Core {
         }
         // (the game just ended and what waited hasn't come out yet: this comes out with it, in the
         // same card, instead of showing first and being replaced or repeated by it)
-        if self.game_holds() || !self.toasts.held.is_empty() {
+        self.note_sender(id, &f.title);
+        // one of the important people: through game mode at once (not while nothing may show at
+        // all: exclusive fullscreen or a presentation)
+        let vip = crate::settings::vip_match(self.settings.get("vips"), id, &f.title);
+        if (self.game_holds() || !self.toasts.held.is_empty()) && !(vip && !win32::nothing_may_show()) {
             self.hold_popup(id, f);
             return;
         }
         self.show_popup(id, f);
+    }
+
+    /// Who wrote lately (Settings → Important people offers them), this session only, newest first.
+    fn note_sender(&mut self, app: &str, name: &str) {
+        if name.trim().is_empty() {
+            return;
+        }
+        self.toasts.recent.retain(|(a, n)| !(a == app && n == name));
+        self.toasts.recent.insert(0, (app.to_string(), name.to_string()));
+        self.toasts.recent.truncate(30);
     }
 
     fn show_popup(&mut self, id: &str, f: Fields) {
@@ -206,6 +225,7 @@ impl Core {
         item.source = f.source;
         item.target = f.target;
         item.chime = self.settings.bool("popupSound") && self.settings.app_pref(id, "chime");
+        item.vip = crate::settings::vip_match(self.settings.get("vips"), id, &item.title);
         self.toasts_push(item);
     }
 
@@ -443,6 +463,9 @@ impl Core {
                 let quick = if it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id) { self.quick_replies() } else { vec![] };
                 let reply_label = if quick.is_empty() { String::new() } else { self.t("toast.reply") };
                 json!({
+                    "vip": it.vip,
+                    "vipLabel": if it.vip { self.t("toast.vip") } else { String::new() },
+                    "star": if it.rows.is_empty() && it.app_id != "chatdock" { self.t(if it.vip { "toast.unstar" } else { "toast.star" }) } else { String::new() },
                     "quick": quick,
                     "replyLabel": reply_label,
                     "key": it.key, "appId": it.app_id, "appName": it.app_name, "iconName": it.icon_name, "accent": it.accent,
@@ -841,6 +864,10 @@ impl Core {
                 }
             }
             "toast:reply-cancel" => self.close_reply_box(true),
+            "toast:star" => {
+                let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
+                self.toggle_vip(&key);
+            }
             "toast:quick" => {
                 let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
                 let i = args.get(1).and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -923,6 +950,26 @@ impl Core {
                 self.notice_brief(&title, "", 1800);
             }
         }
+    }
+
+    /// The star on a card: its sender becomes one of the important people (or stops being one).
+    fn toggle_vip(&mut self, key: &str) {
+        let Some(it) = self.toasts.items.iter().find(|x| x.key == key) else { return };
+        let (app, name, was) = (it.app_id.clone(), it.title.clone(), it.vip);
+        let mut list = self.settings.get("vips").as_array().cloned().unwrap_or_default();
+        if was {
+            list.retain(|v| !crate::settings::vip_match(&json!([v]), &app, &name));
+        } else {
+            list.push(json!({ "app": app, "name": name.trim() }));
+        }
+        if !self.set_pref("vips", Value::Array(list)) {
+            return; // (too many, or a name the setting won't take)
+        }
+        for it in self.toasts.items.iter_mut().filter(|x| x.app_id == app && x.rows.is_empty()) {
+            it.vip = crate::settings::vip_match(self.settings.get("vips"), &app, &it.title);
+        }
+        log!("important people: {} now", self.settings.get("vips").as_array().map(|a| a.len()).unwrap_or(0));
+        self.toasts_render(false);
     }
 
     pub fn reply_from_card(&mut self, key: &str, text: String) {

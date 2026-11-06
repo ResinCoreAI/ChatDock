@@ -2198,6 +2198,35 @@ fn game_mode_test() {
     wait(3200);
     log!("read during the game: waiting {held} → after it shown {} (expect 1, 0)", on(|c| c.toasts_count()));
 
+    // 1.8: an important person writes during the game: shown at once, tagged; anyone else waits
+    on(|c| {
+        c.toasts_dismiss_all();
+        c.settings.set("vips", json!([{ "app": "x", "name": "Mom" }]));
+        c.toasts.test_game = Some(true);
+        c.on_site_notification("x", 0, "Mom", "dinner", "", "x7");
+        c.on_site_notification("x", 0, "Bob", "gg", "", "x8");
+    });
+    wait(700);
+    let vip = (on(|c| c.toasts_count()), on(|c| c.held_count()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
+    on(|c| {
+        c.settings.set("vips", json!([]));
+        c.toasts.test_game = Some(false);
+    });
+    wait(3800);
+    on(|c| c.toasts_dismiss_all());
+    log!("important person during a game: shown, waiting, tagged {vip:?} (expect (1, 1, \"1\"))");
+    // the star on a card adds its sender, and takes them off again
+    on(|c| c.on_site_notification("x", 0, "Bob", "gg", "", "x9"));
+    wait(700);
+    js_click("toasts", ".card .star");
+    wait(400);
+    let starred = (on(|c| c.settings.get("vips").clone().to_string()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
+    js_click("toasts", ".card .star");
+    wait(400);
+    let unstarred = on(|c| c.settings.get("vips").clone().to_string());
+    on(|c| c.toasts_dismiss_all());
+    log!("star on a card: {starred:?} then {unstarred} (expect ([{{\"app\":\"x\",\"name\":\"Bob\"}}], \"1\") then [])");
+
     // game mode off: pop-ups show right away, game or not
     on(|c| {
         c.settings.set("popupQuietFullscreen", json!(false));
