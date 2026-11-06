@@ -118,6 +118,9 @@ pub fn start() {
             news_demo_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
+        } else if only.as_deref() == Some("reply") {
+            wait(8000); // the pages load
+            reply_send_test();
         } else if only.as_deref() == Some("tabfocus") {
             wait(5000); // the pages load
             tabfocus_test();
@@ -2979,6 +2982,47 @@ fn inbox_test() {
         fb.map(|l| (l.name, l.text, l.href)),
         card.unwrap_or_default(),
         ig.map(|l| (l.name, l.text, l.href)),
+    );
+}
+
+/// 1.8: a reply typed into a stand-in conversation in Facebook's view (nothing reaches a real
+/// account): sent and seen; a page that never shows it; a draft already there; another
+/// conversation open; Instagram-style rows with no link, matched by the name at the top.
+fn reply_send_test() {
+    let page = |path: &str, header: &str, draft: &str, works: bool| {
+        format!(
+            "(() => {{ history.pushState({{}}, '', {path}); document.body.innerHTML = ''; \
+             const h = document.createElement('h2'); h.textContent = {header}; h.style.cssText = 'position:fixed;top:10px;left:10px;margin:0'; \
+             const list = document.createElement('div'); list.style.cssText = 'margin-top:60px'; \
+             const box = document.createElement('div'); box.contentEditable = 'true'; box.setAttribute('role', 'textbox'); box.style.cssText = 'width:300px;height:30px;border:1px solid #888'; box.textContent = {draft}; \
+             box.addEventListener('keydown', (e) => {{ if (e.key === 'Enter' && {works}) {{ e.preventDefault(); const m = document.createElement('div'); m.dir = 'auto'; m.textContent = box.textContent; list.append(m); box.textContent = ''; }} }}); \
+             document.body.append(h, list, box); return 1; }})()",
+            path = serde_json::to_string(path).unwrap(),
+            header = serde_json::to_string(header).unwrap(),
+            draft = serde_json::to_string(draft).unwrap(),
+        )
+    };
+    let send = |href: &str, name: &str| {
+        let target = crate::inbox::Latest { name: name.into(), href: href.into(), ..Default::default() };
+        let (tx, rx) = mpsc::channel();
+        on(move |c| c.send_on_page("facebook", target, "ทดสอบ ok".into(), Box::new(move |_, s| { let _ = tx.send(s); })));
+        rx.recv_timeout(Duration::from_secs(10)).map(|s| format!("{s:?}")).unwrap_or_else(|_| "no answer".into())
+    };
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+    let works = send("/messages/t/1/", "Nok");
+    let shown = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent))");
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    let lost = send("/messages/t/1/", "Nok");
+    view_js("facebook", &page("/messages/t/1/", "Nok", "half a message", true));
+    let draft = send("/messages/t/1/", "Nok");
+    let draft_kept = view_js("facebook", "String(document.querySelector('[role=textbox]').textContent)");
+    view_js("facebook", &page("/messages/t/2/", "Beam", "", true));
+    let other = send("/messages/t/1/", "Nok");
+    let other_typed = view_js("facebook", "String(document.querySelector('[role=textbox]').textContent + '|' + document.querySelectorAll('div[dir=auto]').length)");
+    view_js("facebook", &page("/direct/t/99/", "Nok", "", true));
+    let by_name = send("", "Nok");
+    log!(
+        "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );
 }
 

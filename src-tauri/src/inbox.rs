@@ -10,7 +10,11 @@
 //! line is bolder than a read one's. What was read is only put in the pop-up, never in the log (the
 //! log says how the page looked: how many rows, how many unread, the lengths).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use serde_json::Value;
 
@@ -21,6 +25,11 @@ use crate::{
 
 /// The wait before pages go back to their lists (schedule_back_to_list).
 static BACK_TIMER: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// apps with a reply on its way (send_reply)
+    static SENDING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
 
 /// Apps whose chat list is read for the pop-ups.
 pub fn reads_list(app: &str) -> bool {
@@ -154,6 +163,93 @@ const BACK_JS: &str = r#"(() => {
   return 'back';
 })()"#;
 
+/// How a reply went (send_reply).
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Sent {
+    /// it shows as the last message of the conversation
+    Confirmed,
+    /// something is being typed there already: nothing was touched
+    Typing,
+    /// that conversation didn't open (or another one is on screen): nothing was typed
+    NotOpened,
+    NoComposer,
+    /// typed and sent, but it never showed up: maybe not sent
+    NotConfirmed,
+    /// another reply to this app is still on its way, or the app can't take replies
+    Busy,
+}
+
+/// Apps whose pop-ups can be replied to (their conversations are opened from the chat list).
+pub fn can_reply(app: &str) -> bool {
+    matches!(app, "instagram" | "facebook")
+}
+
+/// Waits until the conversation the pop-up is about is the one open (its link, or its name at the
+/// top of the page), types the reply into its box the way a paste does (the site's own input
+/// handlers run), presses Enter, and waits up to 4 s for it to show as a message.
+const SEND_JS: &str = r#"(async (text, href, name) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const thread = (h) => (h.match(/\/t\/[^/?#]+/) || [''])[0];
+  const named = () => [...document.querySelectorAll('h1, h2, a[role="link"] span, header span, [role="main"] span')]
+    .some((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.top < 160 && r.width > 0 && (e.textContent || '').trim() === name; });
+  const isOpen = () => /\/t\//.test(location.pathname) && (href ? thread(location.pathname) === thread(href) : !!name && named());
+  const boxes = () => [...document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')]
+    .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 40 && r.height > 10; });
+  let box = null;
+  // by the clock, not by turns: a hidden page gets its timers once a second at most
+  let until = Date.now() + 4000;
+  while (Date.now() < until && !(isOpen() && (box = boxes().pop()))) await sleep(100);
+  if (!isOpen()) return 'not opened';
+  if (!box) return 'no composer';
+  if ((box.value || box.textContent || '').trim()) return 'typing';
+  box.focus();
+  document.execCommand('insertText', false, text);
+  const want = text.trim().replace(/\s+/g, ' ');
+  const shown = () => [...document.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
+    .slice(-60).some((e) => !box.contains(e) && (e.textContent || '').trim().replace(/\s+/g, ' ') === want);
+  const enter = (type) => box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+  enter('keydown'); enter('keypress'); enter('keyup');
+  until = Date.now() + 4000;
+  while (Date.now() < until) {
+    if (shown() && !(box.value || box.textContent || '').trim()) return 'confirmed';
+    await sleep(100);
+  }
+  return 'not confirmed';
+})(%TEXT%, %HREF%, %NAME%)"#;
+
+fn send_js_to(text: &str, href: &str, name: &str) -> String {
+    let j = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
+    SEND_JS.replace("%TEXT%", &j(text)).replace("%HREF%", &j(href)).replace("%NAME%", &j(name))
+}
+
+#[cfg(test)]
+fn send_js(text: &str) -> String {
+    send_js_to(text, "/t/1/", "Nok")
+}
+
+fn sent_of(result: &str) -> Sent {
+    match serde_json::from_str::<String>(result).as_deref() {
+        Ok("confirmed") => Sent::Confirmed,
+        Ok("typing") => Sent::Typing,
+        Ok("not opened") => Sent::NotOpened,
+        Ok("no composer") => Sent::NoComposer,
+        _ => Sent::NotConfirmed,
+    }
+}
+
+/// The log line for a reply: how long it was and how it went, never what it said.
+fn sent_log(s: &Sent, text: &str) -> String {
+    let how = match s {
+        Sent::Confirmed => "confirmed",
+        Sent::Typing => "refused: something is being typed there",
+        Sent::NotOpened => "not sent: the conversation didn't open",
+        Sent::NoComposer => "not sent: no message box",
+        Sent::NotConfirmed => "not confirmed",
+        Sent::Busy => "busy",
+    };
+    format!("sent: {} chars, {how}", text.chars().count())
+}
+
 fn latest_js(open: bool) -> String {
     LATEST_JS.replace("%HELPERS%", HELPERS).replace("%OPEN%", if open { "true" } else { "false" })
 }
@@ -219,6 +315,7 @@ fn shape(v: &Value) -> String {
 
 type Then = Box<dyn FnOnce(&mut Core, Option<Latest>) + Send>;
 type ThenRead = Box<dyn FnOnce(&mut Core, ListRead) + Send>;
+type ThenSent = Box<dyn FnOnce(&mut Core, Sent) + Send>;
 
 impl Core {
     /// Reads `app`'s chat list, then `then` with what it said.
@@ -245,6 +342,33 @@ impl Core {
 
     /// The edge tab or a pop-up opened `app` on something new: straight into that conversation (the
     /// newest unread one when there's no target).
+    /// The user clicked a quick reply or pressed Enter in the reply box: into the conversation the
+    /// pop-up is about, and only that one. One reply per app at a time.
+    pub fn send_reply(&mut self, app: &str, target: Latest, text: String, then: ThenSent) {
+        if !can_reply(app) || !self.chats.has(app) || SENDING.with(|s| s.borrow().contains(app)) {
+            log!("{app}: {}", sent_log(&Sent::Busy, &text));
+            then(self, Sent::Busy);
+            return;
+        }
+        self.open_conversation(app, Some(target.clone()));
+        self.send_on_page(app, target, text, then);
+    }
+
+    /// The part of send_reply that runs in the page (the self-test calls it on a stand-in page).
+    pub fn send_on_page(&mut self, app: &str, target: Latest, text: String, then: ThenSent) {
+        SENDING.with(|s| s.borrow_mut().insert(app.to_string()));
+        let a = app.to_string();
+        let js = send_js_to(&text, &target.href, &target.name);
+        self.chats.execute_async(app, &js, move |r| {
+            let sent = sent_of(&r);
+            later(move |c| {
+                SENDING.with(|s| s.borrow_mut().remove(&a));
+                log!("{a}: {}", sent_log(&sent, &text));
+                then(c, sent);
+            });
+        });
+    }
+
     pub fn open_conversation(&mut self, app: &str, target: Option<Latest>) {
         if !reads_list(app) || !self.chats.has(app) {
             return;
@@ -324,7 +448,21 @@ impl Core {
 mod tests {
     use serde_json::json;
 
-    use super::{latest_js, latest_of, list_read, open_js, shape, Latest, ListRead};
+    use super::{latest_js, latest_of, list_read, open_js, send_js, sent_log, sent_of, shape, Latest, ListRead, Sent};
+
+    #[test]
+    fn a_reply_is_passed_as_json_and_never_logged() {
+        let js = send_js("a \"quoted\" ข้อความ\nline 2");
+        assert!(js.contains(r#""a \"quoted\" ข้อความ\nline 2""#));
+        assert!(!js.contains("%TEXT%"));
+        assert_eq!(sent_of("\"confirmed\""), Sent::Confirmed);
+        assert_eq!(sent_of("\"typing\""), Sent::Typing);
+        assert_eq!(sent_of("\"no composer\""), Sent::NoComposer);
+        assert_eq!(sent_of("garbage"), Sent::NotConfirmed);
+        let line = sent_log(&Sent::Confirmed, "secret words");
+        assert_eq!(line, "sent: 12 chars, confirmed");
+        assert!(!line.contains("secret"));
+    }
 
     #[test]
     fn a_list_with_nothing_unread_is_told_from_no_list() {

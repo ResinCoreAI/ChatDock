@@ -473,6 +473,15 @@ fn same_address(a: &str, b: &str) -> bool {
 }
 
 /// What kind of link it was, for the log (never the address).
+/// Runtime.evaluate's answer -> the value as JSON ("null" for an exception or a failed call).
+fn cdp_value(answer: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(answer) else { return "null".into() };
+    if v.get("exceptionDetails").is_some() {
+        return "null".into();
+    }
+    v.get("result").and_then(|r| r.get("value")).map(|x| x.to_string()).unwrap_or_else(|| "null".into())
+}
+
 pub(crate) fn outside_kind(uri: &str) -> String {
     let scheme = uri.split(':').next().unwrap_or("").to_ascii_lowercase();
     if scheme == "http" || scheme == "https" {
@@ -771,6 +780,13 @@ impl Chats {
                 let _ = v.controller.NotifyParentWindowPositionChanged();
             }
         }
+    }
+
+    /// Like execute, for a script that returns a promise: its settled value, as JSON ("null" when
+    /// it threw or the page couldn't run it).
+    pub fn execute_async(&self, id: &str, js: &str, done: impl FnOnce(String) + 'static) {
+        let params = serde_json::json!({ "expression": js, "awaitPromise": true, "returnByValue": true }).to_string();
+        self.cdp(id, "Runtime.evaluate", &params, move |r| done(cdp_value(&r)));
     }
 
     pub fn execute(&self, id: &str, js: &str, done: impl FnOnce(String) + 'static) {
@@ -2006,7 +2022,15 @@ fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
 mod tests {
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use super::{opens_outside, own_navigation, passkey_line, permission_allowed, rate_ok, site_script, volume_key, OWN_NAV};
+    use super::{cdp_value, opens_outside, own_navigation, passkey_line, permission_allowed, rate_ok, site_script, volume_key, OWN_NAV};
+
+    #[test]
+    fn an_awaited_script_answers_with_its_value_as_json() {
+        assert_eq!(cdp_value(r#"{"result":{"type":"string","value":"confirmed"}}"#), "\"confirmed\"");
+        assert_eq!(cdp_value(r#"{"result":{"type":"number","value":3}}"#), "3");
+        assert_eq!(cdp_value(r#"{"result":{"type":"object","subtype":"error"},"exceptionDetails":{"text":"x"}}"#), "null");
+        assert_eq!(cdp_value("err:E_FAIL"), "null");
+    }
 
     #[test]
     fn a_program_link_with_a_quote_or_a_space_never_opens() {
