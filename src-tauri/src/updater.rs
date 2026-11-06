@@ -194,6 +194,7 @@ pub(crate) fn stage_installer(version: &str, bytes: &[u8]) -> Result<(PathBuf, s
             why = e.to_string(); // (there already: another name)
             continue;
         }
+        let _ = std::fs::write(dir.join(".chatdock-installer"), ""); // (ours: migrate.rs clears it later)
         let file = dir.join(format!("ChatDock_{version}_x64-setup.exe"));
         let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&file).map_err(|e| e.to_string())?;
         out.write_all(bytes).map_err(|e| e.to_string())?;

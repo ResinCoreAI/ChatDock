@@ -2238,8 +2238,9 @@ impl Core {
         const KEY: &str = "CHATDOCK_CRASH_RESTART_AT";
         let now = rt::epoch_ms();
         let last = std::env::var(KEY).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-        if now - last < 120_000 {
-            log!("{why} again, within 2 minutes of the last restart: not restarting");
+        if !crash_restart_allowed(now, last) {
+            log!("{why} again, within 2 minutes of the last restart: not restarting by itself (asking)");
+            ask_restart(); // (every page is gone with the browser: only Windows itself can ask)
             return;
         }
         std::env::set_var(KEY, now.to_string());
@@ -2380,6 +2381,35 @@ fn vips_ok(v: &Value) -> bool {
     })
 }
 
+/// A WebView2 crash restarts ChatDock by itself unless the last such restart was under 2
+/// minutes ago (then it would only crash again: the user is asked instead).
+fn crash_restart_allowed(now: i64, last: i64) -> bool {
+    now - last >= 120_000
+}
+
+/// The chats' browser keeps crashing: a Windows message (it needs no browser) asks whether to
+/// start ChatDock again, without holding anything up meanwhile.
+fn ask_restart() {
+    std::thread::spawn(|| {
+        use windows::{
+            core::HSTRING,
+            Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONWARNING, MB_YESNO},
+        };
+        let text = "ChatDock's chat pages stopped working twice in a row.
+Start ChatDock again?
+
+หน้าแชทของ ChatDock หยุดทำงานซ้ำสองครั้ง เริ่ม ChatDock ใหม่ไหม";
+        let answer = unsafe { MessageBoxW(None, &HSTRING::from(text), &HSTRING::from("ChatDock"), MB_YESNO | MB_ICONWARNING) };
+        if answer == IDYES {
+            later(|c| {
+                log!("restart asked for after repeated crashes");
+                c.settings.flush();
+                rt::app().request_restart();
+            });
+        }
+    });
+}
+
 /// "1.5.2" -> [1, 5, 2] (anything unreadable counts as 0)
 pub fn version_parts(v: &str) -> Vec<u64> {
     v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect()
@@ -2474,7 +2504,16 @@ pub fn safe_icon(url: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{count_blink, quick_list, quick_replies_ok, same_folder, seen_after, test_folder, vips_ok, CountDrop};
+    use super::{
+        count_blink, crash_restart_allowed, quick_list, quick_replies_ok, same_folder, seen_after, test_folder, vips_ok, CountDrop,
+    };
+
+    #[test]
+    fn a_second_crash_within_two_minutes_asks_instead_of_restarting() {
+        assert!(crash_restart_allowed(1_000_000, 0)); // the first one
+        assert!(crash_restart_allowed(1_000_000, 1_000_000 - 120_001));
+        assert!(!crash_restart_allowed(1_000_000, 1_000_000 - 60_000));
+    }
     use serde_json::json;
 
     #[test]

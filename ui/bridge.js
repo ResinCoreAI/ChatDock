@@ -11,9 +11,11 @@
   const listening = [];
   window.chatdock = {
     send(channel, ...args) {
-      Promise.all(listening)
+      // after the page's listeners are in place (the 'ui:ready' answer must find them), but a
+      // listener that failed to start doesn't hold every message of the page back
+      Promise.allSettled(listening)
         .then(() => tauri.core.invoke('ui_send', { channel, args }))
-        .catch(() => {});
+        .catch((e) => console.error('chatdock.send', channel, e));
     },
     on(channel, fn) {
       listening.push(me.listen(channel, (e) => fn(...(Array.isArray(e.payload) ? e.payload : [e.payload]))));

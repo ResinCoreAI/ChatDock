@@ -176,7 +176,8 @@ pub fn electron_leftovers() {
         for e in list.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             // ChatDock-update-<random> (and ChatDock-<version>-update, before 1.7.3)
-            if name.starts_with("ChatDock-update-") || (name.starts_with("ChatDock-") && name.ends_with("-update")) {
+            let named = name.starts_with("ChatDock-update-") || (name.starts_with("ChatDock-") && name.ends_with("-update"));
+            if named && our_update_folder(&e.path()) {
                 let _ = fs::remove_dir_all(e.path());
             }
         }
@@ -188,5 +189,40 @@ pub fn electron_leftovers() {
             Ok(()) => log!("removed the Electron updater's old downloads"),
             Err(err) => log!("old Electron downloads not removed yet: {err}"),
         }
+    }
+}
+
+/// A folder an update was staged in by ChatDock: its marker (1.8), or the installer it holds
+/// (before that). Another program's folder of the same name is left alone.
+fn our_update_folder(dir: &Path) -> bool {
+    dir.join(".chatdock-installer").is_file()
+        || fs::read_dir(dir).is_ok_and(|list| {
+            list.flatten().any(|f| {
+                let n = f.file_name().to_string_lossy().to_string();
+                n.starts_with("ChatDock_") && n.ends_with("_x64-setup.exe")
+            })
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::our_update_folder;
+
+    #[test]
+    fn only_update_folders_chatdock_made_are_cleared() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("upd-folders-{}", std::process::id()));
+        let make = |name: &str, files: &[&str]| {
+            let d = base.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            for f in files {
+                std::fs::write(d.join(f), "x").unwrap();
+            }
+            d
+        };
+        assert!(our_update_folder(&make("a", &[".chatdock-installer"])));
+        assert!(our_update_folder(&make("b", &["ChatDock_1.7.5_x64-setup.exe"]))); // (made before the marker)
+        assert!(!our_update_folder(&make("c", &[])));
+        assert!(!our_update_folder(&make("d", &["setup.exe", "notes.txt"])));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
