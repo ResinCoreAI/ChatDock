@@ -118,6 +118,9 @@ pub fn start() {
             news_demo_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
+        } else if only.as_deref() == Some("tabfocus") {
+            wait(5000); // the pages load
+            tabfocus_test();
         } else if only.as_deref() == Some("sharebar") {
             wait(5000); // the chats' browser is up
             share_bar_test();
@@ -3509,6 +3512,43 @@ fn perf_test() {
     wait(20000);
     close_panel();
     log!("perf: done");
+}
+
+/// 1.8: a click on the tab with the desktop or the taskbar in front opens the panel and it stays
+/// open (2026-10-14: from the desktop it closed by itself 0.4 s later). Real clicks: moves the mouse.
+fn tabfocus_test() {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+    let front = |class: &str| unsafe {
+        if let Ok(h) = FindWindowW(&windows::core::HSTRING::from(class), None) {
+            let _ = SetForegroundWindow(h);
+        }
+    };
+    for (name, class) in [("desktop", "Progman"), ("taskbar", "Shell_TrayWnd")] {
+        let mut stayed = 0;
+        let mut seen = Vec::new();
+        for _ in 0..10 {
+            close_panel();
+            front(class);
+            wait(400);
+            on(|c| c.show_tab(None));
+            wait(1200); // past the too-early click guard
+            // the first app's icon, where the tab page drew it
+            let icon = page_js("tab", "(() => { const r = document.querySelector('.app').getBoundingClientRect(); return JSON.stringify([r.left + r.width / 2, r.top + r.height / 2]); })()");
+            let xy: Vec<f64> = serde_json::from_str::<String>(&icon).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+            let (r, ui) = on(|c| (c.tab_bounds(), c.target_display().ui));
+            if xy.len() == 2 {
+                click_at(r.x + (xy[0] * ui).round() as i32, r.y + (xy[1] * ui).round() as i32);
+            }
+            wait(1500);
+            let (state, fg) = on(|c| (c.panel_state.as_str(), win32::class_name(win32::foreground_window())));
+            if state == "open" {
+                stayed += 1;
+            }
+            seen.push(format!("{state}/{fg}"));
+        }
+        log!("tab click from the {name}: open after 1.5 s {stayed}/10 ({}) (expect 10/10)", seen.join(" "));
+    }
+    close_panel();
 }
 
 /// The animations running in a page, by name.
