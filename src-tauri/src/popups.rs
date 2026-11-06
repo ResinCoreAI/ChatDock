@@ -265,6 +265,7 @@ unsafe fn gave_up(hwnd: isize, why: &str) {
 unsafe fn guard(wv: &ICoreWebView2, app: &str, hwnd: isize, selftest: bool) -> windows::core::Result<()> {
     chats::block_this_pc(wv)?;
     chats::guard_new_windows(wv, app)?;
+    chats::refuse_downloads(wv, app);
     chats::guard_programs(wv, app, selftest);
     chats::guard_permissions(wv, app)?;
     let mut token = 0i64;

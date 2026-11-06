@@ -419,6 +419,11 @@ impl Core {
         }
     }
 
+    /// The cards' titles, newest first (the self-test reads them).
+    pub(crate) fn toast_titles(&self) -> Vec<String> {
+        self.toasts.items.iter().map(|t| t.title.clone()).collect()
+    }
+
     pub fn toasts_push(&mut self, mut item: Item) {
         if !self.toasts_visible() {
             let (x, y) = win32::cursor_pos();

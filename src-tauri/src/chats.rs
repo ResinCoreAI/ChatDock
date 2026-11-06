@@ -1522,8 +1522,8 @@ unsafe fn grant_site_permissions(profile: &ICoreWebView2Profile, id: &str) {
 }
 
 /// A permission a page of the app asks for: the mic and camera only on its call and voice-message
-/// pages; notifications on its own pages (not its file and sandbox hosts); sound without a click and
-/// several downloads on any of its pages.
+/// pages; notifications on its own pages (not its file and sandbox hosts); sound without a click on
+/// any of its pages. (Downloads are refused: see refuse_downloads.)
 fn permission_allowed(app: &str, kind: COREWEBVIEW2_PERMISSION_KIND, uri: &str) -> bool {
     if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA {
         apps::may_use_media(app, uri)
@@ -1531,8 +1531,7 @@ fn permission_allowed(app: &str, kind: COREWEBVIEW2_PERMISSION_KIND, uri: &str) 
         if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
             return apps::may_notify(app, uri); // (never its file and sandbox hosts)
         }
-        [COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY, COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS].contains(&kind)
-            && apps::owns(app, uri)
+        kind == COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY && apps::owns(app, uri)
     }
 }
 
@@ -1647,6 +1646,7 @@ unsafe fn configure(
     )?;
 
     guard_new_windows(wv, id)?;
+    refuse_downloads(wv, id);
 
     guard_programs(wv, id, selftest);
 
@@ -1885,6 +1885,46 @@ pub(crate) unsafe fn block_this_pc(wv: &ICoreWebView2) -> windows::core::Result<
         &mut token,
     )?;
     Ok(())
+}
+
+/// Downloads a chat page starts are refused (nothing lands on the PC unasked), with a short word
+/// at most once a minute per app; the log says which app, never the file's name.
+pub static DOWNLOADS_REFUSED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+thread_local! {
+    static DOWNLOAD_SAID: RefCell<HashMap<String, i64>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) unsafe fn refuse_downloads(wv: &ICoreWebView2, id: &str) {
+    let Ok(wv4) = wv.cast::<ICoreWebView2_4>() else { return };
+    let app = id.to_string();
+    let mut token = 0i64;
+    let added = wv4.add_DownloadStarting(
+        &DownloadStartingEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            args.SetCancel(true)?;
+            args.SetHandled(true)?;
+            DOWNLOADS_REFUSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            site_log!(&app, "{app}: a download refused");
+            let now = rt::epoch_ms();
+            let say = DOWNLOAD_SAID.with(|d| {
+                let mut d = d.borrow_mut();
+                let last = d.get(&app).copied().unwrap_or(0);
+                (now - last >= 60_000).then(|| d.insert(app.clone(), now)).is_some()
+            });
+            if say {
+                later(|c| {
+                    let title = c.t("notice.download");
+                    c.notice_brief(&title, "", 3500);
+                });
+            }
+            Ok(())
+        })),
+        &mut token,
+    );
+    if let Err(err) = added {
+        log!("{id}: downloads not guarded: {err}");
+    }
 }
 
 /// WebView2 objects carried to another thread and back: only touched again on the UI thread
@@ -2149,5 +2189,8 @@ mod tests {
         assert!(permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, "https://www.facebook.com/"));
         assert!(!permission_allowed("discord", COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, "https://discord.com/"));
         assert!(!permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, "https://www.fbsbx.com/"));
+        // downloads are refused (with a word), so several at once are never granted either
+        assert!(!permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS, "https://www.facebook.com/"));
+        assert!(!permission_allowed("facebook", COREWEBVIEW2_PERMISSION_KIND_MULTIPLE_AUTOMATIC_DOWNLOADS, "https://www.fbsbx.com/"));
     }
 }

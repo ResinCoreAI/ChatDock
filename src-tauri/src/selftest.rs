@@ -3857,6 +3857,23 @@ fn this_pc_check() {
     let name_refused = refused() - before_name;
     let proto = view_js("discord", "location.href");
     log!("security (review): from {proto}: a name for this PC {by_name}, refused {name_refused} | a plain ws:// socket goes to {plain_ws} (expect \"http://neverssl.com/\": answered (our 403), refused 1 | wss://local-blocked.invalid/)");
+    // DeepSeek F6: a download the page starts itself is refused, with a word (not saved silently)
+    let downloads_before = crate::chats::DOWNLOADS_REFUSED.load(std::sync::atomic::Ordering::Relaxed);
+    // (a link off the app's sites is stopped before it can download: this one is Discord's own;
+    // needs the internet)
+    on(|c| c.chats.navigate("discord", "https://discord.com/robots.txt"));
+    for _ in 0..40 {
+        wait(250);
+        if view_js("discord", "location.host") == "\"discord.com\"" {
+            break;
+        }
+    }
+    wait(500);
+    view_js("discord", "(() => { const a = document.createElement('a'); a.href = '/robots.txt'; a.download = 'r.txt'; document.body.append(a); a.click(); return 1; })()");
+    wait(4000);
+    let downloads = crate::chats::DOWNLOADS_REFUSED.load(std::sync::atomic::Ordering::Relaxed) - downloads_before;
+    let download_notice = on(|c| c.toast_titles().contains(&c.t("notice.download")));
+    log!("security (review): a download the page started: refused {downloads}, said so {download_notice} (expect 1, true)");
     on(|c| c.load_home("discord"));
     log!(
         "security: this PC: WebSockets to {ws} | refused while the chats loaded {earlier} | from {host}: fetches {page}, a worker's {worker}, a shared worker's {shared}: refused {blocked} (expect wss://local-blocked.invalid/ three times | in a new frame wrapped | from \"example.com\": answered five times, answered, answered: refused 7)"
