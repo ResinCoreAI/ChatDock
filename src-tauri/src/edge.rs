@@ -27,6 +27,8 @@ const WHEEL_LEAVE_PX: f64 = 60.0; // after that, the edge works again once the p
 
 #[derive(Default)]
 pub struct EdgeState {
+    /// push-to-talk is held: the glow shows green at the edge
+    pub talking: bool,
     pub tab_shown: bool,
     pub tab_shown_at: i64,
     pub tab_foreground: isize,
@@ -377,7 +379,9 @@ impl Core {
     }
 
     pub fn update_glow(&mut self, pulse: bool) {
-        let show = self.settings.bool("glow") && self.total_unread() > 0 && self.panel_state == PanelState::Hidden && !self.edge.tab_shown;
+        let talking = self.edge.talking;
+        let show = talking
+            || (self.settings.bool("glow") && self.total_unread() > 0 && self.panel_state == PanelState::Hidden && !self.edge.tab_shown);
         let visible = win32::is_visible(self.glow.hwnd);
         if !show {
             if visible && self.edge.glow_hide_timer == 0 {
@@ -400,12 +404,15 @@ impl Core {
         let y = (cy - gh / 2).clamp(d.bounds.y, (d.work.bottom() - gh).max(d.bounds.y));
         let x = if self.on_left() { d.bounds.x } else { d.bounds.right() - gw };
         win32::set_bounds(self.glow.hwnd, Rect { x, y, w: gw, h: gh });
-        let colors: Vec<&str> = self
-            .enabled_apps()
-            .into_iter()
-            .filter(|id| self.shown_count(id) > 0)
-            .flat_map(|id| apps::get(id).map(|a| a.colors.to_vec()).unwrap_or_default())
-            .collect();
+        let colors: Vec<&str> = if talking {
+            vec!["#23a55a", "#3ad17a"] // push-to-talk held: talking
+        } else {
+            self.enabled_apps()
+                .into_iter()
+                .filter(|id| self.shown_count(id) > 0)
+                .flat_map(|id| apps::get(id).map(|a| a.colors.to_vec()).unwrap_or_default())
+                .collect()
+        };
         self.emit("glow", "glow:state", json!([{ "colors": colors, "pulse": pulse, "side": self.settings.str("side"), "appear": appear }]));
         if !visible {
             win32::show_inactive(self.glow.hwnd);

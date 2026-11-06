@@ -339,6 +339,7 @@ impl Core {
         }
         crate::tray::create(self);
         self.register_hotkey();
+        self.apply_ptt();
         self.init_chats();
         self.schedule_dnd_end();
         rt::after(60_000, sleep_tick);

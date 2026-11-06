@@ -118,6 +118,9 @@ pub fn start() {
             news_demo_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
+        } else if only.as_deref() == Some("ptt") {
+            wait(8000); // the pages load
+            ptt_test();
         } else if only.as_deref() == Some("reply") {
             wait(8000); // the pages load
             reply_send_test();
@@ -2207,7 +2210,8 @@ fn game_mode_test() {
         c.on_site_notification("x", 0, "Bob", "gg", "", "x8");
     });
     wait(700);
-    let vip = (on(|c| c.toasts_count()), on(|c| c.held_count()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
+    let vip =
+        (on(|c| c.toasts_count()), on(|c| c.held_count()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
     on(|c| {
         c.settings.set("vips", json!([]));
         c.toasts.test_game = Some(false);
@@ -2220,7 +2224,8 @@ fn game_mode_test() {
     wait(700);
     js_click("toasts", ".card .star");
     wait(400);
-    let starred = (on(|c| c.settings.get("vips").clone().to_string()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
+    let starred =
+        (on(|c| c.settings.get("vips").clone().to_string()), page_js("toasts", "String(document.querySelectorAll('.card .vip').length)"));
     js_click("toasts", ".card .star");
     wait(400);
     let unstarred = on(|c| c.settings.get("vips").clone().to_string());
@@ -3034,7 +3039,16 @@ fn reply_send_test() {
     let send = |href: &str, name: &str| {
         let target = crate::inbox::Latest { name: name.into(), href: href.into(), ..Default::default() };
         let (tx, rx) = mpsc::channel();
-        on(move |c| c.send_on_page("facebook", target, "ทดสอบ ok".into(), Box::new(move |_, s| { let _ = tx.send(s); })));
+        on(move |c| {
+            c.send_on_page(
+                "facebook",
+                target,
+                "ทดสอบ ok".into(),
+                Box::new(move |_, s| {
+                    let _ = tx.send(s);
+                }),
+            )
+        });
         rx.recv_timeout(Duration::from_secs(10)).map(|s| format!("{s:?}")).unwrap_or_else(|_| "no answer".into())
     };
     view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
@@ -3047,7 +3061,10 @@ fn reply_send_test() {
     let draft_kept = view_js("facebook", "String(document.querySelector('[role=textbox]').textContent)");
     view_js("facebook", &page("/messages/t/2/", "Beam", "", true));
     let other = send("/messages/t/1/", "Nok");
-    let other_typed = view_js("facebook", "String(document.querySelector('[role=textbox]').textContent + '|' + document.querySelectorAll('div[dir=auto]').length)");
+    let other_typed = view_js(
+        "facebook",
+        "String(document.querySelector('[role=textbox]').textContent + '|' + document.querySelectorAll('div[dir=auto]').length)",
+    );
     view_js("facebook", &page("/direct/t/99/", "Nok", "", true));
     let by_name = send("", "Nok");
     log!(
@@ -3075,7 +3092,10 @@ fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
     );
     on(|c| {
         c.counts.insert("facebook".into(), 1);
-        let nok = crate::inbox::Latest { name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into() };
+        let nok =
+            crate::inbox::Latest {
+                name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into()
+            };
         c.count_popup_for_test("facebook", Some(nok));
     });
     wait(1200);
@@ -3099,6 +3119,74 @@ fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
     });
     log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} (expect the language's three | ✓ + the first | the first | 0)");
     reply_box_test(page);
+}
+
+/// 1.8: Discord push-to-talk with F13 (no program uses it) pressed through SendInput, on a
+/// stand-in of Discord's user panel: quiet on joining, open while held, quiet on release, quiet
+/// again when the release went missing; and how long the key took to open the mic.
+fn ptt_test() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    };
+    let f13 = |up: bool| {
+        let i = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0x7C),
+                    dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                    ..Default::default()
+                },
+            },
+        };
+        unsafe { SendInput(&[i], std::mem::size_of::<INPUT>() as i32) };
+    };
+    view_js(
+        "discord",
+        "(() => { document.querySelectorAll('section.panels_test').forEach((x) => x.remove()); const s = document.createElement('section'); s.className = 'panels_test'; \
+         for (let i = 0; i < 4; i++) { const b = document.createElement('button'); b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', 'false'); \
+         b.onclick = () => b.setAttribute('aria-checked', b.getAttribute('aria-checked') === 'true' ? 'false' : 'true'); s.append(b); } \
+         document.body.append(s); return 1; })()",
+    );
+    let mic = || {
+        view_js("discord", "(() => { const s = document.querySelectorAll('section.panels_test button'); return s[s.length - 2].getAttribute('aria-checked') === 'true' ? 'muted' : 'open'; })()")
+    };
+    on(|c| {
+        c.set_pref("pttKey", json!("F13"));
+        c.set_pref("pttOn", json!(true));
+        c.on_call("discord", true, true, false); // joined a voice channel
+    });
+    wait(400);
+    let joined = mic();
+    let t0 = std::time::Instant::now();
+    f13(false);
+    let mut opened_ms = 0;
+    for _ in 0..50 {
+        if mic().contains("open") {
+            opened_ms = t0.elapsed().as_millis();
+            break;
+        }
+        wait(10);
+    }
+    let held = (mic(), on(|c| c.edge.talking), on(|c| win32::is_visible(c.glow.hwnd)));
+    f13(true);
+    wait(300);
+    let released = (mic(), on(|c| c.edge.talking));
+    // a down whose up never comes (as if ChatDock had been busy)
+    on(|c| c.ptt(true));
+    wait(300);
+    let stuck = mic();
+    wait(900);
+    let recovered = (mic(), on(|c| c.edge.talking));
+    let refused = on(|c| c.set_pref("pttKey", json!("KeyW")));
+    on(|c| {
+        c.on_call("discord", false, false, false);
+        c.set_pref("pttOn", json!(false));
+        c.set_pref("pttKey", json!(""));
+    });
+    log!(
+        "push-to-talk: joined {joined} | held: mic, talking, glow {held:?} after {opened_ms} ms | released {released:?} | a lost release: {stuck} then {recovered:?} | W as the key accepted {refused} (expect muted | (open, true, true) under 100 ms | (muted, false) | open then (muted, false) | false)"
+    );
 }
 
 /// A plain window standing in for a game in front (made on the main thread, which pumps its messages).
@@ -3150,7 +3238,12 @@ fn reply_box_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
             win32::force_foreground(game);
             c.toasts_dismiss_all();
             c.counts.insert("facebook".into(), 1);
-            let nok = crate::inbox::Latest { name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into() };
+            let nok = crate::inbox::Latest {
+                name: "Nok".into(),
+                text: "ไปเล่นกันป่าว".into(),
+                avatar: String::new(),
+                href: "/messages/t/1/".into(),
+            };
             c.count_popup_for_test("facebook", Some(nok));
         });
         wait(1200);
@@ -3175,12 +3268,21 @@ fn reply_box_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
         "(() => { const t = document.querySelector('.card textarea'); t.value = 'ส่งจากกล่อง'; t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return 1; })()",
     );
     wait(2500);
-    let sent = (view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent).join('|'))"), front("after Enter"));
+    let sent = (
+        view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent).join('|'))"),
+        front("after Enter"),
+    );
     // Esc
     pop();
     page_js("toasts", "(() => { document.querySelector('.card textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return 1; })()");
     wait(600);
-    let esc = (front("after Esc"), page_js("toasts", "String(document.querySelectorAll('.card textarea').length + '/' + document.querySelectorAll('.card .qchip').length)"));
+    let esc = (
+        front("after Esc"),
+        page_js(
+            "toasts",
+            "String(document.querySelectorAll('.card textarea').length + '/' + document.querySelectorAll('.card .qchip').length)",
+        ),
+    );
     // left alone
     pop();
     wait(2800);
@@ -3750,7 +3852,7 @@ fn tabfocus_test() {
             wait(400);
             on(|c| c.show_tab(None));
             wait(1200); // past the too-early click guard
-            // the first app's icon, where the tab page drew it
+                        // the first app's icon, where the tab page drew it
             let icon = page_js("tab", "(() => { const r = document.querySelector('.app').getBoundingClientRect(); return JSON.stringify([r.left + r.width / 2, r.top + r.height / 2]); })()");
             let xy: Vec<f64> = serde_json::from_str::<String>(&icon).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
             let (r, ui) = on(|c| (c.tab_bounds(), c.target_display().ui));

@@ -838,8 +838,8 @@ impl Core {
                         && ["hotkey", "discordMuteKey", "discordDeafenKey"].iter().all(|k| s != self.settings.str(k)))
             }),
             "pttOn" => v.is_boolean(),
-            // until rawin.rs (push-to-talk) checks keys: a mouse side button, a letter, a digit or F-key
-            "pttKey" => v.as_str().is_some_and(|s| s.is_empty() || matches!(s, "Mouse4" | "Mouse5") || s.starts_with("Key") || s.starts_with("Digit") || s.starts_with('F')),
+            // a key from wheel.rs's list (keys a game moves with are refused)
+            "pttKey" => v.as_str().is_some_and(|s| s.is_empty() || crate::wheel::key_ok(s)),
             "popupPosition" => one_of(&["top-right", "bottom-right", "top-left", "bottom-left"]),
             "popupDuration" => num_in(&[0.0, 5.0, 8.0, 12.0, 20.0, 30.0]),
             "popupMax" => num_in(&[1.0, 2.0, 3.0, 4.0, 5.0]),
@@ -930,6 +930,13 @@ impl Core {
             "hotkey" | "discordMuteKey" | "discordDeafenKey" | "replyKey" => {
                 self.set_setting(key, value);
                 self.register_hotkey();
+            }
+            "pttOn" | "pttKey" => {
+                self.set_setting(key, value);
+                self.apply_ptt();
+                if self.settings.bool("pttOn") && self.chats.in_call("discord") {
+                    self.discord_mic(false); // switched on during a call: quiet until the key is held
+                }
             }
             "autostart" => self.set_open_at_login(value.as_bool().unwrap_or(false)),
             "hideFromCapture" => {
@@ -1064,6 +1071,7 @@ impl Core {
         log!("app {id} {} {:?}", if on { "on" } else { "off" }, self.enabled_apps());
         if id == "discord" {
             self.register_hotkey(); // its voice keys come and go with it
+            self.apply_ptt(); // and so does push-to-talk
         }
         if self.edge.tab_shown {
             let cy = self.edge.tab_center_y;
@@ -1157,6 +1165,14 @@ impl Core {
             self.chats.set_in_call(id, live);
             self.last_used.insert(id.to_string(), rt::epoch_ms());
             log!("call {id} {}", if live { "started" } else { "ended" });
+            if id == "discord" && self.settings.bool("pttOn") && self.settings.str("pttKey") != "" {
+                if live {
+                    self.discord_mic(false); // push-to-talk: quiet until the key is held
+                } else if self.edge.talking {
+                    self.edge.talking = false;
+                    self.update_glow(false);
+                }
+            }
             self.apply_audio(id); // "all chat sounds off" leaves a call audible
         }
         if self.chats.call_state(id) != (call, share) {
@@ -2062,6 +2078,64 @@ impl Core {
         self.notice_brief(&title, "", 1800);
     }
 
+    /// Push-to-talk (wheel.rs reads the key): in a Discord voice channel the mic is on only while
+    /// the key is held. The edge glows green meanwhile.
+    pub fn ptt(&mut self, down: bool) {
+        if !self.settings.bool("pttOn") || !self.chats.in_call("discord") {
+            return;
+        }
+        self.discord_mic(down);
+        self.edge.talking = down;
+        self.update_glow(false);
+        if down {
+            self.ptt_watch();
+        }
+    }
+
+    /// A key-up that never arrived (ChatDock busy, the key let go while another window took the
+    /// input): checked every half second while talking, so Discord never stays open.
+    fn ptt_watch(&mut self) {
+        timer(500, |c| {
+            if !c.edge.talking {
+                return;
+            }
+            if crate::wheel::ptt_held() && c.chats.in_call("discord") {
+                c.ptt_watch();
+            } else {
+                log!("push-to-talk: the key is up (its release went missing)");
+                crate::wheel::set_ptt(0); // (resets the held state)
+                c.apply_ptt();
+                c.ptt(false);
+                if !c.chats.in_call("discord") {
+                    c.edge.talking = false;
+                    c.update_glow(false);
+                }
+            }
+        });
+    }
+
+    /// The push-to-talk key from the settings to wheel.rs (none while it is off or Discord is).
+    pub fn apply_ptt(&mut self) {
+        let on = self.settings.bool("pttOn") && self.is_enabled("discord");
+        let code = if on { crate::wheel::key_code(self.settings.str("pttKey")).unwrap_or(0) } else { 0 };
+        crate::wheel::set_ptt(code);
+    }
+
+    /// Discord's mic on or off (its user panel's switch says aria-checked="true" while muted):
+    /// clicked only when it isn't that way already, so it never toggles the wrong way.
+    pub fn discord_mic(&mut self, on: bool) {
+        let want_muted = !on;
+        let js = format!(
+            "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2]; \
+             if (!b) return 'none'; if ((b.getAttribute('aria-checked') === 'true') !== {want_muted}) b.click(); return b.getAttribute('aria-checked'); }})()"
+        );
+        self.chats.execute("discord", &js, move |r| {
+            if r.contains("none") {
+                later(|_| log!("push-to-talk: Discord's mic switch not found"));
+            }
+        });
+    }
+
     fn discord_voice_said(&mut self, which: usize) {
         let js = format!(
             "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2 + {which}]; \
@@ -2214,7 +2288,8 @@ fn quick_list(own: &Value, defaults: &[String; 3]) -> Vec<String> {
 
 /// At most three quick replies, each 1-60 characters that aren't all spaces.
 fn quick_replies_ok(v: &Value) -> bool {
-    v.as_array().is_some_and(|a| a.len() <= 3 && a.iter().all(|t| t.as_str().is_some_and(|s| !s.trim().is_empty() && s.chars().count() <= 60)))
+    v.as_array()
+        .is_some_and(|a| a.len() <= 3 && a.iter().all(|t| t.as_str().is_some_and(|s| !s.trim().is_empty() && s.chars().count() <= 60)))
 }
 
 /// Important people: at most 50, each of a known app, with a name of 1-80 characters.

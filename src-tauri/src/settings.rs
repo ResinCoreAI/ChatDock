@@ -121,7 +121,8 @@ pub fn vip_match(vips: &Value, app: &str, name: &str) -> bool {
     !key.is_empty()
         && vips.as_array().is_some_and(|list| {
             list.iter().any(|v| {
-                v.get("app").and_then(Value::as_str) == Some(app) && v.get("name").and_then(Value::as_str).map(name_key).as_deref() == Some(key.as_str())
+                v.get("app").and_then(Value::as_str) == Some(app)
+                    && v.get("name").and_then(Value::as_str).map(name_key).as_deref() == Some(key.as_str())
             })
         })
 }

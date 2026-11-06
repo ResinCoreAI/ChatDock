@@ -942,7 +942,12 @@ impl Core {
 
     /// The reply hotkey: the reply box of the newest card that can take a reply.
     pub fn reply_to_newest(&mut self) {
-        let key = self.toasts.items.iter().find(|it| it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id)).map(|it| it.key.clone());
+        let key = self
+            .toasts
+            .items
+            .iter()
+            .find(|it| it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id))
+            .map(|it| it.key.clone());
         match key {
             Some(k) => self.open_reply_box(&k),
             None => {
@@ -992,7 +997,11 @@ impl Core {
                     Sent::Typing => ("failed", c.t("toast.typingThere")),
                     _ => ("failed", c.t("toast.notSent")),
                 };
-                c.emit("toasts", "toast:reply-state", json!([{ "key": k, "state": state, "text": t, "line": line, "open": c.t("toast.openChat") }]));
+                c.emit(
+                    "toasts",
+                    "toast:reply-state",
+                    json!([{ "key": k, "state": state, "text": t, "line": line, "open": c.t("toast.openChat") }]),
+                );
                 if let Some(i) = c.toasts.items.iter().position(|x| x.key == k) {
                     // sent: gone in a moment; not sent: the usual time to read why
                     c.toasts.items[i].remaining = if sent == Sent::Confirmed { 2500 } else { c.lifetime_ms().max(6000) };
