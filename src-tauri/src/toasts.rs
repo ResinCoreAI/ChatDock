@@ -981,7 +981,7 @@ impl Core {
         if was {
             list.retain(|v| !crate::settings::vip_match(&json!([v]), &app, &name));
         } else {
-            list.push(json!({ "app": app, "name": name.trim() }));
+            list.push(crate::settings::vip_entry(&app, &name));
         }
         if !self.set_pref("vips", Value::Array(list)) {
             return; // (too many, or a name the setting won't take)

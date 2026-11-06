@@ -161,11 +161,11 @@ const SCENES = {
   // the reply box: written in the card, Enter, sent
   replyBox: () => {
     const reply = (texts.gm || {}).reply || '';
-    return `${GAME2()}${QCARD(person(1), `<div class="rbox"><span class="rtx">${esc(reply)}</span><i class="caret"></i></div>
+    return `${GAME2()}${QCARD(person(2), `<div class="rbox"><span class="rtx">${esc(reply)}</span><i class="caret"></i></div>
       <kbd class="ent">Enter</kbd><i class="qsent">✓ ${esc(reply)}</i>`)}`;
   },
   // important people: in a game the others wait, theirs shows at once
-  vip: () => `${GAME2()}${WAIT()}${QCARD(person(2), '', `<em class="vtag">★ ${esc(texts.vipLabel || '')}</em>`)}`,
+  vip: () => `${GAME2()}${WAIT()}${QCARD(person(1), '', `<em class="vtag">★ ${esc(texts.vipLabel || '')}</em>`)}`,
   // push-to-talk: while the key is held the mic is on and the edge glows green
   ptt: () => `${GAME2()}<i class="pglow"></i><kbd class="pk">V</kbd><div class="mic"><i class="mbar"></i></div><span class="ptalk">${esc(texts.talk || '')}</span>`,
 };

@@ -379,9 +379,21 @@ impl Core {
         SENDING.with(|s| s.borrow_mut().insert(app.to_string()));
         let a = app.to_string();
         let js = send_js_to(&text, &target.href, &target.name);
+        // the page's answer, or nothing within 15 s (the page crashed or went elsewhere meanwhile):
+        // whichever comes first reports, once, and replies to this app work again either way
+        let once = std::sync::Arc::new(std::sync::Mutex::new(Some(then)));
+        let late = once.clone();
+        let (la, lt) = (a.clone(), text.clone());
+        timer(15_000, move |c| {
+            let Some(then) = late.lock().ok().and_then(|mut t| t.take()) else { return };
+            SENDING.with(|s| s.borrow_mut().remove(&la));
+            log!("{la}: {} (no answer from the page)", sent_log(&Sent::NotConfirmed, &lt));
+            then(c, Sent::NotConfirmed);
+        });
         self.chats.execute_async(app, &js, move |r| {
             let sent = sent_of(&r);
             later(move |c| {
+                let Some(then) = once.lock().ok().and_then(|mut t| t.take()) else { return };
                 SENDING.with(|s| s.borrow_mut().remove(&a));
                 log!("{a}: {}", sent_log(&sent, &text));
                 if c.panel_state == PanelState::Hidden {

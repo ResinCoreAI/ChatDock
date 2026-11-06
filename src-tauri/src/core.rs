@@ -999,7 +999,7 @@ impl Core {
             "vip-add" => {
                 if let Some((app, name)) = arg.as_u64().and_then(|i| self.recent_not_vip().get(i as usize).cloned()) {
                     let mut list = self.settings.get("vips").as_array().cloned().unwrap_or_default();
-                    list.push(json!({ "app": app, "name": name.trim() }));
+                    list.push(crate::settings::vip_entry(&app, &name));
                     if self.set_pref("vips", Value::Array(list)) {
                         self.broadcast_state();
                     }

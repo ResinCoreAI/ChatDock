@@ -143,6 +143,12 @@ fn nfc(text: &str) -> String {
     }
 }
 
+/// One of the important people as kept: the name trimmed and at most 80 characters (what the
+/// setting takes; pop-up titles can be longer).
+pub fn vip_entry(app: &str, name: &str) -> Value {
+    serde_json::json!({ "app": app, "name": name.trim().chars().take(80).collect::<String>() })
+}
+
 /// The pop-up's sender is one of the important people of that app.
 pub fn vip_match(vips: &Value, app: &str, name: &str) -> bool {
     let key = name_key(name);
@@ -399,6 +405,14 @@ mod tests {
         // invisible characters, and Latin letters written as a letter plus its mark
         assert!(super::vip_match(&json!([{ "app": "x", "name": "Nok" }]), "x", "N\u{200B}ok\u{200D}"));
         assert!(super::vip_match(&json!([{ "app": "x", "name": "Jos\u{00E9}" }]), "x", "Jose\u{0301}"));
+    }
+
+    #[test]
+    fn a_long_name_can_be_starred() {
+        let long = "ก".repeat(90);
+        let v = super::vip_entry("instagram", &format!("  {long} "));
+        assert_eq!(v["name"].as_str().map(|n| n.chars().count()), Some(80));
+        assert!(super::vip_match(&serde_json::json!([v]), "instagram", &"ก".repeat(80)));
     }
 
     #[test]
