@@ -1665,7 +1665,7 @@ impl Core {
         let fields = toasts::Fields {
             title: if title.is_empty() { a.name.to_string() } else { title },
             body: if show_text { clean_text(body, 300) } else { self.t("toast.sentYou") },
-            icon: if self.settings.bool("popupAvatar") { safe_icon(icon) } else { String::new() },
+            icon: if self.settings.bool("popupAvatar") { safe_icon(icon, id) } else { String::new() },
             tag: if tag.is_empty() { String::new() } else { format!("{id}:{}", clean_text(tag, 80)) },
             source: key,
             meta,
@@ -1851,7 +1851,7 @@ impl Core {
                 toasts::Fields {
                     title: clean_text(&l.name, 90),
                     body: if show_text { clean_text(&l.text, 300) } else { self.t("toast.sentYou") },
-                    icon: if self.settings.bool("popupAvatar") { safe_icon(&l.avatar) } else { String::new() },
+                    icon: if self.settings.bool("popupAvatar") { safe_icon(&l.avatar, app) } else { String::new() },
                     tag,
                     source: 0,
                     meta: if count > 1 { self.tv("toast.unread", &[("n", count.to_string())]) } else { String::new() },
@@ -2518,15 +2518,15 @@ pub fn message_words(title: &str) -> bool {
     ["messag", "sent", "wrote", "replied", "mention", "ส่ง", "ข้อความ", "ทัก", "ตอบกลับ", "กล่าวถึง"].iter().any(|w| t.contains(w))
 }
 
-pub fn safe_icon(url: &str) -> String {
-    if url.len() > 200_000 {
-        return String::new();
-    }
-    let lower = url.to_ascii_lowercase();
+/// A pop-up's picture: from the app's own sites over https, or a plain picture of at most 64 KB
+/// written into the address; nothing else (a page can't make ChatDock fetch from anywhere).
+pub fn safe_icon(url: &str, app: &str) -> String {
+    let lower = url.get(..24).unwrap_or(url).to_ascii_lowercase();
     let data_ok = ["data:image/png;", "data:image/jpeg;", "data:image/jpg;", "data:image/gif;", "data:image/webp;"]
         .iter()
         .any(|p| lower.starts_with(p));
-    if lower.starts_with("https://") || data_ok {
+    // a picture from the app's own sites (https only), or a small picture inside the address
+    if (data_ok && url.len() <= 64 * 1024) || (url.len() <= 4096 && apps::owns(app, url)) {
         url.to_string()
     } else {
         String::new()
@@ -2538,8 +2538,25 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        count_blink, crash_restart_allowed, quick_list, quick_replies_ok, same_folder, seen_after, test_folder, vips_ok, CountDrop,
+        count_blink, crash_restart_allowed, quick_list, quick_replies_ok, safe_icon, same_folder, seen_after, test_folder, vips_ok,
+        CountDrop,
     };
+
+    #[test]
+    fn pop_up_pictures_come_only_from_the_apps_own_sites() {
+        let ig = "https://scontent-bkk1-1.cdninstagram.com/v/t51/x.jpg";
+        assert_eq!(safe_icon(ig, "instagram"), ig);
+        assert_eq!(safe_icon("https://cdn.discordapp.com/avatars/1/a.png", "discord"), "https://cdn.discordapp.com/avatars/1/a.png");
+        assert_eq!(safe_icon(ig, "discord"), ""); // another app's site
+        assert_eq!(safe_icon("https://evil.example/x.png", "instagram"), "");
+        assert_eq!(safe_icon("http://scontent.cdninstagram.com/x.jpg", "instagram"), ""); // not https
+        let small = format!("data:image/png;base64,{}", "A".repeat(1000));
+        assert_eq!(safe_icon(&small, "telegram"), small);
+        let big = format!("data:image/png;base64,{}", "A".repeat(70_000));
+        assert_eq!(safe_icon(&big, "telegram"), ""); // over 64 KB
+        assert_eq!(safe_icon("data:image/svg+xml;base64,AAAA", "telegram"), "");
+        // not a plain picture
+    }
 
     #[test]
     fn a_second_crash_within_two_minutes_asks_instead_of_restarting() {
