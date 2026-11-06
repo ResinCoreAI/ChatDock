@@ -106,13 +106,41 @@ fn read_saved(file: &Path) -> Option<Map<String, Value>> {
     None
 }
 
-/// A name as compared: trimmed, spaces squeezed, lower case, a Thai tone mark before SARA AM (the
-/// order most keyboards type it in).
+/// A name as compared: composed (NFC), invisible characters dropped, trimmed, spaces squeezed,
+/// lower case, and Thai written the way most keyboards type it: SARA AM as one letter (not
+/// NIKHAHIT + SARA AA) after its tone mark, SARA AE as one letter (not SARA E twice).
 fn name_key(name: &str) -> String {
-    let squeezed = name.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-    ['\u{0E48}', '\u{0E49}', '\u{0E4A}', '\u{0E4B}']
-        .iter()
-        .fold(squeezed, |s, tone| s.replace(&format!("\u{0E33}{tone}"), &format!("{tone}\u{0E33}")))
+    let visible: String =
+        nfc(name).chars().filter(|c| !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}')).collect();
+    let mut s = visible.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    s = s.replace("\u{0E40}\u{0E40}", "\u{0E41}").replace("\u{0E4D}\u{0E32}", "\u{0E33}");
+    for tone in ['\u{0E48}', '\u{0E49}', '\u{0E4A}', '\u{0E4B}'] {
+        s = s
+            .replace(&format!("\u{0E4D}{tone}\u{0E32}"), &format!("{tone}\u{0E33}"))
+            .replace(&format!("\u{0E33}{tone}"), &format!("{tone}\u{0E33}"));
+    }
+    s
+}
+
+/// Unicode NFC (Windows' own NormalizeString); the text as it is if Windows can't.
+fn nfc(text: &str) -> String {
+    use windows::Win32::Globalization::{NormalizationC, NormalizeString};
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    if wide.is_empty() {
+        return String::new();
+    }
+    unsafe {
+        let need = NormalizeString(NormalizationC, &wide, None);
+        if need <= 0 {
+            return text.to_string();
+        }
+        let mut out = vec![0u16; need as usize];
+        let got = NormalizeString(NormalizationC, &wide, Some(&mut out));
+        if got <= 0 {
+            return text.to_string();
+        }
+        String::from_utf16_lossy(&out[..got as usize])
+    }
 }
 
 /// The pop-up's sender is one of the important people of that app.
@@ -363,6 +391,14 @@ mod tests {
         assert!(!super::vip_match(&vips, "facebook", ""));
         // Thai with the tone mark and SARA AM typed in the other order is the same name
         assert!(super::vip_match(&json!([{ "app": "x", "name": "น\u{0E49}\u{0E33}" }]), "x", "น\u{0E33}\u{0E49}"));
+        // SARA AM typed as NIKHAHIT + SARA AA (with the tone mark between, or not)
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "น\u{0E49}\u{0E33}" }]), "x", "น\u{0E4D}\u{0E49}\u{0E32}"));
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "ก\u{0E33}" }]), "x", "ก\u{0E4D}\u{0E32}"));
+        // SARA E twice for SARA AE
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "\u{0E41}ม่" }]), "x", "\u{0E40}\u{0E40}ม่"));
+        // invisible characters, and Latin letters written as a letter plus its mark
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "Nok" }]), "x", "N\u{200B}ok\u{200D}"));
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "Jos\u{00E9}" }]), "x", "Jose\u{0301}"));
     }
 
     #[test]

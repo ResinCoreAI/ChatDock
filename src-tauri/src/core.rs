@@ -944,6 +944,9 @@ impl Core {
             }
             "pttOn" | "pttKey" => {
                 self.set_setting(key, value);
+                if self.edge.talking && !self.settings.bool("pttOn") {
+                    self.ptt(false); // switched off while held: the mic goes off with it
+                }
                 self.apply_ptt();
                 if self.settings.bool("pttOn") && self.chats.in_call("discord") {
                     self.discord_mic(false); // switched on during a call: quiet until the key is held
@@ -2110,10 +2113,16 @@ impl Core {
     /// Push-to-talk (wheel.rs reads the key): in a Discord voice channel the mic is on only while
     /// the key is held. The edge glows green meanwhile.
     pub fn ptt(&mut self, down: bool) {
-        if !self.settings.bool("pttOn") || !self.chats.in_call("discord") {
+        if down && (!self.settings.bool("pttOn") || !self.chats.in_call("discord")) {
             return;
         }
-        self.discord_mic(down);
+        // a release always mutes (the call flag may be off for a moment while the page reloads)
+        if !down && !self.edge.talking && !self.chats.in_call("discord") {
+            return;
+        }
+        if self.chats.has("discord") {
+            self.discord_mic(down);
+        }
         self.edge.talking = down;
         self.update_glow(false);
         if down {
@@ -2151,17 +2160,32 @@ impl Core {
     }
 
     /// Discord's mic on or off (its user panel's switch says aria-checked="true" while muted):
-    /// clicked only when it isn't that way already, so it never toggles the wrong way.
+    /// clicked only when it isn't that way already, so it never toggles the wrong way; looked at
+    /// again a moment later and tried again until it is (the switch may not be on the page yet).
     pub fn discord_mic(&mut self, on: bool) {
+        self.discord_mic_try(on, 0);
+    }
+
+    fn discord_mic_try(&mut self, on: bool, tries: u32) {
+        if tries > 0 && on != self.edge.talking {
+            return; // pressed or released since: that one decides now
+        }
         let want_muted = !on;
         let js = format!(
             "(() => {{ const s = document.querySelectorAll('section[class*=\"panels\"] button[role=\"switch\"]'); const b = s[s.length - 2]; \
-             if (!b) return 'none'; if ((b.getAttribute('aria-checked') === 'true') !== {want_muted}) b.click(); return b.getAttribute('aria-checked'); }})()"
+             if (!b) return 'none'; if ((b.getAttribute('aria-checked') === 'true') === {want_muted}) return 'ok'; b.click(); return 'clicked'; }})()"
         );
         self.chats.execute("discord", &js, move |r| {
-            if r.contains("none") {
-                later(|_| log!("push-to-talk: Discord's mic switch not found"));
+            if r.contains("ok") {
+                return;
             }
+            later(move |c| {
+                if tries >= 20 {
+                    log!("push-to-talk: Discord's mic switch not found or not changing");
+                    return;
+                }
+                timer(if r.contains("none") { 500 } else { 300 }, move |c| c.discord_mic_try(on, tries + 1));
+            });
         });
     }
 

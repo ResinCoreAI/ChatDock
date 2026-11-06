@@ -26,6 +26,11 @@ use crate::{
 /// The wait before pages go back to their lists (schedule_back_to_list).
 static BACK_TIMER: AtomicU64 = AtomicU64::new(0);
 
+/// Self-test: pages are going back to their lists in a while.
+pub fn back_pending() -> bool {
+    BACK_TIMER.load(Ordering::SeqCst) != 0
+}
+
 thread_local! {
     /// apps with a reply on its way (send_reply)
     static SENDING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
@@ -190,29 +195,44 @@ pub fn can_reply(app: &str) -> bool {
 const SEND_JS: &str = r#"(async (text, href, name) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const thread = (h) => (h.match(/\/t\/[^/?#]+/) || [''])[0];
-  const named = () => [...document.querySelectorAll('h1, h2, a[role="link"] span, header span, [role="main"] span')]
+  // the conversation's own header: never a list row or a link (those name other conversations)
+  const named = () => [...document.querySelectorAll('h1, h2, header span, [role="main"] span')]
+    .filter((e) => !e.closest('a, [role="link"], [role="row"], [role="listitem"], [role="gridcell"]'))
     .some((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.top < 160 && r.width > 0 && (e.textContent || '').trim() === name; });
   const isOpen = () => /\/t\//.test(location.pathname) && (href ? thread(location.pathname) === thread(href) : !!name && named());
   const boxes = () => [...document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')]
     .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 40 && r.height > 10; });
+  const content = (b) => (b.value || b.textContent || '').trim();
   let box = null;
   // by the clock, not by turns: a hidden page gets its timers once a second at most
   let until = Date.now() + 4000;
   while (Date.now() < until && !(isOpen() && (box = boxes().pop()))) await sleep(100);
   if (!isOpen()) return 'not opened';
+  // a single-page site changes its address before the conversation on screen: let it settle
+  await sleep(600);
+  box = boxes().pop() || null;
+  if (!isOpen()) return 'not opened';
   if (!box) return 'no composer';
-  if ((box.value || box.textContent || '').trim()) return 'typing';
+  if (content(box)) return 'typing';
+  const want = text.trim().replace(/\s+/g, ' ');
+  // how often it is in the conversation already ("OK" may well be): only one more counts as sent
+  const count = () => [...document.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
+    .slice(-60).filter((e) => !box.contains(e) && (e.textContent || '').trim().replace(/\s+/g, ' ') === want).length;
+  const before = count();
   box.focus();
   document.execCommand('insertText', false, text);
-  const want = text.trim().replace(/\s+/g, ' ');
-  const shown = () => [...document.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
-    .slice(-60).some((e) => !box.contains(e) && (e.textContent || '').trim().replace(/\s+/g, ' ') === want);
   const enter = (type) => box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
   enter('keydown'); enter('keypress'); enter('keyup');
   until = Date.now() + 4000;
   while (Date.now() < until) {
-    if (shown() && !(box.value || box.textContent || '').trim()) return 'confirmed';
+    if (count() > before && !content(box)) return 'confirmed';
     await sleep(100);
+  }
+  // not sent: what ChatDock typed doesn't stay in the box (the user's own text never gets here)
+  if (content(box).replace(/\s+/g, ' ') === want) {
+    box.focus();
+    document.execCommand('selectAll', false);
+    document.execCommand('delete', false);
   }
   return 'not confirmed';
 })(%TEXT%, %HREF%, %NAME%)"#;
@@ -364,6 +384,11 @@ impl Core {
             later(move |c| {
                 SENDING.with(|s| s.borrow_mut().remove(&a));
                 log!("{a}: {}", sent_log(&sent, &text));
+                if c.panel_state == PanelState::Hidden {
+                    // the page is on that conversation now: back to its list in a while, as after
+                    // the chat was hidden (the next message is read there, and isn't marked seen)
+                    c.schedule_back_to_list();
+                }
                 then(c, sent);
             });
         });

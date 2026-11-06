@@ -3070,6 +3070,23 @@ fn reply_send_test() {
     );
     view_js("facebook", &page("/direct/t/99/", "Nok", "", true));
     let by_name = send("", "Nok");
+    // review findings (1.8): the same text already in the conversation, a page that never shows it
+    // -> not "sent", and our text taken out of the box again; a list row with the name while
+    // another conversation is open -> not that one
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    view_js(
+        "facebook",
+        "(() => { const m = document.createElement('div'); m.dir = 'auto'; m.textContent = 'ทดสอบ ok'; document.querySelector('div').after(m); \
+         const box = document.querySelector('[role=textbox]'); box.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.textContent = ''; }); return 1; })()",
+    );
+    let repeated = send("/messages/t/1/", "Nok");
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    let _ = send("/messages/t/1/", "Nok");
+    let box_after = view_js("facebook", "String(document.querySelector('[role=textbox]').textContent)");
+    view_js("facebook", &page("/direct/t/98/", "Beam", "", true));
+    view_js("facebook", "(() => { const a = document.createElement('a'); a.setAttribute('role', 'link'); const s = document.createElement('span'); s.textContent = 'Nok'; a.append(s); a.style.cssText = 'position:fixed;top:40px;left:10px'; document.body.append(a); return 1; })()");
+    let row_named = send("", "Nok");
+    log!("reply (review): same text already there, never sent {repeated} (box after {box_after}) | a list row named Nok, Beam open {row_named} (expect NotConfirmed (\"\") | NotOpened)");
     log!(
         "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );
@@ -3115,12 +3132,13 @@ fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
     let sent = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent).join('|'))");
     wait(3000);
     let cards = on(|c| c.toasts_count());
+    let back = crate::inbox::back_pending(); // (the panel is hidden: the page goes back to its list)
     on(move |c| {
         c.settings.set("popups", popups_were);
         c.toasts.offscreen = false;
         c.counts.insert("facebook".into(), 0);
     });
-    log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} (expect the language's three | ✓ + the first | the first | 0)");
+    log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} | back to the list planned {back} (expect the language's three | ✓ + the first | the first | 0 | true)");
     reply_box_test(page);
 }
 
@@ -3181,6 +3199,39 @@ fn ptt_test() {
     let stuck = mic();
     wait(900);
     let recovered = (mic(), on(|c| c.edge.talking));
+    // review findings (1.8): a release while the call flag is off for a moment (the page reloading)
+    on(|c| c.ptt(true));
+    wait(300);
+    on(|c| {
+        c.chats.set_in_call("discord", false);
+        c.ptt(false);
+    });
+    wait(300);
+    let reload_release = (mic(), on(|c| c.edge.talking));
+    // push-to-talk switched off while the key is held
+    on(|c| {
+        c.chats.set_in_call("discord", true);
+        c.ptt(true);
+    });
+    wait(300);
+    on(|c| c.set_pref("pttOn", json!(false)));
+    wait(300);
+    let switched_off = (mic(), on(|c| c.edge.talking));
+    // a call that starts before Discord's mic switch is on the page: muted once it is there
+    on(|c| {
+        c.set_pref("pttOn", json!(true));
+        c.on_call("discord", false, false, false);
+    });
+    view_js(
+        "discord",
+        "(() => { const s = document.querySelector('section.panels_test'); window.__cdPanel = s; s.remove(); return 1; })()",
+    );
+    on(|c| c.on_call("discord", true, true, false));
+    wait(700);
+    view_js("discord", "(() => { const s = window.__cdPanel; s.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', 'false')); document.body.append(s); return 1; })()");
+    wait(1500);
+    let late_switch = mic();
+    log!("push-to-talk (review): released during a reload {reload_release:?} | switched off while held {switched_off:?} | the switch came late {late_switch} (expect (muted, false) | (muted, false) | muted)");
     let refused = on(|c| c.set_pref("pttKey", json!("KeyW")));
     on(|c| {
         c.on_call("discord", false, false, false);
@@ -3335,10 +3386,39 @@ fn reply_box_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
             "String(document.querySelectorAll('.card textarea').length + '/' + document.querySelectorAll('.card .qchip').length)",
         ),
     );
+    // review finding (1.8): while the box is open, the same person writes again, the mouse leaves
+    // the pop-ups, and three other people write: the box, and what is in it, stay
+    on(|c| c.toasts.test_idle_ms = Some(60_000));
+    pop();
+    page_js("toasts", "(() => { document.querySelector('.card textarea').value = 'กำลังพิมพ์'; return 1; })()");
+    on(|c| {
+        let nok =
+            crate::inbox::Latest {
+                name: "Nok".into(), text: "อีกข้อความ".into(), avatar: String::new(), href: "/messages/t/1/".into()
+            };
+        c.count_popup_for_test("facebook", Some(nok));
+    });
+    wait(500);
+    on(|c| {
+        c.on_toast_message("toast:hover", &[json!(true)]);
+        c.on_toast_message("toast:hover", &[json!(false)]);
+        for (i, who) in ["Ann", "Ben", "Cat"].iter().enumerate() {
+            c.on_site_notification("x", 0, who, "hi", "", &format!("busy{i}"));
+        }
+    });
+    wait(9000); // longer than a card's time
+    let kept = page_js("toasts", "String([...document.querySelectorAll('.card textarea')].map((t) => t.value).join('|'))");
+    on(|c| {
+        c.close_reply_box(true);
+        c.toasts.test_idle_ms = Some(2000);
+    });
     // left alone
     pop();
     wait(2800);
     let idle = (front("after idle"), page_js("toasts", "String(document.querySelectorAll('.card textarea').length)"));
+    log!(
+        "reply box (review): after the same person again, the mouse leaving and three more pop-ups, the box holds {kept} (expect กำลังพิมพ์)"
+    );
     on(move |c| {
         c.settings.set("popups", popups_were);
         c.toasts.offscreen = false;

@@ -77,6 +77,9 @@ pub struct Item {
     pub rows: Vec<Held>,
     /// from one of the important people (settings vips): shown through game mode, tagged
     pub vip: bool,
+    /// its reply box is open or its reply is on its way: it stays (no timing out, not replaced by
+    /// a newer message of the same conversation, never pushed out of view)
+    busy: bool,
     remaining: i64,
     timer: u64,
     started_at: i64,
@@ -114,6 +117,7 @@ impl Item {
             target: None,
             rows: Vec::new(),
             vip: false,
+            busy: false,
             remaining: 0,
             timer: 0,
             started_at: 0,
@@ -421,7 +425,11 @@ impl Core {
             self.toasts.display = self.display_at(x, y).map(|d| d.id).unwrap_or_default();
         }
         if !item.tag.is_empty() {
-            if let Some(same) = self.toasts.items.iter().find(|x| x.tag == item.tag).map(|x| x.key.clone()) {
+            if let Some(same) = self.toasts.items.iter().find(|x| x.tag == item.tag) {
+                if same.busy {
+                    return; // being answered: that card stays as it is (the reply goes to the same conversation)
+                }
+                let same = same.key.clone();
                 self.toast_remove(&same, false); // an update of the same conversation replaces the old card
             }
         }
@@ -512,7 +520,10 @@ impl Core {
         }
         rt::cancel(self.toasts.hide_fallback);
         let n = self.max_visible().min(self.toasts.items.len());
-        let visible: Vec<Item> = self.toasts.items[..n].to_vec();
+        let mut visible: Vec<Item> = self.toasts.items[..n].to_vec();
+        if let Some(busy) = self.toasts.items[n..].iter().find(|it| it.busy) {
+            visible[n - 1] = busy.clone(); // (the card being answered keeps its place on screen)
+        }
         let more = self.toasts.items.len() - n;
         self.toasts_send(&visible, more, is_new);
         if !win32::is_visible(self.toastwin.hwnd) && !self.toasts.pending_show {
@@ -647,6 +658,9 @@ impl Core {
                 }
             } else {
                 let it = &mut self.toasts.items[i];
+                if it.busy {
+                    continue; // (its time starts again once the reply is done)
+                }
                 if it.remaining > 0 {
                     it.remaining = it.remaining.max(2500);
                 }
@@ -894,6 +908,7 @@ impl Core {
         let it = &mut self.toasts.items[i];
         rt::cancel(it.timer); // no timing out while writing
         it.timer = 0;
+        it.busy = true;
         let fg = win32::foreground_window();
         self.toasts.reply_fg = if fg != 0 && !self.is_ours(fg) { fg } else { self.toasts.fg_before };
         self.toasts.replying = Some(key.to_string());
@@ -934,6 +949,7 @@ impl Core {
         }
         if cancelled {
             if let Some(i) = self.toasts.items.iter().position(|x| x.key == key) {
+                self.toasts.items[i].busy = false;
                 self.toasts.items[i].remaining = self.lifetime_ms();
                 self.toast_start(i);
             }
@@ -983,6 +999,7 @@ impl Core {
         let (app, target) = (it.app_id.clone(), it.target.clone());
         rt::cancel(it.timer); // no timing out while it is being sent
         it.timer = 0;
+        it.busy = true;
         let Some(target) = target else { return };
         self.emit("toasts", "toast:reply-state", json!([{ "key": key, "state": "sending", "text": text }]));
         let k = key.to_string();
@@ -1003,6 +1020,7 @@ impl Core {
                     json!([{ "key": k, "state": state, "text": t, "line": line, "open": c.t("toast.openChat") }]),
                 );
                 if let Some(i) = c.toasts.items.iter().position(|x| x.key == k) {
+                    c.toasts.items[i].busy = false;
                     // sent: gone in a moment; not sent: the usual time to read why
                     c.toasts.items[i].remaining = if sent == Sent::Confirmed { 2500 } else { c.lifetime_ms().max(6000) };
                     c.toast_start(i);
