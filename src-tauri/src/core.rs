@@ -1194,7 +1194,7 @@ impl Core {
             self.chats.set_in_call(id, live);
             self.last_used.insert(id.to_string(), rt::epoch_ms());
             log!("call {id} {}", if live { "started" } else { "ended" });
-            if id == "discord" && self.settings.bool("pttOn") && self.settings.str("pttKey") != "" {
+            if id == "discord" && self.settings.bool("pttOn") && !self.settings.str("pttKey").is_empty() {
                 if live {
                     self.discord_mic(false); // push-to-talk: quiet until the key is held
                 } else if self.edge.talking {
