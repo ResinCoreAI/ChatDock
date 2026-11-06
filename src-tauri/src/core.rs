@@ -421,6 +421,11 @@ impl Core {
         apps::get(id).is_some() && self.settings.app_on(id)
     }
 
+    /// The quick replies on pop-ups: the user's own, or the language's three.
+    pub fn quick_replies(&self) -> Vec<String> {
+        quick_list(self.settings.get("quickReplies"), &[self.t("quick.later"), self.t("quick.gaming"), self.t("quick.ok")])
+    }
+
     pub fn active(&self) -> String {
         self.settings.str("active").to_string()
     }
@@ -824,6 +829,17 @@ impl Core {
             "theme" => one_of(&["system", "dark", "light"]),
             "opacity" => v.as_f64().is_some_and(|n| (0.6..=1.0).contains(&n)),
             "hotkey" => v.as_str().is_some_and(|s| s.is_empty() || HOTKEYS.iter().any(|(a, _)| *a == s)),
+            "quickReplies" => quick_replies_ok(v),
+            "vips" => vips_ok(v),
+            // the reply box's hotkey: from the voice-key list, not one of the other hotkeys
+            "replyKey" => v.as_str().is_some_and(|s| {
+                s.is_empty()
+                    || (VOICE_KEYS.iter().any(|(a, _)| *a == s)
+                        && ["hotkey", "discordMuteKey", "discordDeafenKey"].iter().all(|k| s != self.settings.str(k)))
+            }),
+            "pttOn" => v.is_boolean(),
+            // until rawin.rs (push-to-talk) checks keys: a mouse side button, a letter, a digit or F-key
+            "pttKey" => v.as_str().is_some_and(|s| s.is_empty() || matches!(s, "Mouse4" | "Mouse5") || s.starts_with("Key") || s.starts_with("Digit") || s.starts_with('F')),
             "popupPosition" => one_of(&["top-right", "bottom-right", "top-left", "bottom-left"]),
             "popupDuration" => num_in(&[0.0, 5.0, 8.0, 12.0, 20.0, 30.0]),
             "popupMax" => num_in(&[1.0, 2.0, 3.0, 4.0, 5.0]),
@@ -2184,6 +2200,32 @@ pub const PREF_KEYS: [&str; 28] = [
     "updateAutoDownload",
 ];
 
+/// The quick replies: the user's own (setting quickReplies), or `defaults` (the language's three).
+fn quick_list(own: &Value, defaults: &[String; 3]) -> Vec<String> {
+    let own: Vec<String> = own.as_array().map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    if own.is_empty() {
+        defaults.to_vec()
+    } else {
+        own
+    }
+}
+
+/// At most three quick replies, each 1-60 characters that aren't all spaces.
+fn quick_replies_ok(v: &Value) -> bool {
+    v.as_array().is_some_and(|a| a.len() <= 3 && a.iter().all(|t| t.as_str().is_some_and(|s| !s.trim().is_empty() && s.chars().count() <= 60)))
+}
+
+/// Important people: at most 50, each of a known app, with a name of 1-80 characters.
+fn vips_ok(v: &Value) -> bool {
+    v.as_array().is_some_and(|a| {
+        a.len() <= 50
+            && a.iter().all(|p| {
+                p.get("app").and_then(Value::as_str).is_some_and(|x| apps::get(x).is_some())
+                    && p.get("name").and_then(Value::as_str).is_some_and(|n| !n.trim().is_empty() && n.chars().count() <= 80)
+            })
+    })
+}
+
 /// "1.5.2" -> [1, 5, 2] (anything unreadable counts as 0)
 pub fn version_parts(v: &str) -> Vec<u64> {
     v.split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect()
@@ -2278,7 +2320,32 @@ pub fn safe_icon(url: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{count_blink, same_folder, seen_after, test_folder, CountDrop};
+    use super::{count_blink, quick_list, quick_replies_ok, same_folder, seen_after, test_folder, vips_ok, CountDrop};
+    use serde_json::json;
+
+    #[test]
+    fn quick_replies_are_the_users_own_or_the_languages_three() {
+        let defaults = ["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(quick_list(&json!([]), &defaults), vec!["a", "b", "c"]);
+        assert_eq!(quick_list(&json!(null), &defaults), vec!["a", "b", "c"]);
+        assert_eq!(quick_list(&json!(["ไปละ", "ok"]), &defaults), vec!["ไปละ", "ok"]);
+        assert!(quick_replies_ok(&json!(["เดี๋ยวตอบนะ", "ok"])));
+        assert!(quick_replies_ok(&json!([])));
+        assert!(!quick_replies_ok(&json!(["a", "b", "c", "d"]))); // at most three
+        assert!(!quick_replies_ok(&json!(["  "])));
+        assert!(!quick_replies_ok(&json!(["x".repeat(61)])));
+        assert!(!quick_replies_ok(&json!("ok")));
+    }
+
+    #[test]
+    fn important_people_are_checked_before_they_are_kept() {
+        assert!(vips_ok(&json!([{ "app": "instagram", "name": "Nok" }])));
+        assert!(vips_ok(&json!([])));
+        assert!(!vips_ok(&json!([{ "app": "myspace", "name": "Tom" }])));
+        assert!(!vips_ok(&json!([{ "app": "instagram", "name": " " }])));
+        assert!(!vips_ok(&json!([{ "app": "instagram" }])));
+        assert!(!vips_ok(&json!((0..51).map(|i| json!({ "app": "x", "name": format!("p{i}") })).collect::<Vec<_>>())));
+    }
 
     #[test]
     fn a_folder_is_the_same_however_it_is_written() {

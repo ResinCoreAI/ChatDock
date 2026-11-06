@@ -63,6 +63,11 @@ fn defaults() -> Map<String, Value> {
         "discordDms": true,         // pop-ups for Discord direct and group messages
         "discordMuteKey": "",       // global hotkey that mutes / unmutes in Discord ("" = none)
         "discordDeafenKey": "",     // global hotkey that deafens / undeafens in Discord
+        "quickReplies": [],         // one-click replies on pop-ups; empty = the language's three (Core::quick_replies)
+        "replyKey": "",             // hotkey that opens the reply box of the newest pop-up ("" = none)
+        "vips": [],                 // important people: [{ app, name }]; their pop-ups come through game mode
+        "pttOn": false,             // Discord push-to-talk
+        "pttKey": "",               // its key: "KeyV", "F13", "Mouse4", "Mouse5" ... ("" = not chosen yet)
         "onboarded": false
     });
     match v {
@@ -99,6 +104,26 @@ fn read_saved(file: &Path) -> Option<Map<String, Value>> {
         }
     }
     None
+}
+
+/// A name as compared: trimmed, spaces squeezed, lower case, a Thai tone mark before SARA AM (the
+/// order most keyboards type it in).
+fn name_key(name: &str) -> String {
+    let squeezed = name.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    ['\u{0E48}', '\u{0E49}', '\u{0E4A}', '\u{0E4B}']
+        .iter()
+        .fold(squeezed, |s, tone| s.replace(&format!("\u{0E33}{tone}"), &format!("{tone}\u{0E33}")))
+}
+
+/// The pop-up's sender is one of the important people of that app.
+pub fn vip_match(vips: &Value, app: &str, name: &str) -> bool {
+    let key = name_key(name);
+    !key.is_empty()
+        && vips.as_array().is_some_and(|list| {
+            list.iter().any(|v| {
+                v.get("app").and_then(Value::as_str) == Some(app) && v.get("name").and_then(Value::as_str).map(name_key).as_deref() == Some(key.as_str())
+            })
+        })
 }
 
 /// A settings file from before 1.7.5 with the hold time at the edge still at 3 s, the default until then.
@@ -323,6 +348,31 @@ mod tests {
         drop(lock);
         s.flush();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), good);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn important_people_match_however_the_name_is_written() {
+        let vips = json!([{ "app": "facebook", "name": "แม่" }, { "app": "instagram", "name": "Nok Jaidee" }]);
+        assert!(super::vip_match(&vips, "facebook", "แม่"));
+        assert!(super::vip_match(&vips, "facebook", " แม่ "));
+        assert!(super::vip_match(&vips, "instagram", "nok  jaidee"));
+        assert!(!super::vip_match(&vips, "facebook", "Nok Jaidee")); // another app
+        assert!(!super::vip_match(&vips, "instagram", "Nok"));
+        assert!(!super::vip_match(&vips, "facebook", ""));
+        // Thai with the tone mark and SARA AM typed in the other order is the same name
+        assert!(super::vip_match(&json!([{ "app": "x", "name": "น\u{0E49}\u{0E33}" }]), "x", "น\u{0E33}\u{0E49}"));
+    }
+
+    #[test]
+    fn the_new_settings_have_defaults() {
+        let dir = test_dir("defaults18");
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("settings.json"));
+        let s = Settings::load(&dir);
+        assert_eq!(s.get("quickReplies").as_array().map(|a| a.len()), Some(0)); // empty = the language's three
+        assert_eq!((s.str("replyKey"), s.bool("pttOn"), s.str("pttKey")), ("", false, ""));
+        assert_eq!(s.get("vips").as_array().map(|a| a.len()), Some(0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

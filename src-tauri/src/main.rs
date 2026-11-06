@@ -4,6 +4,7 @@
 //! Tauri gives the windows (ChatDock's own pages in ui/), the tray, the global hotkey, one instance
 //! only, and signed updates; the chat sites run in WebView2 views of their own (chats.rs).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![recursion_limit = "256"] // settings.rs defaults() is one large json! literal
 
 mod apps;
 mod autostart;
