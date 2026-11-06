@@ -268,6 +268,23 @@
           </div>
         </div>
 
+        <h2 class="sec-title" data-i18n="set.replies"></h2>
+        <div class="card" data-dim-when="popups-off">
+          <div class="row col">
+            <div class="label"><b data-i18n="set.quick"></b><small data-i18n="set.quickNote"></small></div>
+            <div class="quick-fields">
+              <input type="text" id="quick-0" maxlength="60" data-quick="0">
+              <input type="text" id="quick-1" maxlength="60" data-quick="1">
+              <input type="text" id="quick-2" maxlength="60" data-quick="2">
+            </div>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.replyKey"></b><small data-i18n="set.replyKeyNote"></small></div>
+            <select data-pref="replyKey" data-reply-keys></select>
+          </div>
+          <button class="link-row" data-goto="vips"><span data-i18n="set.vips"></span><span class="chev" data-icon="chevronRight"></span></button>
+        </div>
+
         <h2 class="sec-title" data-i18n="s.popupLook"></h2>
         <div class="card" data-dim-when="popups-off">
           <div class="row col">
@@ -339,6 +356,14 @@
         <p class="hint" data-i18n="set.perAppNote"></p>
       </div>
 
+      <!-- ─────────────── Important people (from Notifications) ─────────────── -->
+      <div class="set-page" data-page="vips" data-title="set.vips" hidden>
+        <p class="hint" data-i18n="set.vipsNote"></p>
+        <div class="card" data-vip-list></div>
+        <h2 class="sec-title" data-i18n="set.vipsRecent"></h2>
+        <div class="card" data-vip-recent></div>
+      </div>
+
       <!-- ─────────────── Discord (only while it is on) ─────────────── -->
       <div class="set-page" data-page="discord" data-title="dc.title" hidden>
         <div class="card dc-hero">
@@ -358,6 +383,18 @@
           </div>
         </div>
         <p class="hint" data-i18n="dc.voiceHint"></p>
+
+        <h2 class="sec-title" data-i18n="ptt.title"></h2>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="ptt.on"></b><small data-i18n="ptt.note"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="pttOn"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="ptt.key"></b><small data-i18n="ptt.keyNote"></small></div>
+            <select data-pref="pttKey" data-ptt-keys></select>
+          </div>
+        </div>
 
         <h2 class="sec-title" data-i18n="dc.popups"></h2>
         <div class="card">

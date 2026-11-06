@@ -74,6 +74,12 @@
       chatdock.send('settings:app-pref', row.dataset.app, node.dataset.appPref, node.checked);
       return;
     }
+    if (node.dataset.quick !== undefined) {
+      // the three quick replies: the ones filled in, in order (none = the language's own)
+      const own = [...qa('[data-quick]')].map((i) => i.value.trim()).filter(Boolean);
+      chatdock.send('settings:set', 'quickReplies', own);
+      return;
+    }
     const key = node.dataset.pref;
     if (!key) return;
     if (node.type === 'checkbox') chatdock.send('settings:set', key, node.checked);
@@ -87,6 +93,10 @@
     const row = btn.closest('[data-app]');
     if (btn.dataset.goto) {
       goto(btn.dataset.goto);
+    } else if (btn.dataset.vipAdd !== undefined) {
+      chatdock.send('settings:action', 'vip-add', Number(btn.dataset.vipAdd));
+    } else if (btn.dataset.vipRemove !== undefined) {
+      chatdock.send('settings:action', 'vip-remove', Number(btn.dataset.vipRemove));
     } else if (btn.dataset.monitor !== undefined) {
       chatdock.send('settings:set', 'displayId', btn.dataset.monitor);
     } else if (btn.dataset.pref && btn.dataset.value !== undefined) {
@@ -555,6 +565,54 @@
     }
   }
 
+  // ---------------------------------------------------------------- 1.8: replies, important people, push-to-talk
+  let keyLists = '';
+  function renderReplies() {
+    const lists = `${window.i18n.lang}|${st.replyKeys.length}|${st.pttKeys.map((k) => k.label).join('|')}`;
+    if (lists !== keyLists) {
+      keyLists = lists;
+      for (const sel of qa('[data-reply-keys]')) {
+        sel.textContent = '';
+        sel.append(new Option(t('set.hotkeyNone'), ''));
+        for (const k of st.replyKeys) sel.append(new Option(k.label, k.acc));
+      }
+      for (const sel of qa('[data-ptt-keys]')) {
+        sel.textContent = '';
+        sel.append(new Option(t('ptt.pick'), ''));
+        for (const k of st.pttKeys) sel.append(new Option(k.label, k.code));
+      }
+    }
+    const own = st.prefs.quickReplies || [];
+    qa('[data-quick]').forEach((input, i) => {
+      input.placeholder = st.quickDefaults[i] || '';
+      if (document.activeElement !== input) input.value = own[i] || '';
+    });
+    const row = (name, sub, btn) => {
+      const r = el('div', 'row');
+      const label = el('div', 'label');
+      label.append(el('b', '', name), el('small', '', sub));
+      r.append(label, btn);
+      return r;
+    };
+    const list = q('[data-vip-list]');
+    list.textContent = '';
+    (st.vips || []).forEach((v, i) => {
+      const b = el('button', 'secondary small', `★ ${t('set.vipRemove')}`);
+      b.dataset.vipRemove = String(i);
+      list.append(row(v.name, appName(v.app), b));
+    });
+    if (!list.childElementCount) list.append(el('p', 'empty', t('set.vipsNone')));
+    const recent = q('[data-vip-recent]');
+    recent.textContent = '';
+    (st.recent || []).forEach((v, i) => {
+      const b = el('button', 'secondary small', `☆ ${t('set.vipAdd')}`);
+      b.dataset.vipAdd = String(i);
+      recent.append(row(v.name, v.appName, b));
+    });
+    if (!recent.childElementCount) recent.append(el('p', 'empty', t('set.vipsRecentNone')));
+  }
+  const appName = (id) => ((st.apps || []).find((a) => a.id === id) || {}).name || id;
+
   // ---------------------------------------------------------------- the rest
   function renderPrefs(p) {
     for (const node of qa('[data-pref]')) {
@@ -709,6 +767,7 @@
   function render() {
     renderHotkeys();
     renderDiscord(); // fills its key lists before renderPrefs picks the chosen ones
+    renderReplies(); // (the same for the reply and push-to-talk keys)
     renderApps();
     renderPrefs(st.prefs);
     renderNotes();

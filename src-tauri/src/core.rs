@@ -421,6 +421,12 @@ impl Core {
         apps::get(id).is_some() && self.settings.app_on(id)
     }
 
+    /// Who wrote lately and isn't one of the important people yet (Settings → Important people).
+    pub fn recent_not_vip(&self) -> Vec<(String, String)> {
+        let vips = self.settings.get("vips").clone();
+        self.toasts.recent.iter().filter(|(a, n)| !crate::settings::vip_match(&vips, a, n)).cloned().collect()
+    }
+
     /// The quick replies on pop-ups: the user's own, or the language's three.
     pub fn quick_replies(&self) -> Vec<String> {
         quick_list(self.settings.get("quickReplies"), &[self.t("quick.later"), self.t("quick.gaming"), self.t("quick.ok")])
@@ -778,6 +784,11 @@ impl Core {
             "hotkeyOk": self.hotkey_ok,
             "voiceKeys": VOICE_KEYS.iter().map(|(acc, label)| json!({ "acc": acc, "label": label.replace("Ctrl", &self.t("key.ctrl")) })).collect::<Vec<_>>(),
             "discord": self.discord_state(),
+            "quickDefaults": [self.t("quick.later"), self.t("quick.gaming"), self.t("quick.ok")],
+            "replyKeys": REPLY_KEYS.iter().map(|(acc, label)| json!({ "acc": acc, "label": label.replace("Ctrl", &self.t("key.ctrl")) })).collect::<Vec<_>>(),
+            "pttKeys": PTT_KEYS.iter().map(|(code, label)| json!({ "code": code, "label": if label.starts_with("ptt.") { self.t(label) } else { label.to_string() } })).collect::<Vec<_>>(),
+            "vips": self.settings.get("vips"),
+            "recent": self.recent_not_vip().iter().map(|(app, name)| json!({ "app": app, "appName": apps::get(app).map(|a| a.name).unwrap_or(""), "name": name })).collect::<Vec<_>>(),
             "dndUntil": self.settings.get("dndUntil"),
             "update": self.update_state_json(),
             "version": version,
@@ -831,10 +842,10 @@ impl Core {
             "hotkey" => v.as_str().is_some_and(|s| s.is_empty() || HOTKEYS.iter().any(|(a, _)| *a == s)),
             "quickReplies" => quick_replies_ok(v),
             "vips" => vips_ok(v),
-            // the reply box's hotkey: from the voice-key list, not one of the other hotkeys
+            // the reply box's hotkey: from its list, not one of the other hotkeys
             "replyKey" => v.as_str().is_some_and(|s| {
                 s.is_empty()
-                    || (VOICE_KEYS.iter().any(|(a, _)| *a == s)
+                    || (REPLY_KEYS.iter().any(|(a, _)| *a == s)
                         && ["hotkey", "discordMuteKey", "discordDeafenKey"].iter().all(|k| s != self.settings.str(k)))
             }),
             "pttOn" => v.is_boolean(),
@@ -981,6 +992,24 @@ impl Core {
             "close" => self.close_settings(),
             "test-popup" => self.test_popup(),
             "game-intro" => self.show_game_mode_intro(true),
+            // important people: one of who wrote lately added, one of the list taken off (by place)
+            "vip-add" => {
+                if let Some((app, name)) = arg.as_u64().and_then(|i| self.recent_not_vip().get(i as usize).cloned()) {
+                    let mut list = self.settings.get("vips").as_array().cloned().unwrap_or_default();
+                    list.push(json!({ "app": app, "name": name.trim() }));
+                    if self.set_pref("vips", Value::Array(list)) {
+                        self.broadcast_state();
+                    }
+                }
+            }
+            "vip-remove" => {
+                let mut list = self.settings.get("vips").as_array().cloned().unwrap_or_default();
+                if let Some(i) = arg.as_u64().map(|i| i as usize).filter(|i| *i < list.len()) {
+                    list.remove(i);
+                    self.set_pref("vips", Value::Array(list));
+                    self.broadcast_state();
+                }
+            }
             "dnd" => {
                 if let Some(m) = arg.as_i64().filter(|m| [0, 30, 60, 120, 480, -1].contains(m)) {
                     self.set_dnd(m);
@@ -2236,6 +2265,26 @@ impl Core {
 }
 
 /// Keys for Discord's mute / deafen (the panel's hotkeys are in HOTKEYS).
+/// The reply box's hotkey (1.8): R for reply.
+pub const REPLY_KEYS: [(&str, &str); 2] = [("Control+Alt+R", "Ctrl + Alt + R"), ("Control+Alt+Shift+R", "Ctrl + Alt + Shift + R")];
+
+/// Push-to-talk keys offered (wheel.rs names; a label starting with "ptt." is translated).
+pub const PTT_KEYS: [(&str, &str); 13] = [
+    ("Mouse4", "ptt.mouse4"),
+    ("Mouse5", "ptt.mouse5"),
+    ("KeyV", "V"),
+    ("KeyB", "B"),
+    ("KeyT", "T"),
+    ("KeyX", "X"),
+    ("KeyZ", "Z"),
+    ("KeyC", "C"),
+    ("CapsLock", "Caps Lock"),
+    ("Backquote", "` ~"),
+    ("F13", "F13"),
+    ("F14", "F14"),
+    ("F15", "F15"),
+];
+
 pub const VOICE_KEYS: [(&str, &str); 6] = [
     ("Control+Alt+M", "Ctrl + Alt + M"),
     ("Control+Alt+D", "Ctrl + Alt + D"),
@@ -2245,7 +2294,7 @@ pub const VOICE_KEYS: [(&str, &str); 6] = [
     ("Alt+F10", "Alt + F10"),
 ];
 
-pub const PREF_KEYS: [&str; 28] = [
+pub const PREF_KEYS: [&str; 32] = [
     "lang",
     "side",
     "edgeMode",
@@ -2272,6 +2321,10 @@ pub const PREF_KEYS: [&str; 28] = [
     "discordDms",
     "discordMuteKey",
     "discordDeafenKey",
+    "quickReplies",
+    "replyKey",
+    "pttOn",
+    "pttKey",
     "updateAutoCheck",
     "updateAutoDownload",
 ];

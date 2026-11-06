@@ -118,6 +118,9 @@ pub fn start() {
             news_demo_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
+        } else if only.as_deref() == Some("settings18") {
+            wait(4000); // ChatDock's own pages load
+            settings18_test();
         } else if only.as_deref() == Some("ptt") {
             wait(8000); // the pages load
             ptt_test();
@@ -3186,6 +3189,55 @@ fn ptt_test() {
     });
     log!(
         "push-to-talk: joined {joined} | held: mic, talking, glow {held:?} after {opened_ms} ms | released {released:?} | a lost release: {stuck} then {recovered:?} | W as the key accepted {refused} (expect muted | (open, true, true) under 100 ms | (muted, false) | open then (muted, false) | false)"
+    );
+}
+
+/// 1.8's Settings rows, driven in the page: quick replies typed in, the reply hotkey picked, an
+/// important person added from who wrote lately and taken off again, push-to-talk on with a key.
+/// The panel is shown off screen (nothing takes the keyboard).
+fn settings18_test() {
+    on(|c| {
+        c.toasts.recent = vec![("instagram".into(), "Nok".into()), ("facebook".into(), "แม่".into())];
+        c.open_settings("popups", "selftest");
+    });
+    wait(1500);
+    let fields = page_js("panel", "String([...document.querySelectorAll('[data-quick]')].map((i) => i.placeholder).join('|'))");
+    page_js(
+        "panel",
+        "(() => { const f = document.querySelectorAll('[data-quick]'); f[0].value = 'ไปละ'; f[0].dispatchEvent(new Event('change', { bubbles: true })); return 1; })()",
+    );
+    wait(400);
+    let quick = on(|c| c.quick_replies().join("|"));
+    page_js("panel", "(() => { const s = document.querySelector('[data-pref=replyKey]'); s.value = s.options[1].value; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()");
+    wait(400);
+    let reply_key = on(|c| c.settings.str("replyKey").to_string());
+    on(|c| c.emit("panel", "settings:goto", json!(["vips"])));
+    wait(600);
+    let listed = page_js("panel", "String([...document.querySelectorAll('[data-page=vips] [data-vip-add]')].map((b) => b.closest('.row').querySelector('b').textContent).join('|'))");
+    js_click("panel", "[data-page=vips] [data-vip-add]");
+    wait(500);
+    let added = on(|c| c.settings.get("vips").to_string());
+    js_click("panel", "[data-page=vips] [data-vip-remove]");
+    wait(500);
+    let removed = on(|c| c.settings.get("vips").to_string());
+    on(|c| c.emit("panel", "settings:goto", json!(["discord"])));
+    wait(500);
+    page_js(
+        "panel",
+        "(() => { const k = document.querySelector('[data-pref=pttKey]'); k.value = 'Mouse4'; k.dispatchEvent(new Event('change', { bubbles: true })); \
+         const s = document.querySelector('[data-pref=pttOn]'); s.checked = true; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()",
+    );
+    wait(400);
+    let ptt = on(|c| (c.settings.bool("pttOn"), c.settings.str("pttKey").to_string()));
+    on(|c| {
+        c.set_pref("pttOn", json!(false));
+        c.set_pref("pttKey", json!(""));
+        c.set_pref("quickReplies", json!([]));
+        c.set_pref("replyKey", json!(""));
+        c.close_panel(true, "selftest");
+    });
+    log!(
+        "settings 1.8: quick fields {fields} | after typing {quick} | reply key {reply_key} | people to add {listed} | added {added} | removed {removed} | push-to-talk {ptt:?} (expect the three defaults | ไปละ + nothing else | Control+Alt+R | Nok|แม่ | Nok on instagram | [] | (true, \"Mouse4\"))"
     );
 }
 

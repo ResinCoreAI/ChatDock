@@ -741,3 +741,9 @@ select option { background: var(--card); color: var(--text); }
 .link-row span:first-child { flex: 1; }
 .link-row:hover { background: var(--hover); }
 .quit { width: 100%; height: 40px; }
+
+/* 1.8: quick replies, important people */
+.quick-fields { display: grid; gap: 6px; }
+.quick-fields input { width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-soft); color: var(--text); font: inherit; }
+.quick-fields input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+[data-vip-list] .empty, [data-vip-recent] .empty { margin: 0; padding: 12px 14px; color: var(--muted); font-size: 13px; }
