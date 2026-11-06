@@ -263,9 +263,18 @@ mod tests {
 
     use super::Settings;
 
+    /// A scratch folder of the test's own under target/ (the system temp folder may be closed to
+    /// new folders, as in sandboxed runs).
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-tmp")
+            .join(format!("settings-{name}-{}", std::process::id()))
+    }
+
     #[test]
     fn the_old_three_second_hold_moves_to_half_a_second_once() {
-        let dir = std::env::temp_dir().join(format!("chatdock-settings-test-{}", std::process::id()));
+        let dir = test_dir("hold");
         std::fs::create_dir_all(&dir).unwrap();
         let load = |saved: Value| {
             std::fs::write(dir.join("settings.json"), saved.to_string()).unwrap();
@@ -289,7 +298,7 @@ mod tests {
 
     #[test]
     fn a_file_that_isnt_settings_is_kept_aside_not_lost() {
-        let dir = std::env::temp_dir().join(format!("chatdock-settings-bad-{}", std::process::id()));
+        let dir = test_dir("bad");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
         // saved by an editor with a BOM: still read
