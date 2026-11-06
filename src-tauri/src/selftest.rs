@@ -3271,6 +3271,23 @@ fn ptt_test() {
     wait(3000);
     let tap = (mic(), view_js("discord", "String(window.__clicks)"));
     log!("push-to-talk (slow Discord): held {slow:?} | released {slow_off:?} | a quick tap {tap:?} (expect (open, 1) | (muted, 2) | (muted, 2))");
+    // DeepSeek F12: the key is read by polling while in a call (no keyboard sink): held -> open,
+    // let go -> muted; the call ending while it is held -> muted, and nothing read after
+    crate::wheel::test_hold(true);
+    wait(2000);
+    let polled_held = (mic(), on(|c| c.edge.talking));
+    crate::wheel::test_hold(false);
+    wait(2000);
+    let polled_up = (mic(), on(|c| c.edge.talking));
+    crate::wheel::test_hold(true);
+    wait(2000);
+    on(|c| c.on_call("discord", false, false, false));
+    wait(2000);
+    let call_ended = (mic(), on(|c| c.edge.talking), crate::wheel::polling());
+    crate::wheel::test_hold(false);
+    on(|c| c.on_call("discord", true, true, false));
+    wait(1500);
+    log!("push-to-talk (polled): held {polled_held:?} | let go {polled_up:?} | the call ended while held {call_ended:?} (expect (open, true) | (muted, false) | (muted, false, false))");
     let refused = on(|c| c.set_pref("pttKey", json!("KeyW")));
     on(|c| {
         c.on_call("discord", false, false, false);

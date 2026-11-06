@@ -1205,9 +1205,11 @@ impl Core {
                 if live {
                     self.discord_mic(false); // push-to-talk: quiet until the key is held
                 } else if self.edge.talking {
-                    self.edge.talking = false;
-                    self.update_glow(false);
+                    self.ptt(false); // the call ended while talking: the mic ends muted
                 }
+            }
+            if id == "discord" {
+                self.apply_ptt(); // the key is read only during a call
             }
             self.apply_audio(id); // "all chat sounds off" leaves a call audible
         }
@@ -2161,6 +2163,8 @@ impl Core {
         let on = self.settings.bool("pttOn") && self.is_enabled("discord");
         let code = if on { crate::wheel::key_code(self.settings.str("pttKey")).unwrap_or(0) } else { 0 };
         crate::wheel::set_ptt(code);
+        // a keyboard key is read only while in a Discord call (stopping while held mutes)
+        crate::wheel::poll(crate::wheel::is_key(code) && self.chats.in_call("discord"));
     }
 
     /// Discord's mic on or off (its user panel's switch says aria-checked="true" while muted):

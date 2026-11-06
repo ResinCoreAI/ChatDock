@@ -19,7 +19,7 @@ use windows::{
         UI::{
             Input::{
                 GetRawInputData, KeyboardAndMouse::GetAsyncKeyState, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE,
-                RAWINPUTHEADER, RIDEV_INPUTSINK, RIDEV_REMOVE, RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE,
+                RAWINPUTHEADER, RIDEV_INPUTSINK, RIDEV_REMOVE, RID_INPUT, RIM_TYPEMOUSE,
             },
             WindowsAndMessaging::{
                 CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostMessageW, RegisterClassW, HWND_MESSAGE, MSG,
@@ -39,6 +39,10 @@ static LAST: AtomicI64 = AtomicI64::new(0);
 /// the push-to-talk key (key_code), 0 = none; whether it is held right now
 static PTT: AtomicU32 = AtomicU32::new(0);
 static PTT_DOWN: AtomicBool = AtomicBool::new(false);
+/// a push-to-talk key (not a side button) is read every 15 ms while this is on (in a Discord call);
+/// each start bumps the generation, so an older loop stops
+static POLLING: AtomicBool = AtomicBool::new(false);
+static POLL_GEN: AtomicU32 = AtomicU32::new(0);
 /// self-test only: the push-to-talk key counts as held
 static TEST_HELD: AtomicBool = AtomicBool::new(false);
 
@@ -112,16 +116,52 @@ fn post_listen() {
     }
 }
 
-/// One raw input event against the push-to-talk key: Some(down) when it is that key going down
-/// or up. `kind` = RIM_TYPEKEYBOARD / RIM_TYPEMOUSE; keyboard: its virtual key and flags (bit 0 =
-/// RI_KEY_BREAK, up); mouse: its button flags (side button 4 down 0x40 / up 0x80, 5 0x100 / 0x200).
-fn ptt_edge(kind: u32, vkey: u16, kflags: u16, buttons: u32, ptt: u32) -> Option<bool> {
-    if ptt == 0 {
-        return None;
+/// A push-to-talk key that is a keyboard key (read by polling; the side buttons come as raw input).
+pub fn is_key(code: u32) -> bool {
+    code != 0 && code != MOUSE4 && code != MOUSE5
+}
+
+/// One poll of the key: Some(down) when it changed since the last one.
+fn poll_edge(was: bool, held: bool) -> Option<bool> {
+    (was != held).then_some(held)
+}
+
+/// Reads the push-to-talk key every 15 ms while `on` (a keyboard key, in a Discord call); no
+/// keyboard input is copied from other programs. Stopping while it is held lets it go (muted).
+pub fn poll(on: bool) {
+    if !on {
+        if POLLING.swap(false, Ordering::Relaxed) {
+            POLL_GEN.fetch_add(1, Ordering::Relaxed);
+        }
+        return;
     }
-    if kind == RIM_TYPEKEYBOARD.0 {
-        return (ptt != MOUSE4 && ptt != MOUSE5 && vkey as u32 == ptt).then_some(kflags & 1 == 0);
+    if POLLING.swap(true, Ordering::Relaxed) {
+        return;
     }
+    let gen = POLL_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let started = std::thread::Builder::new().name("chatdock-ptt".into()).spawn(move || {
+        while POLLING.load(Ordering::Relaxed) && POLL_GEN.load(Ordering::Relaxed) == gen {
+            if let Some(down) = poll_edge(PTT_DOWN.load(Ordering::Relaxed), ptt_held()) {
+                ptt_change(down);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        ptt_change(false);
+    });
+    if let Err(err) = started {
+        POLLING.store(false, Ordering::Relaxed);
+        log!("push-to-talk: no thread: {err}");
+    }
+}
+
+/// The push-to-talk key is being polled now.
+pub fn polling() -> bool {
+    POLLING.load(Ordering::Relaxed)
+}
+
+/// One raw mouse event against the push-to-talk side button: Some(down) when it is that button
+/// going down or up (its button flags: side button 4 down 0x40 / up 0x80, 5 0x100 / 0x200).
+fn ptt_edge(buttons: u32, ptt: u32) -> Option<bool> {
     let (down, up) = match ptt {
         MOUSE4 => (0x40, 0x80),
         MOUSE5 => (0x100, 0x200),
@@ -186,24 +226,21 @@ pub fn start() {
     }
 }
 
-/// Copies of the mouse while the edge is held (or a side button talks), of the keyboard while a
-/// key talks; neither otherwise.
+/// Copies of the mouse while the edge is held (or a side button talks); none otherwise. The
+/// keyboard is never copied (a push-to-talk key is polled).
 unsafe fn register(hwnd: HWND) {
     let ptt = PTT.load(Ordering::Relaxed);
-    let mouse = LISTENING.load(Ordering::Relaxed) || ptt == MOUSE4 || ptt == MOUSE5;
-    let keyboard = ptt != 0 && ptt != MOUSE4 && ptt != MOUSE5;
-    for (usage, on) in [(0x02u16, mouse), (0x06u16, keyboard)] {
-        let device = RAWINPUTDEVICE {
-            usUsagePage: 0x01, // generic desktop
-            usUsage: usage,    // mouse / keyboard
-            dwFlags: if on { RIDEV_INPUTSINK } else { RIDEV_REMOVE },
-            hwndTarget: if on { hwnd } else { HWND::default() },
-        };
-        // (removing what was never registered fails harmlessly)
-        if let Err(err) = RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32) {
-            if on {
-                log!("raw input {}: {err}", if usage == 2 { "mouse" } else { "keyboard" });
-            }
+    let on = LISTENING.load(Ordering::Relaxed) || ptt == MOUSE4 || ptt == MOUSE5;
+    let device = RAWINPUTDEVICE {
+        usUsagePage: 0x01, // generic desktop
+        usUsage: 0x02,     // mouse
+        dwFlags: if on { RIDEV_INPUTSINK } else { RIDEV_REMOVE },
+        hwndTarget: if on { hwnd } else { HWND::default() },
+    };
+    // (removing what was never registered fails harmlessly)
+    if let Err(err) = RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32) {
+        if on {
+            log!("raw input mouse: {err}");
         }
     }
 }
@@ -230,12 +267,7 @@ unsafe extern "system" fn wheel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
                 if flags & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL) != 0 && LISTENING.load(Ordering::Relaxed) {
                     LAST.store(rt::epoch_ms(), Ordering::Relaxed);
                 }
-                if let Some(down) = ptt_edge(RIM_TYPEMOUSE.0, 0, 0, flags, ptt) {
-                    ptt_change(down);
-                }
-            } else if got != u32::MAX && got != 0 && raw.header.dwType == RIM_TYPEKEYBOARD.0 {
-                let k = raw.data.keyboard;
-                if let Some(down) = ptt_edge(RIM_TYPEKEYBOARD.0, k.VKey, k.Flags, 0, ptt) {
+                if let Some(down) = ptt_edge(flags, ptt) {
                     ptt_change(down);
                 }
             }
@@ -266,22 +298,26 @@ mod tests {
 
 #[cfg(test)]
 mod decode_tests {
-    use super::{ptt_edge, MOUSE4, MOUSE5};
+    use super::{is_key, poll_edge, ptt_edge, MOUSE4, MOUSE5};
 
     #[test]
-    fn push_to_talk_reads_its_own_key_only() {
-        const KB: u32 = 1; // RIM_TYPEKEYBOARD
-        const MS: u32 = 0; // RIM_TYPEMOUSE
-        assert_eq!(ptt_edge(KB, 0x7C, 0, 0, 0x7C), Some(true)); // F13 down
-        assert_eq!(ptt_edge(KB, 0x7C, 1, 0, 0x7C), Some(false)); // F13 up (RI_KEY_BREAK)
-        assert_eq!(ptt_edge(KB, 0x56, 0, 0, 0x7C), None); // another key
-        assert_eq!(ptt_edge(KB, 0x7C, 0, 0, 0), None); // no key chosen
-        assert_eq!(ptt_edge(MS, 0, 0, 0x40, MOUSE4), Some(true));
-        assert_eq!(ptt_edge(MS, 0, 0, 0x80, MOUSE4), Some(false));
-        assert_eq!(ptt_edge(MS, 0, 0, 0x100, MOUSE5), Some(true));
-        assert_eq!(ptt_edge(MS, 0, 0, 0x200, MOUSE5), Some(false));
-        assert_eq!(ptt_edge(MS, 0, 0, 0x40, MOUSE5), None); // button 4 while 5 talks
-        assert_eq!(ptt_edge(MS, 0, 0, 0x0400, MOUSE4), None); // the wheel
-        assert_eq!(ptt_edge(MS, 0, 0, 0x40, 0x7C), None); // a mouse button while a key talks
+    fn push_to_talk_reads_its_own_button_only() {
+        assert_eq!(ptt_edge(0x40, MOUSE4), Some(true));
+        assert_eq!(ptt_edge(0x80, MOUSE4), Some(false));
+        assert_eq!(ptt_edge(0x100, MOUSE5), Some(true));
+        assert_eq!(ptt_edge(0x200, MOUSE5), Some(false));
+        assert_eq!(ptt_edge(0x40, MOUSE5), None); // button 4 while 5 talks
+        assert_eq!(ptt_edge(0x0400, MOUSE4), None); // the wheel
+        assert_eq!(ptt_edge(0x40, 0x7C), None); // a mouse button while a key talks
+        assert_eq!(ptt_edge(0x40, 0), None); // nothing chosen
+    }
+
+    #[test]
+    fn a_polled_key_changes_once_per_press() {
+        assert_eq!(poll_edge(false, true), Some(true)); // pressed
+        assert_eq!(poll_edge(true, true), None); // still held
+        assert_eq!(poll_edge(true, false), Some(false)); // let go
+        assert_eq!(poll_edge(false, false), None);
+        assert!(is_key(0x7C) && !is_key(MOUSE4) && !is_key(MOUSE5) && !is_key(0));
     }
 }
