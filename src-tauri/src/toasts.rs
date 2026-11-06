@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use crate::{
     apps,
     core::{timer, Core},
+    inbox::Sent,
     log, rt,
     win32::{self, Display, Rect},
 };
@@ -431,7 +432,10 @@ impl Core {
                     })
                     .collect();
                 let more = it.rows.len().saturating_sub(SUMMARY_ROWS);
+                // one-click replies: a card about one conversation of an app that takes replies
+                let quick = if it.rows.is_empty() && it.target.is_some() && crate::inbox::can_reply(&it.app_id) { self.quick_replies() } else { vec![] };
                 json!({
+                    "quick": quick,
                     "key": it.key, "appId": it.app_id, "appName": it.app_name, "iconName": it.icon_name, "accent": it.accent,
                     "title": it.title, "body": it.body, "icon": it.icon, "meta": it.meta, "hint": it.hint,
                     "rows": rows, "moreRows": more, "moreLabel": self.tv("game.more", &[("n", more.to_string())]),
@@ -811,8 +815,47 @@ impl Core {
                 let on = args.first().and_then(Value::as_bool).unwrap_or(false);
                 self.set_hovered(on);
             }
+            "toast:quick" => {
+                let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
+                let i = args.get(1).and_then(Value::as_u64).unwrap_or(0) as usize;
+                if let Some(text) = self.quick_replies().get(i).cloned() {
+                    self.reply_from_card(&key, text);
+                }
+            }
             _ => {}
         }
+    }
+
+    /// A quick reply clicked (or the reply box's Enter): the card waits on screen while it goes,
+    /// then says how it went; once sent it closes a moment later.
+    pub fn reply_from_card(&mut self, key: &str, text: String) {
+        let Some(i) = self.toasts.items.iter().position(|x| x.key == key) else { return };
+        let it = &mut self.toasts.items[i];
+        let (app, target) = (it.app_id.clone(), it.target.clone());
+        rt::cancel(it.timer); // no timing out while it is being sent
+        it.timer = 0;
+        let Some(target) = target else { return };
+        self.emit("toasts", "toast:reply-state", json!([{ "key": key, "state": "sending", "text": text }]));
+        let k = key.to_string();
+        let t = text.clone();
+        self.send_reply(
+            &app,
+            target,
+            text,
+            Box::new(move |c, sent| {
+                let (state, line) = match sent {
+                    Sent::Confirmed => ("sent", String::new()),
+                    Sent::Typing => ("failed", c.t("toast.typingThere")),
+                    _ => ("failed", c.t("toast.notSent")),
+                };
+                c.emit("toasts", "toast:reply-state", json!([{ "key": k, "state": state, "text": t, "line": line, "open": c.t("toast.openChat") }]));
+                if let Some(i) = c.toasts.items.iter().position(|x| x.key == k) {
+                    // sent: gone in a moment; not sent: the usual time to read why
+                    c.toasts.items[i].remaining = if sent == Sent::Confirmed { 2500 } else { c.lifetime_ms().max(6000) };
+                    c.toast_start(i);
+                }
+            }),
+        );
     }
 
     /// A pop-up was clicked: open the chat on that app and let the site open that conversation (the

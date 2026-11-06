@@ -162,12 +162,66 @@ function createCard(it) {
   hint.className = 'hint';
   hint.textContent = it.hint || '';
   if (it.hint) text.append(hint);
+  if (it.quick && it.quick.length) text.append(quickChips(it));
 
   card.append(avatar, text, closeButton(it));
   card.addEventListener('click', () => chatdock.send('toast:click', it.key));
   card.addEventListener('animationend', () => card.classList.remove('enter'), { once: true });
   return card;
 }
+
+// One-click replies under the message. A click sends that text into the conversation without
+// opening anything (the game keeps the keyboard); the chips then say how it went.
+function quickChips(it) {
+  const row = document.createElement('div');
+  row.className = 'chips';
+  it.quick.forEach((q, i) => {
+    const b = document.createElement('button');
+    b.className = 'qchip';
+    b.textContent = q;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation(); // not the card's own click (that opens the chat)
+      if (row.classList.contains('busy')) return;
+      row.classList.add('busy');
+      chatdock.send('toast:quick', it.key, i);
+    });
+    row.append(b);
+  });
+  return row;
+}
+
+// How a reply went: sending (the chips wait), sent (one green chip), or not sent (why, and a way
+// into the chat).
+chatdock.on('toast:reply-state', ({ key, state, text, line, open }) => {
+  const card = stack.querySelector(`.card[data-key="${CSS.escape(key)}"]:not(.leaving)`);
+  const row = card && card.querySelector('.chips');
+  if (!row) return;
+  if (state === 'sending') {
+    row.classList.add('busy');
+    return;
+  }
+  row.classList.remove('busy');
+  row.textContent = '';
+  if (state === 'sent') {
+    const done = document.createElement('span');
+    done.className = 'qchip sent';
+    done.textContent = `✓ ${text}`;
+    row.append(done);
+  } else {
+    const why = document.createElement('span');
+    why.className = 'reply-why';
+    why.textContent = line;
+    const b = document.createElement('button');
+    b.className = 'qchip';
+    b.textContent = open;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chatdock.send('toast:click', key);
+    });
+    row.append(why, b);
+  }
+  reportSize();
+});
 
 const liveCards = () => [...stack.querySelectorAll('.card:not(.leaving)')];
 

@@ -177,3 +177,12 @@ body.left .card.enter { animation-name: slide-in-left; }
 }
 .more:hover { background: rgba(38, 40, 54, .96); }
 @keyframes more-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* one-click replies (1.8) */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.qchip { border: 1px solid rgba(255, 255, 255, .12); background: #262733; color: #ececf3; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12.5px; line-height: 1.35; cursor: pointer; transition: background .15s, border-color .15s; }
+.qchip:hover { background: #31323f; border-color: rgba(255, 255, 255, .22); }
+.qchip:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+.chips.busy .qchip { opacity: .55; cursor: progress; }
+.qchip.sent { background: #1f3b2c; border-color: #2f6b4b; color: #b7f0cf; cursor: default; }
+.reply-why { flex-basis: 100%; font-size: 12px; color: #ffb4a8; }

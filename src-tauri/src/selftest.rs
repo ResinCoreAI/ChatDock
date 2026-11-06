@@ -3024,6 +3024,51 @@ fn reply_send_test() {
     log!(
         "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );
+    quick_reply_test(&page);
+}
+
+/// 1.8: a pop-up's quick reply clicked: its conversation opens in the page (a link row of the
+/// stand-in list), the text goes in, the chip says sent, the card goes a moment later.
+fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
+    let popups_were = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(true));
+        c.toasts.offscreen = true; // (shown off the screen: the user may be at the PC)
+        c.toasts_dismiss_all();
+        was
+    });
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+    // the list row the conversation opens from (a click on it only stays on the page)
+    view_js(
+        "facebook",
+        "(() => { const a = document.createElement('a'); a.href = '/messages/t/1/'; a.textContent = 'Nok'; a.style.cssText = 'display:block;width:200px;height:40px'; \
+         a.addEventListener('click', (e) => e.preventDefault()); document.body.prepend(a); return 1; })()",
+    );
+    on(|c| {
+        c.counts.insert("facebook".into(), 1);
+        let nok = crate::inbox::Latest { name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into() };
+        c.count_popup_for_test("facebook", Some(nok));
+    });
+    wait(1200);
+    let chips = page_js("toasts", "String([...document.querySelectorAll('.card .qchip')].map((b) => b.textContent).join('|'))");
+    js_click("toasts", ".card .qchip");
+    let mut after = String::new();
+    for _ in 0..30 {
+        wait(100);
+        after = page_js("toasts", "String([...document.querySelectorAll('.card .qchip.sent')].map((b) => b.textContent).join('|'))");
+        if after.len() > 2 {
+            break; // (the card goes 2.5 s after it says sent)
+        }
+    }
+    let sent = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent).join('|'))");
+    wait(3000);
+    let cards = on(|c| c.toasts_count());
+    on(move |c| {
+        c.settings.set("popups", popups_were);
+        c.toasts.offscreen = false;
+        c.counts.insert("facebook".into(), 0);
+    });
+    log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} (expect the language's three | ✓ + the first | the first | 0)");
 }
 
 /// inbox.rs's way back to the list, on its own (it normally waits until the chat has been hidden a while).
