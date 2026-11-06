@@ -3086,7 +3086,22 @@ fn reply_send_test() {
     view_js("facebook", &page("/direct/t/98/", "Beam", "", true));
     view_js("facebook", "(() => { const a = document.createElement('a'); a.setAttribute('role', 'link'); const s = document.createElement('span'); s.textContent = 'Nok'; a.append(s); a.style.cssText = 'position:fixed;top:40px;left:10px'; document.body.append(a); return 1; })()");
     let row_named = send("", "Nok");
-    log!("reply (review): same text already there, never sent {repeated} (box after {box_after}) | a list row named Nok, Beam open {row_named} (expect NotConfirmed (\"\") | NotOpened)");
+    // DeepSeek F8/F9: the text shows only in the list's preview (outside the conversation) ->
+    // not "sent"; no link and two chats in the list with that name -> not sure which, not sent
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    view_js(
+        "facebook",
+        "(() => { const main = document.createElement('div'); main.setAttribute('role', 'main'); const box = document.querySelector('[role=textbox]');          document.querySelectorAll('body > div').forEach((d) => d !== box && main.append(d)); main.append(box);          const side = document.createElement('div'); document.body.prepend(side, main);          box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const m = document.createElement('div'); m.dir = 'auto'; m.textContent = box.textContent; side.append(m); box.textContent = ''; } }); return 1; })()",
+    );
+    let preview_only = send("/messages/t/1/", "Nok");
+    view_js("facebook", &page("/direct/t/99/", "Nok", "", true));
+    view_js(
+        "facebook",
+        "(() => { for (const t of ['/direct/t/99/', '/direct/t/77/']) { const a = document.createElement('a'); a.href = t; const s = document.createElement('span'); s.textContent = 'Nok'; a.append(s);          a.style.cssText = 'display:block;margin-top:200px'; document.body.append(a); } return 1; })()",
+    );
+    let two_noks = send("", "Nok");
+    let two_typed = view_js("facebook", "String(document.querySelectorAll('div[dir=auto]').length)");
+    log!("reply (review): same text already there, never sent {repeated} (box after {box_after}) | a list row named Nok, Beam open {row_named} | only in the list's preview {preview_only} | two chats named Nok, no link {two_noks} (sent {two_typed}) (expect NotConfirmed (\"\") | NotOpened | NotConfirmed | NotOpened (0))");
     log!(
         "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );

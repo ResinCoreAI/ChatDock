@@ -190,7 +190,7 @@ pub fn can_reply(app: &str) -> bool {
 }
 
 /// Waits until the conversation the pop-up is about is the one open (its link, or its name at the
-/// top of the page), types the reply into its box the way a paste does (the site's own input
+/// top of the page, only while no other chat in the list has that name), types the reply into its box the way a paste does (the site's own input
 /// handlers run), presses Enter, and waits up to 4 s for it to show as a message.
 const SEND_JS: &str = r#"(async (text, href, name) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -200,6 +200,12 @@ const SEND_JS: &str = r#"(async (text, href, name) => {
     .filter((e) => !e.closest('a, [role="link"], [role="row"], [role="listitem"], [role="gridcell"]'))
     .some((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.top < 160 && r.width > 0 && (e.textContent || '').trim() === name; });
   const isOpen = () => /\/t\//.test(location.pathname) && (href ? thread(location.pathname) === thread(href) : !!name && named());
+  // no link (Instagram's list has none): by name only while one chat in the list has that name
+  const rowSel = 'a[href*="/t/"], [role="link"], [role="row"], [role="listitem"], [role="button"]';
+  const sameName = () => [...document.querySelectorAll(rowSel)]
+    .filter((r) => !(r.parentElement && r.parentElement.closest(rowSel)))
+    .filter((r) => [...r.querySelectorAll('span, div')].some((x) => !x.childElementCount && (x.textContent || '').trim() === name)).length;
+  if (!href && sameName() > 1) return 'not opened';
   const boxes = () => [...document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')]
     .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 40 && r.height > 10; });
   const content = (b) => (b.value || b.textContent || '').trim();
@@ -216,7 +222,9 @@ const SEND_JS: &str = r#"(async (text, href, name) => {
   if (content(box)) return 'typing';
   const want = text.trim().replace(/\s+/g, ' ');
   // how often it is in the conversation already ("OK" may well be): only one more counts as sent
-  const count = () => [...document.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
+  // counted in the conversation only (the chat list shows the last message too)
+  const root = document.querySelector('[role="main"]') || document;
+  const count = () => [...root.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
     .slice(-60).filter((e) => !box.contains(e) && (e.textContent || '').trim().replace(/\s+/g, ' ') === want).length;
   const before = count();
   box.focus();
