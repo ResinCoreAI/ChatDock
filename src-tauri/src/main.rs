@@ -17,6 +17,7 @@ mod identify;
 mod inbox;
 mod intro;
 mod log;
+mod menu;
 mod migrate;
 mod panel;
 mod popups;

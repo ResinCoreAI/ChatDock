@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:">
+<title>ChatDock</title>
+<link rel="stylesheet" href="menu.css">
+</head>
+<body>
+  <!-- ChatDock's menu (menu.rs): the "+" list and the right-click menus. ChatDock sends the rows,
+       the page answers with its size, then the window is placed and shown. -->
+  <div id="menu" class="menu" role="menu"></div>
+  <script src="bridge.js"></script>
+  <script src="icons.js"></script>
+  <script src="menu.js"></script>
+</body>
+</html>

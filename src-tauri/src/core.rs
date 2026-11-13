@@ -205,6 +205,7 @@ pub struct Core {
     /// "What's new" after an update
     pub whatsnew: updater::WhatsNew,
     pub intro: crate::intro::Intro,
+    pub menu: crate::menu::Menu,
     /// "Show numbers on the screens" (Settings → Monitors)
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
@@ -537,15 +538,6 @@ impl Core {
                     self.set_app_enabled(&arg_str(&args, 0), on);
                 }
             }
-            ("app:add", "panel") => {
-                // "+" in the header: switched on and opened at once
-                let id = arg_str(&args, 0);
-                if apps::get(&id).is_some() {
-                    log!("app added from the header: {id}");
-                    self.set_app_enabled(&id, true);
-                    self.set_active(&id, true);
-                }
-            }
             ("settings:app-pref", "panel") => {
                 if let Some(v) = args.get(2).and_then(Value::as_bool) {
                     self.set_app_pref(&arg_str(&args, 0), &arg_str(&args, 1), v);
@@ -611,6 +603,17 @@ impl Core {
             }
             ("whatsnew:releases", "whatsnew") => self.close_whats_new(true),
             ("intro:skip", "intro") => self.intro_finish(),
+            ("menu:size", "menu") => {
+                let num = |i: usize| args.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+                self.menu_size(num(0), num(1));
+            }
+            ("menu:pick", "menu") => self.menu_pick(&arg_str(&args, 0)),
+            ("menu:close", "menu") => self.close_menu(true),
+            ("add:menu", "panel") => {
+                let num = |i: usize| args.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+                self.open_add_menu(num(0), num(1), num(2));
+            }
+            ("tab:menu", "panel") => self.open_tab_menu(&arg_str(&args, 0)),
             _ => {
                 if !panel {
                     log!("ignored message {channel} from {from}");

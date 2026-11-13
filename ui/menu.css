@@ -1,0 +1,81 @@
+/* ChatDock's menu window: a card that fills the window but for its shadow's room. Colours follow
+   the theme like the panel (the window's theme is set with the panel's). */
+:root {
+  --bg: #ffffff;
+  --line: rgba(0, 0, 0, .09);
+  --text: #1b1c22;
+  --muted: #6b6f80;
+  --hover: rgba(0, 0, 0, .06);
+  --danger: #d4333f;
+  --shadow: 0 8px 24px rgba(0, 0, 0, .16), 0 1px 3px rgba(0, 0, 0, .1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f2028;
+    --line: rgba(255, 255, 255, .09);
+    --text: #eef0f6;
+    --muted: #9a9eb0;
+    --hover: rgba(255, 255, 255, .08);
+    --danger: #ff6b74;
+    --shadow: 0 10px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+  }
+}
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Leelawadee UI", "Noto Sans Thai", Tahoma, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif; }
+
+.menu {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 190px;
+  max-width: 320px;
+  margin: 6px 10px 14px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  transform-origin: top left;
+}
+.menu.in { animation: menu-in .16s cubic-bezier(.2, .9, .3, 1.1); }
+@keyframes menu-in { from { opacity: 0; transform: scale(.94) translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 12px 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.item:hover, .item.at { background: var(--hover); outline: none; }
+.item .ico { flex: none; display: grid; place-items: center; width: 20px; height: 20px; color: var(--muted); }
+.item .ico svg { display: block; width: 18px; height: 18px; }
+.item.app .ico { color: var(--text); } /* app logos keep their colours; X's follows the text */
+.item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.item .hint { color: var(--muted); font-size: 11.5px; }
+.item.danger, .item.danger .ico { color: var(--danger); }
+.item[aria-disabled="true"] { opacity: .45; cursor: default; }
+.item[aria-disabled="true"]:hover { background: transparent; }
+.in .item { animation: row-in .2s ease both; }
+@keyframes row-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+.sep { height: 1px; margin: 4px 8px; background: var(--line); }
+
+@media (prefers-reduced-motion: reduce) { .menu.in, .in .item { animation: none; } }

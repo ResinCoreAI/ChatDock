@@ -731,3 +731,83 @@ fn query_monitor_names() -> Vec<MonitorName> {
     }
     out
 }
+
+/// Text for the clipboard as Windows keeps it (UTF-16, ending in a 0).
+pub fn clipboard_units(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Put text on the clipboard (the right-click menu's Copy, Copy link).
+pub fn set_clipboard_text(text: &str) -> bool {
+    use windows::Win32::{
+        Foundation::{GlobalFree, HANDLE},
+        System::{
+            DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
+            Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE},
+            Ole::CF_UNICODETEXT,
+        },
+    };
+    let units = clipboard_units(text);
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return false;
+        }
+        let _ = EmptyClipboard();
+        let mut ok = false;
+        if let Ok(mem) = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2) {
+            let p = GlobalLock(mem) as *mut u16;
+            if !p.is_null() {
+                std::ptr::copy_nonoverlapping(units.as_ptr(), p, units.len());
+                let _ = GlobalUnlock(mem);
+                ok = SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(mem.0))).is_ok();
+            }
+            if !ok {
+                let _ = GlobalFree(Some(mem)); // (the clipboard owns it once it took it)
+            }
+        }
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
+/// The clipboard's text, if it holds text (the right-click menu's Paste).
+pub fn clipboard_text() -> Option<String> {
+    use windows::Win32::{
+        Foundation::HGLOBAL,
+        System::{
+            DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard},
+            Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+            Ole::CF_UNICODETEXT,
+        },
+    };
+    unsafe {
+        if IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32).is_err() || OpenClipboard(None).is_err() {
+            return None;
+        }
+        let mut out = None;
+        if let Ok(h) = GetClipboardData(CF_UNICODETEXT.0 as u32) {
+            let mem = HGLOBAL(h.0);
+            let p = GlobalLock(mem) as *const u16;
+            if !p.is_null() {
+                let max = GlobalSize(mem) / 2;
+                let units = std::slice::from_raw_parts(p, max);
+                let end = units.iter().position(|&u| u == 0).unwrap_or(max);
+                out = Some(String::from_utf16_lossy(&units[..end]));
+                let _ = GlobalUnlock(mem);
+            }
+        }
+        let _ = CloseClipboard();
+        out
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    #[test]
+    fn clipboard_text_is_utf16_with_an_end() {
+        assert_eq!(super::clipboard_units("ok"), vec![111, 107, 0]);
+        let thai = super::clipboard_units("แชท");
+        assert_eq!(thai.len(), 4);
+        assert_eq!(String::from_utf16(&thai[..3]).unwrap(), "แชท");
+    }
+}

@@ -174,6 +174,7 @@ unsafe extern "system" fn subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
                 }
                 (2, false) => later(|c| c.on_tab_focus()),
                 (3, false) => later(|c| c.on_toast_focus()),
+                (4, true) => later(|c| c.on_menu_blur()),
                 _ => {}
             }
         }
@@ -231,15 +232,17 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
     let glow = window(app, "glow", "glow.html", &args, true, false, None)?;
     let edgewin = window(app, "edge", "edge.html", &args, true, false, None)?;
     let toastwin = window(app, "toasts", "toast.html", &args, true, true, None)?;
+    let menuwin = window(app, "menu", "menu.html", &args, true, true, None)?;
     glow.w.set_ignore_cursor_events(true)?;
     edgewin.w.set_ignore_cursor_events(true)?;
-    for w in [&tab, &glow, &edgewin, &toastwin] {
+    for w in [&tab, &glow, &edgewin, &toastwin, &menuwin] {
         win32::set_tool_window(w.hwnd);
     }
     subclass(panel.hwnd, 1);
     subclass(tab.hwnd, 2);
     subclass(toastwin.hwnd, 3);
-    let own_hwnds = vec![panel.hwnd, tab.hwnd, glow.hwnd, toastwin.hwnd, edgewin.hwnd];
+    subclass(menuwin.hwnd, 4);
+    let own_hwnds = vec![panel.hwnd, tab.hwnd, glow.hwnd, toastwin.hwnd, edgewin.hwnd, menuwin.hwnd];
     let lang = String::new();
     let mut core = Core {
         args,
@@ -253,6 +256,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         update_win: None,
         whatsnew: Default::default(),
         intro: Default::default(),
+        menu: crate::menu::Menu::new(menuwin),
         identify: Default::default(),
         ready: HashSet::new(),
         own_hwnds,
@@ -1261,6 +1265,9 @@ impl Core {
         for w in [&self.panel, &self.tab, &self.toastwin] {
             let _ = w.w.set_theme(t);
         }
+        if let Some(m) = self.menu.win.as_ref() {
+            let _ = m.w.set_theme(t);
+        }
         let dark = match theme.as_str() {
             "dark" => true,
             "light" => false,
@@ -1278,6 +1285,7 @@ impl Core {
         let on = self.settings.bool("hideFromCapture");
         let mut hwnds = vec![self.panel.hwnd, self.toastwin.hwnd, self.tab.hwnd, self.glow.hwnd, self.edgewin.hwnd];
         hwnds.extend(self.update_win.as_ref().map(|w| w.hwnd));
+        hwnds.extend(self.menu.win.as_ref().map(|w| w.hwnd));
         hwnds.extend(self.whatsnew.win.as_ref().map(|w| w.hwnd));
         hwnds.extend(self.identify_hwnds());
         hwnds.extend(crate::popups::hwnds()); // the windows the chats open (a call, a sign-in)

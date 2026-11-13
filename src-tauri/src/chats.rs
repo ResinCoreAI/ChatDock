@@ -1647,6 +1647,7 @@ unsafe fn configure(
 
     guard_new_windows(wv, id)?;
     refuse_downloads(wv, id);
+    own_context_menu(wv, id);
 
     guard_programs(wv, id, selftest);
 
@@ -1893,6 +1894,53 @@ pub static DOWNLOADS_REFUSED: std::sync::atomic::AtomicU32 = std::sync::atomic::
 
 thread_local! {
     static DOWNLOAD_SAID: RefCell<HashMap<String, i64>> = RefCell::new(HashMap::new());
+}
+
+/// A right-click in a chat shows ChatDock's own menu (menu.rs) instead of WebView2's, which offers
+/// "Save image as", "Print" and the like that make no sense in a chat (downloads are refused anyway).
+unsafe fn own_context_menu(wv: &ICoreWebView2, id: &str) {
+    let Ok(wv11) = wv.cast::<ICoreWebView2_11>() else { return };
+    let app = id.to_string();
+    let web = wv.clone();
+    let mut token = 0i64;
+    let added = wv11.add_ContextMenuRequested(
+        &ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            args.SetHandled(true)?;
+            let t = args.ContextMenuTarget()?;
+            let text = |f: &dyn Fn(&mut PWSTR) -> windows::core::Result<()>| {
+                let mut p = PWSTR::null();
+                if f(&mut p).is_ok() {
+                    take_pwstr(p)
+                } else {
+                    String::new()
+                }
+            };
+            let flag = |f: &dyn Fn(&mut BOOL) -> windows::core::Result<()>| {
+                let mut b = BOOL(0);
+                f(&mut b).is_ok() && b.as_bool()
+            };
+            let link = if flag(&|b| t.HasLinkUri(b)) { text(&|p| t.LinkUri(p)) } else { String::new() };
+            let image = if flag(&|b| t.HasSourceUri(b)) { text(&|p| t.SourceUri(p)) } else { String::new() };
+            let selection = if flag(&|b| t.HasSelection(b)) { text(&|p| t.SelectionText(p)) } else { String::new() };
+            let editable = flag(&|b| t.IsEditable(b));
+            let can_back = flag(&|b| web.CanGoBack(b));
+            let can_forward = flag(&|b| web.CanGoForward(b));
+            let p = crate::menu::PageCtx {
+                app: app.clone(),
+                link: if link.starts_with("http") { link } else { String::new() },
+                image: if image.starts_with("http") { image } else { String::new() },
+                selection: selection.chars().take(100_000).collect(),
+                editable,
+            };
+            later(move |c| c.open_page_menu(p, can_back, can_forward));
+            Ok(())
+        })),
+        &mut token,
+    );
+    if let Err(err) = added {
+        log!("{id}: right-click menu not ours: {err}");
+    }
 }
 
 pub(crate) unsafe fn refuse_downloads(wv: &ICoreWebView2, id: &str) {
