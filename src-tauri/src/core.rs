@@ -204,6 +204,7 @@ pub struct Core {
     pub update_win: Option<Win>,
     /// "What's new" after an update
     pub whatsnew: updater::WhatsNew,
+    pub intro: crate::intro::Intro,
     /// "Show numbers on the screens" (Settings → Monitors)
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
@@ -476,6 +477,7 @@ impl Core {
                     }
                     "update" => self.update_window_ready(),
                     "whatsnew" => self.whats_new_window_ready(),
+                    "intro" => self.intro_ready(),
                     "toasts" => self.toasts_ready(),
                     label if label.starts_with("ident-") => self.identify_ready(label),
                     _ => {}
@@ -599,6 +601,7 @@ impl Core {
                 self.close_whats_new(false);
             }
             ("whatsnew:releases", "whatsnew") => self.close_whats_new(true),
+            ("intro:skip", "intro") => self.intro_finish(),
             _ => {
                 if !panel {
                     log!("ignored message {channel} from {from}");
@@ -874,7 +877,8 @@ impl Core {
             | "popupSound"
             | "popupQuietFullscreen"
             | "updateAutoCheck"
-            | "updateAutoDownload" => v.is_boolean(),
+            | "updateAutoDownload"
+            | "introOnStart" => v.is_boolean(),
             _ => false,
         }
     }
@@ -2355,7 +2359,7 @@ pub const VOICE_KEYS: [(&str, &str); 6] = [
     ("Alt+F10", "Alt + F10"),
 ];
 
-pub const PREF_KEYS: [&str; 32] = [
+pub const PREF_KEYS: [&str; 33] = [
     "lang",
     "side",
     "edgeMode",
@@ -2369,6 +2373,7 @@ pub const PREF_KEYS: [&str; 32] = [
     "muted",
     "hotkey",
     "autostart",
+    "introOnStart",
     "hideFromCapture",
     "popups",
     "popupText",

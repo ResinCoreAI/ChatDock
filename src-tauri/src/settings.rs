@@ -48,6 +48,7 @@ fn defaults() -> Map<String, Value> {
         "popupMax": 3,              // cards shown at once (the rest are summed up as "+N more")
         "appPrefs": {},
         "popupQuietFullscreen": false, // game mode: pop-ups wait while a game / video fills the screen, then one card
+        "introOnStart": true,       // the intro card when ChatDock is started by hand (intro.rs)
         "gameModeIntro": true,      // switching game mode on explains it (until "don't show this again")
         "dndUntil": 0,              // do-not-disturb: 0 = off, -1 = until switched off, else epoch ms
         "updateAutoCheck": true,    // look for new versions on GitHub

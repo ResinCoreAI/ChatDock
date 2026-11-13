@@ -15,6 +15,7 @@ mod frames;
 mod i18n;
 mod identify;
 mod inbox;
+mod intro;
 mod log;
 mod migrate;
 mod panel;

@@ -252,6 +252,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         toastwin,
         update_win: None,
         whatsnew: Default::default(),
+        intro: Default::default(),
         identify: Default::default(),
         ready: HashSet::new(),
         own_hwnds,
@@ -361,7 +362,8 @@ impl Core {
         self.init_updater();
         // after an update: What's new, once ChatDock is up and the chats have started loading (the
         // self-test shows it itself, where it can't get in the way)
-        if self.detect_update().is_some() && !self.args.selftest {
+        let updated = self.detect_update().is_some();
+        if updated && !self.args.selftest {
             timer(2000, |c| c.announce_updated());
         }
         if !self.settings.bool("onboarded") {
@@ -369,6 +371,9 @@ impl Core {
         }
         if self.args.selftest {
             crate::selftest::start();
+        }
+        if !updated {
+            self.maybe_intro(); // (after an update What's new greets instead)
         }
         log!(
             "ready {{\"version\":\"{}\",\"packaged\":{},\"hidden\":{},\"profile\":{:?},\"exe\":{:?}}}",

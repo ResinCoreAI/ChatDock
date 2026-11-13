@@ -1,0 +1,57 @@
+/* The intro card: dark like the pop-ups and What's new, centred in its window with room for the
+   pop-in. Nothing in it takes the focus; a click anywhere skips it. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Leelawadee UI", "Noto Sans Thai", Tahoma, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+html:lang(zh-CN) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif; }
+
+.card {
+  position: absolute;
+  inset: 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: #181922;
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
+  color: #f2f3f7;
+  opacity: 0;
+  transform: scale(.92);
+}
+.card.in { animation: card-in .38s cubic-bezier(.2, .9, .3, 1.15) forwards; }
+.card.out { animation: card-out .3s ease-in forwards; }
+@keyframes card-in { to { opacity: 1; transform: none; } }
+@keyframes card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.97); } }
+
+.logo { width: 64px; height: 64px; margin-bottom: 12px; transform: scale(.6); }
+.logo svg { width: 100%; height: 100%; display: block; }
+.in .logo { animation: pop .5s cubic-bezier(.2, .9, .3, 1.4) .08s forwards; }
+@keyframes pop { to { transform: none; } }
+
+.name, .build, .foot { opacity: 0; transform: translateY(6px); }
+.in .name { animation: up .4s ease-out .22s forwards; }
+.in .build { animation: up .4s ease-out .34s forwards; }
+.in .foot { animation: up .4s ease-out .46s forwards; }
+@keyframes up { to { opacity: 1; transform: none; } }
+
+.name { font-size: 20px; font-weight: 600; letter-spacing: .2px; }
+.build { margin-top: 2px; font-size: 13px; color: #a9acbb; }
+.foot { margin-top: 12px; font-size: 11px; color: #7d8193; }
+
+.bar { width: 160px; height: 3px; margin-top: 16px; border-radius: 2px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: linear-gradient(90deg, #fa7e1e, #d62976 55%, #962fbf); transition: width .35s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card.in, .in .logo, .in .name, .in .build, .in .foot { animation-duration: .01s; animation-delay: 0s; }
+}

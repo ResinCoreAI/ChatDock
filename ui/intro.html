@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:">
+<title>ChatDock</title>
+<link rel="stylesheet" href="intro.css">
+</head>
+<body>
+  <!-- The intro card when ChatDock is started by hand (intro.rs): the bar fills as the chats load;
+       then the card fades and the tab comes out at the edge. A click skips it. -->
+  <div id="card" class="card" role="status" aria-live="polite">
+    <span class="logo" data-icon="logo"></span>
+    <b class="name">ChatDock</b>
+    <small id="build" class="build"></small>
+    <div class="bar" aria-hidden="true"><i id="fill"></i></div>
+    <small id="foot" class="foot"></small>
+  </div>
+  <script src="bridge.js"></script>
+  <script src="icons.js"></script>
+  <script src="intro.js"></script>
+</body>
+</html>

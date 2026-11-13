@@ -317,6 +317,13 @@ impl Core {
         log!("tab show {:?}", win32::window_rect(self.tab.hwnd));
     }
 
+    /// Out at the edge for a while without the cursor there (after the intro card): then it tucks
+    /// itself away as when the cursor leaves it.
+    pub fn show_tab_for(&mut self, ms: i64) {
+        self.show_tab(None);
+        self.edge.last_inside_at = rt::epoch_ms() + ms - TAB_LINGER_MS;
+    }
+
     pub fn hide_tab(&mut self, instant: bool) {
         if !self.edge.tab_shown {
             return;
