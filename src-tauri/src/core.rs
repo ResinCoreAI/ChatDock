@@ -272,6 +272,9 @@ pub struct Core {
     pub prev_foreground: isize,
     pub last_auto_hide_at: i64,
     pub blurred_while_opening: bool,
+    /// when the panel finished opening, and how often the focus was taken back since (panel.rs stray_blur)
+    pub opened_at: i64,
+    pub focus_taken_back: u8,
     /// A window of the chats' browser has the focus (the "… is sharing your screen" bar): watching
     /// where the focus goes next, since a click elsewhere from there never reaches the panel.
     pub focus_watch: bool,

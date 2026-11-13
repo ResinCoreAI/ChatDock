@@ -33,6 +33,15 @@ pub const MIN_W: f64 = 340.0;
 /// How often to look where the focus went while the screen-share bar has it.
 const FOCUS_WATCH_MS: u64 = 150;
 const OPEN_MS: f64 = 260.0;
+/// Just after the panel opened, losing the focus without a mouse click isn't the user leaving: the
+/// desktop / taskbar (Explorer) hands itself the focus back a moment after a click on the tab.
+const STRAY_BLUR_MS: i64 = 1500;
+
+/// Was this loss of focus Windows' doing rather than a click elsewhere? (ms since the panel finished
+/// opening, a mouse button down as the focus moved, how often the focus was already taken back)
+fn stray_blur(since_opened: i64, button_down: bool, taken_back: u8) -> bool {
+    since_opened <= STRAY_BLUR_MS && !button_down && taken_back < 2
+}
 const CLOSE_MS: f64 = 170.0;
 
 fn ease_out_quint(t: f64) -> f64 {
@@ -280,6 +289,8 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         prev_foreground: 0,
         last_auto_hide_at: 0,
         blurred_while_opening: false,
+        opened_at: 0,
+        focus_taken_back: 0,
         focus_watch: false,
         test_foreground: None,
         call_windows: Vec::new(),
@@ -752,6 +763,8 @@ impl Core {
 
     fn opened(&mut self) {
         self.panel_state = PanelState::Open;
+        self.opened_at = rt::epoch_ms();
+        self.focus_taken_back = 0;
         self.fit_panel_to_app(); // the app or the dock side changed while it was sliding in
         if win32::foreground_window() == self.panel.hwnd {
             // Already in front: only move the keyboard into the page. Re-activating here could undo
@@ -899,6 +912,23 @@ impl Core {
             return;
         }
         if self.panel_state != PanelState::Open {
+            return;
+        }
+        let since = rt::epoch_ms() - self.opened_at;
+        if !self.settings.bool("pinned") && stray_blur(since, win32::mouse_button_down(), self.focus_taken_back) {
+            // (2026-11-07: from the desktop the panel closed by itself 0.1-1.3 s after opening)
+            self.focus_taken_back += 1;
+            log!("focus taken back: no click, {since} ms after opening");
+            // a moment later: Explorer hands the focus over in two steps ("" first, then the desktop)
+            timer(150, |c| {
+                let fg = win32::foreground_window();
+                // (not from a window of ours: a file picker or a dialog the chat opened)
+                if c.panel_state == PanelState::Open && fg != c.panel.hwnd && !c.is_ours(fg) {
+                    c.focus_panel();
+                } else if c.panel_state == PanelState::Open && fg != c.panel.hwnd {
+                    c.check_auto_hide(false); // what a blur does with our own windows
+                }
+            });
             return;
         }
         if self.settings.bool("pinned") {
@@ -1357,4 +1387,23 @@ fn settings_tick() {
 fn sleep_tick() {
     core::with(|c| c.sleep_check());
     rt::after(60_000, sleep_tick);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{stray_blur, STRAY_BLUR_MS};
+
+    #[test]
+    fn focus_lost_without_a_click_just_after_opening_is_taken_back() {
+        // 2026-11-07 log: opened from the tab with the desktop in front, then the desktop took the
+        // focus back by itself 80 ms - 1.3 s later (no click) and the panel closed.
+        assert!(stray_blur(80, false, 0));
+        assert!(stray_blur(1300, false, 1));
+        // a real click elsewhere: the button is down when the focus moves
+        assert!(!stray_blur(300, true, 0));
+        // later on, losing the focus is a click elsewhere (or Alt+Tab) as before
+        assert!(!stray_blur(STRAY_BLUR_MS + 1, false, 0));
+        // never a tug of war: at most twice per opening
+        assert!(!stray_blur(200, false, 2));
+    }
 }

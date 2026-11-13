@@ -4074,13 +4074,17 @@ fn tabfocus_test() {
             front(class);
             wait(400);
             on(|c| c.show_tab(None));
-            wait(1200); // past the too-early click guard
-                        // the first app's icon, where the tab page drew it
+            wait(200);
+            // the first app's icon, where the tab page drew it; the cursor rests on it like a hand
+            // would (away from the tab, the tab tucks itself away again)
             let icon = page_js("tab", "(() => { const r = document.querySelector('.app').getBoundingClientRect(); return JSON.stringify([r.left + r.width / 2, r.top + r.height / 2]); })()");
             let xy: Vec<f64> = serde_json::from_str::<String>(&icon).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
             let (r, ui) = on(|c| (c.tab_bounds(), c.target_display().ui));
             if xy.len() == 2 {
-                click_at(r.x + (xy[0] * ui).round() as i32, r.y + (xy[1] * ui).round() as i32);
+                let (x, y) = (r.x + (xy[0] * ui).round() as i32, r.y + (xy[1] * ui).round() as i32);
+                set_cursor(x, y);
+                wait(1000); // past the too-early click guard
+                click_at(x, y);
             }
             wait(1500);
             let (state, fg) = on(|c| (c.panel_state.as_str(), win32::class_name(win32::foreground_window())));
