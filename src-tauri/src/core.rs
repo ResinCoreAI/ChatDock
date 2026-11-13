@@ -537,6 +537,15 @@ impl Core {
                     self.set_app_enabled(&arg_str(&args, 0), on);
                 }
             }
+            ("app:add", "panel") => {
+                // "+" in the header: switched on and opened at once
+                let id = arg_str(&args, 0);
+                if apps::get(&id).is_some() {
+                    log!("app added from the header: {id}");
+                    self.set_app_enabled(&id, true);
+                    self.set_active(&id, true);
+                }
+            }
             ("settings:app-pref", "panel") => {
                 if let Some(v) = args.get(2).and_then(Value::as_bool) {
                     self.set_app_pref(&arg_str(&args, 0), &arg_str(&args, 1), v);
@@ -666,8 +675,15 @@ impl Core {
             apps::ids().map(|id| (id.to_string(), json!(self.load_state.get(id).copied().unwrap_or("loading")))).collect();
         let first: Map<String, Value> =
             apps::ids().map(|id| (id.to_string(), json!(*self.first_shown.get(id).unwrap_or(&false)))).collect();
+        // "+" in the header: the apps that can still be switched on
+        let more: Vec<Value> = apps::ids()
+            .filter(|id| !self.is_enabled(id))
+            .filter_map(apps::get)
+            .map(|a| json!({ "id": a.id, "name": a.name, "icon": a.icon }))
+            .collect();
         json!({
             "apps": apps,
+            "more": more,
             "active": active,
             "counts": counts,
             "lang": self.lang,

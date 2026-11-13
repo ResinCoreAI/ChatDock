@@ -161,6 +161,7 @@ function render(s) {
   }
   renderSide(s);
   const rebuilt = renderTabs(s);
+  renderAdd(s);
   renderVolume(s);
   renderUpdate(s.update);
   renderLangSelects(s.langPref);
@@ -246,6 +247,7 @@ function setVolume(level) {
 }
 function openVolume(open) {
   if ($('#volbar').hidden === !open) return;
+  if (open) openAdd(false);
   $('#volbar').hidden = !open;
   document.body.classList.toggle('vol-open', open);
   if (open) $('#vol-range').focus();
@@ -275,6 +277,52 @@ $('#volbar').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.stopPropagation();
     openVolume(false);
+  }
+});
+
+// "+": the apps that aren't on yet; a click switches one on and opens it
+let moreKey = '';
+function renderAdd(s) {
+  const more = s.more || [];
+  $('#add-app').hidden = !more.length;
+  if (!more.length) openAdd(false);
+  const key = more.map((a) => a.id).join(',') + lang;
+  if (key === moreKey) return;
+  moreKey = key;
+  const list = $('#add-list');
+  list.textContent = '';
+  more.forEach((a, i) => {
+    const btn = document.createElement('button');
+    btn.setAttribute('role', 'menuitem');
+    btn.style.animationDelay = `${i * 30}ms`;
+    btn.title = i18n.t('panel.addAppOne', { name: a.name });
+    const ico = document.createElement('span');
+    ico.className = 'ico';
+    ico.innerHTML = window.iconHTML(a.icon);
+    const name = document.createElement('span');
+    name.textContent = a.name;
+    btn.append(ico, name);
+    btn.addEventListener('click', () => {
+      openAdd(false);
+      chatdock.send('app:add', a.id);
+    });
+    list.append(btn);
+  });
+}
+function openAdd(open) {
+  if ($('#addbar').hidden === !open) return;
+  if (open) openVolume(false);
+  $('#addbar').hidden = !open;
+  document.body.classList.toggle('add-open', open);
+  if (open) $('#add-list button')?.focus();
+  else placeGlider(true);
+}
+$('#add-app').addEventListener('click', () => openAdd(true));
+$('#add-done').addEventListener('click', () => openAdd(false));
+$('#addbar').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    openAdd(false);
   }
 });
 

@@ -14,6 +14,12 @@
 
   <header id="bar">
     <nav class="apps" role="tablist" data-i18n-aria="panel.appsNav"></nav>
+    <button id="add-app" class="icon-btn add-app" data-i18n-title="panel.addApp" hidden><span data-icon="plus"></span></button>
+    <!-- "+": the apps that aren't switched on yet, in place of the tabs (like the volume bar) -->
+    <div id="addbar" class="addbar" hidden>
+      <div id="add-list" class="add-list" role="menu" data-i18n-aria="panel.addApp"></div>
+      <button id="add-done" class="icon-btn"><span data-icon="close"></span></button>
+    </div>
     <div id="volbar" class="volbar" hidden>
       <button id="vol-mute" class="icon-btn"></button>
       <input id="vol-range" type="range" min="0" max="100" step="1">

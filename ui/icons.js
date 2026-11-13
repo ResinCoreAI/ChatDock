@@ -27,6 +27,7 @@ window.ICONS = {
   chevronLeft: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.9"/>
     <path d="M19.4 13.3a7.7 7.7 0 0 0 0-2.6l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2.2-1.3L14.4 3h-4l-.4 2.4a7.4 7.4 0 0 0-2.2 1.3l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0 0 2.6l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2.2 1.3l.4 2.4h4l.4-2.4a7.4 7.4 0 0 0 2.2-1.3l2.4 1 2-3.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`,
   close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`,
   arrowUp: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18.5V6.5M6.8 11.2 12 6l5.2 5.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   shield: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 4.6 5.6v5.6c0 4.6 3 8.5 7.4 9.9 4.4-1.4 7.4-5.3 7.4-9.9V5.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
