@@ -98,23 +98,19 @@
         </label>
         <div class="results" data-results hidden></div>
 
-        <div class="cats" data-cats>
-          <div class="card">
-            <button class="cat" data-goto="general"><i class="tile c-general" data-icon="sliders"></i><span class="cat-text"><b data-i18n="nav.general"></b><small data-text="sub-general"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="monitors"><i class="tile c-monitors" data-icon="monitor"></i><span class="cat-text"><b data-i18n="cat.monitors"></b><small data-text="sub-monitors"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="open"><i class="tile c-open" data-icon="pointerEdge"></i><span class="cat-text"><b data-i18n="cat.open"></b><small data-text="sub-open"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="look"><i class="tile c-look" data-icon="theme"></i><span class="cat-text"><b data-i18n="cat.look"></b><small data-text="sub-look"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-          </div>
-          <div class="card">
-            <button class="cat" data-goto="apps"><i class="tile c-apps" data-icon="grid"></i><span class="cat-text"><b data-i18n="set.apps"></b><small data-text="sub-apps"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="popups"><i class="tile c-popups" data-icon="bell"></i><span class="cat-text"><b data-i18n="set.notify"></b><small data-text="sub-popups"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="discord" data-show="discord"><i class="tile c-discord" data-icon="discordMono"></i><span class="cat-text"><b data-i18n="dc.title"></b><small data-text="sub-discord"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-          </div>
-          <div class="card">
-            <button class="cat" data-goto="security"><i class="tile c-security" data-icon="shield"></i><span class="cat-text"><b data-i18n="set.security"></b><small data-text="sub-security"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="updates"><i class="tile c-updates" data-icon="download"></i><span class="cat-text"><b data-i18n="set.updates"></b><small data-text="sub-updates"></small></span><i class="dot" hidden></i><span class="chev" data-icon="chevronRight"></span></button>
-            <button class="cat" data-goto="about"><i class="tile c-about" data-icon="info"></i><span class="cat-text"><b data-i18n="set.about"></b><small data-text="sub-about"></small></span><span class="chev" data-icon="chevronRight"></span></button>
-          </div>
+        <!-- Bento: one box per category with how it is set right now; a few switches work from here.
+             A box opens its page (the page grows out of the box). -->
+        <div class="cats bento" data-cats>
+          <div class="cat w2" data-goto="apps" role="button" tabindex="0"><i class="tile c-apps" data-icon="grid"></i><span class="cat-text"><b data-i18n="set.apps"></b><small data-text="sub-apps"></small></span><span class="mini-apps" data-mini-apps></span></div>
+          <div class="cat" data-goto="popups" role="button" tabindex="0"><span class="cat-top"><i class="tile c-popups" data-icon="bell"></i><label class="switch mini" data-i18n-title="set.popups"><input type="checkbox" data-pref="popups"><span></span></label></span><span class="cat-text"><b data-i18n="set.notify"></b><small data-text="sub-popups"></small></span></div>
+          <div class="cat" data-goto="open" role="button" tabindex="0"><i class="tile c-open" data-icon="pointerEdge"></i><span class="cat-text"><b data-i18n="cat.open"></b><small data-text="sub-open"></small></span></div>
+          <div class="cat" data-goto="look" role="button" tabindex="0"><span class="cat-top"><i class="tile c-look" data-icon="theme"></i><span class="mini-theme"><button data-pref="theme" data-value="dark" class="sw-dark" data-i18n-title="theme.dark"></button><button data-pref="theme" data-value="light" class="sw-light" data-i18n-title="theme.light"></button></span></span><span class="cat-text"><b data-i18n="cat.look"></b><small data-text="sub-look"></small></span></div>
+          <div class="cat" data-goto="monitors" role="button" tabindex="0"><span class="cat-top"><i class="tile c-monitors" data-icon="monitor"></i><span class="mini-map" data-mini-map></span></span><span class="cat-text"><b data-i18n="cat.monitors"></b><small data-text="sub-monitors"></small></span></div>
+          <div class="cat w2" data-goto="discord" data-show="discord" role="button" tabindex="0"><i class="tile c-discord" data-icon="discordMono"></i><span class="cat-text"><b data-i18n="dc.title"></b><small data-text="sub-discord"></small></span></div>
+          <div class="cat" data-goto="general" role="button" tabindex="0"><i class="tile c-general" data-icon="sliders"></i><span class="cat-text"><b data-i18n="nav.general"></b><small data-text="sub-general"></small></span></div>
+          <div class="cat" data-goto="security" role="button" tabindex="0"><i class="tile c-security" data-icon="shield"></i><span class="cat-text"><b data-i18n="set.security"></b><small data-text="sub-security"></small></span></div>
+          <div class="cat" data-goto="updates" role="button" tabindex="0"><i class="dot" hidden></i><i class="tile c-updates" data-icon="download"></i><span class="cat-text"><b data-i18n="set.updates"></b><small data-text="sub-updates"></small></span></div>
+          <div class="cat" data-goto="about" role="button" tabindex="0"><i class="tile c-about" data-icon="info"></i><span class="cat-text"><b data-i18n="set.about"></b><small data-text="sub-about"></small></span></div>
         </div>
         <p class="home-foot"><span data-icon="logo"></span><span data-text="version"></span></p>
       </div>

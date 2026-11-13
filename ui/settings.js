@@ -87,7 +87,25 @@
     else if (node.type === 'range') chatdock.send('settings:set', key, Number(node.value) / Number(node.dataset.scale || 1));
   });
 
+  // Bento boxes on the home page: the box opens its page, but not when it was its own switch or
+  // theme button that was clicked.
+  const boxOf = (e) => {
+    const box = e.target.closest('div[data-goto]');
+    return box && root.contains(box) && !e.target.closest('button, label, input') ? box : null;
+  };
+  root.addEventListener('keydown', (e) => {
+    const box = (e.key === 'Enter' || e.key === ' ') && boxOf(e);
+    if (!box) return;
+    e.preventDefault();
+    goto(box.dataset.goto, box);
+  });
+
   root.addEventListener('click', (e) => {
+    const box = boxOf(e);
+    if (box) {
+      goto(box.dataset.goto, box);
+      return;
+    }
     const btn = e.target.closest('button');
     if (!btn || !root.contains(btn)) return;
     const row = btn.closest('[data-app]');
@@ -141,13 +159,22 @@
     return p && p.dataset.title ? t(p.dataset.title) : t('set.title');
   }
 
-  function goto(name) {
+  // from: the bento box that was clicked; the page grows out of it
+  function goto(name, from) {
     const target = q(`.set-page[data-page="${name}"]`) ? name : 'home';
     const back = target === 'home' && page && page !== 'home';
+    let origin = '';
+    if (from && target !== 'home') {
+      const r = from.getBoundingClientRect();
+      const s = stage.getBoundingClientRect();
+      origin = `${Math.round(r.left - s.left + r.width / 2)}px ${Math.round(r.top - s.top + r.height / 2)}px`;
+    }
     if (page === 'home' && target !== 'home') homeScroll = stage.scrollTop;
     for (const p of qa('.set-page')) p.hidden = p.dataset.page !== target;
     const shownPage = q(`.set-page[data-page="${target}"]`);
     shownPage.classList.toggle('from-left', back);
+    shownPage.classList.toggle('from-box', !!origin);
+    shownPage.style.transformOrigin = origin;
     shownPage.style.animation = 'none';
     void shownPage.offsetWidth; // play the slide-in again
     shownPage.style.animation = '';
@@ -762,6 +789,46 @@
     else if (u.status === 'latest') upd = t('s.updLatest');
     sub('updates', upd);
     sub('about', st.build);
+    renderBento();
+  }
+
+  // The bento boxes' small pictures: the apps that are on, and the monitors (the chat's lit).
+  let bentoKey = '';
+  function renderBento() {
+    const apps = st.catalog.filter((a) => a.on);
+    const mons = st.monitors || [];
+    const key = `${apps.map((a) => a.id).join(',')}|${mons.map((m) => `${m.x},${m.y},${m.w},${m.h},${m.chat}`).join(';')}`;
+    if (key === bentoKey) return;
+    bentoKey = key;
+    const box = q('[data-mini-apps]');
+    box.textContent = '';
+    apps.slice(0, 6).forEach((a, i) => {
+      const ico = el('i', 'mini-app');
+      ico.innerHTML = window.iconHTML(a.icon);
+      ico.style.animationDelay = `${120 + i * 45}ms`;
+      box.append(ico);
+    });
+    if (apps.length < st.catalog.length) {
+      const add = el('i', 'mini-app add');
+      add.innerHTML = window.iconHTML('plus');
+      add.style.animationDelay = `${120 + Math.min(apps.length, 6) * 45}ms`;
+      box.append(add);
+    }
+    const map = q('[data-mini-map]');
+    map.textContent = '';
+    if (mons.length < 2) return;
+    const x0 = Math.min(...mons.map((m) => m.x));
+    const y0 = Math.min(...mons.map((m) => m.y));
+    const w = Math.max(...mons.map((m) => m.x + m.w)) - x0;
+    const h = Math.max(...mons.map((m) => m.y + m.h)) - y0;
+    const k = Math.min(58 / w, 28 / h);
+    for (const m of mons) {
+      const r = el('i', m.chat ? 'on' : '');
+      Object.assign(r.style, { left: `${(m.x - x0) * k}px`, top: `${(m.y - y0) * k}px`, width: `${m.w * k - 2}px`, height: `${m.h * k - 2}px` });
+      map.append(r);
+    }
+    map.style.width = `${w * k}px`;
+    map.style.height = `${h * k}px`;
   }
 
   function render() {
