@@ -95,3 +95,9 @@ export function latestStable(list) {
 export function summaryLine(body, n = 3) {
   return highlights(body, n).map((i) => i.h || i.p).join(' · ');
 }
+
+// light or dark: a choice the visitor made wins, otherwise the system's setting
+export function pickTheme(saved, systemDark) {
+  if (saved === 'dark' || saved === 'light') return saved;
+  return systemDark ? 'dark' : 'light';
+}
