@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Browser tab mock</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="desk">
+  <div class="desk-note">
+    <b>Mock: แท็บ Browser (1.8.2)</b>
+    <span>กด <kbd>+</kbd> ในแถบแท็บ แล้วเลือก “Browser”</span>
+    <button id="theme-toggle" type="button">สลับสว่าง/มืด</button>
+  </div>
+
+  <aside class="panel" id="panel">
+    <header id="bar">
+      <nav class="apps" id="apps"><span class="glider" id="glider"></span></nav>
+      <button id="add-app" class="icon-btn add-app" title="เพิ่มแอป"><span data-icon="plus"></span></button>
+      <div class="tools">
+        <button class="icon-btn" title="โหลดใหม่"><span data-icon="reload"></span></button>
+        <button class="icon-btn" title="ปักหมุด"><span data-icon="pin"></span></button>
+        <button class="icon-btn" id="gear" title="ตั้งค่า"><span data-icon="gear"></span></button>
+        <button class="icon-btn" title="ซ่อน"><span data-icon="chevronRight"></span></button>
+      </div>
+    </header>
+
+    <div class="menu" id="menu" hidden role="menu"></div>
+
+    <main id="stage">
+      <!-- a chat app: the real panel shows the site here -->
+      <section id="chat" class="chat-fake">
+        <div class="fake-list"></div>
+      </section>
+
+      <!-- the Browser tab: our own start page -->
+      <section id="browser" hidden>
+        <!-- the Browser's own tabs: separate from ChatDock's app tabs above -->
+        <div class="b-tabs" id="btabs" role="tablist" aria-label="แท็บของ Browser"></div>
+        <div class="b-nav">
+          <button class="icon-btn" id="nav-back" title="ย้อนกลับ"><span data-icon="chevronLeft"></span></button>
+          <button class="icon-btn" id="nav-fwd" title="ไปข้างหน้า"><span data-icon="chevronRight"></span></button>
+          <button class="icon-btn" id="nav-reload" title="โหลดใหม่"><span data-icon="reload"></span></button>
+          <form class="b-addr" id="addr" autocomplete="off"><span class="lock" id="addr-ico"></span><input id="addr-in" spellcheck="false" placeholder="ค้นหาหรือพิมพ์ที่อยู่เว็บ"></form>
+          <button class="icon-btn" id="nav-home" title="หน้าแรก"><span data-icon="home"></span></button>
+          <button class="icon-btn" id="nav-out" title="เปิดในเบราว์เซอร์ของเครื่อง"><span data-icon="external"></span></button>
+        </div>
+        <div class="b-progress" id="bprog"></div>
+        <div class="b-web" id="web" hidden></div>
+        <div class="b-scroll" id="home">
+          <div class="b-head">
+            <span class="b-logo" data-icon="logo"></span>
+            <b>Browser</b>
+          </div>
+
+          <form class="b-box" id="box" autocomplete="off">
+            <button type="button" class="b-engine" id="engine-btn" title="เครื่องมือค้นหา"></button>
+            <input id="q" type="text" spellcheck="false" placeholder="ค้นหาหรือพิมพ์ที่อยู่เว็บ">
+            <button type="button" class="b-clear" id="clear" hidden title="ล้าง"><span data-icon="close"></span></button>
+            <button type="submit" class="b-go" title="ค้นหา"><span data-icon="search"></span></button>
+            <ul class="b-suggest" id="suggest" role="listbox" hidden></ul>
+          </form>
+
+          <div class="b-engines" id="engines" role="radiogroup" aria-label="เครื่องมือค้นหา"></div>
+
+          <h3 class="b-h">ทางลัด</h3>
+          <div class="b-tiles" id="tiles"></div>
+
+          <div class="b-h-row">
+            <h3 class="b-h">ค้นหาล่าสุด</h3>
+            <button type="button" class="b-link" id="clear-recent">ล้างทั้งหมด</button>
+          </div>
+          <ul class="b-recent" id="recent"></ul>
+          <p class="b-empty" id="recent-empty" hidden>ยังไม่มีคำที่ค้นหา</p>
+
+          <p class="b-foot">ทุกหน้าเปิดอยู่ในแผงนี้ ไม่ต้องสลับออกจากเกม</p>
+        </div>
+
+        <!-- add / edit a shortcut -->
+        <div class="sheet" id="tile-sheet" hidden>
+          <form class="sheet-card" id="tile-form">
+            <h3 id="tile-title">เพิ่มทางลัด</h3>
+            <label>ชื่อ<input id="tile-name" required maxlength="24"></label>
+            <label>ที่อยู่เว็บ<input id="tile-url" required placeholder="youtube.com"></label>
+            <div class="sheet-acts">
+              <button type="button" class="ghost" id="tile-cancel">ยกเลิก</button>
+              <button type="submit" class="primary">บันทึก</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- settings for the tab (the real one lives in Settings) -->
+        <div class="sheet" id="set-sheet" hidden>
+          <div class="sheet-card">
+            <h3>ตั้งค่า Browser</h3>
+            <label class="sw"><span>คำแนะนำตอนพิมพ์<small>ส่งสิ่งที่พิมพ์ให้เครื่องมือค้นหาที่เลือก</small></span><input type="checkbox" id="opt-suggest" checked></label>
+            <label class="sw"><span>จำคำที่ค้นหา<small>เก็บไว้ในเครื่องนี้เท่านั้น</small></span><input type="checkbox" id="opt-recent" checked></label>
+            <div class="sheet-acts"><button type="button" class="primary" id="set-done">เสร็จ</button></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" hidden></div>
+  </aside>
+</div>
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>
