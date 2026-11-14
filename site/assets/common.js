@@ -1,10 +1,11 @@
 // What both pages share: the language (menu, text, title), the header, and GitHub release data.
-import { LANGS, pickLang } from './lib.js';
+import { LANGS, pickLang, pickTheme } from './lib.js';
 import { STRINGS, LANG_NAMES } from './i18n.js';
 
 export const REPO = 'ResinCoreAI/ChatDock';
 export const RELEASES = `https://github.com/${REPO}/releases`;
 const KEY = 'chatdock-lang';
+const THEME_KEY = 'chatdock-theme';
 const subs = [];
 let lang = 'en';
 
@@ -83,11 +84,43 @@ function header() {
   });
 }
 
+// light or dark: the inline script in <head> already set data-theme before the first paint;
+// the button flips it and remembers, and without a choice the page follows the system live
+const BG = { light: '#fbe9d7', dark: '#1d1512' };
+function setTheme(mode, animate) {
+  const root = document.documentElement;
+  if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.classList.add('theming');
+    clearTimeout(setTheme.t);
+    setTheme.t = setTimeout(() => root.classList.remove('theming'), 500);
+  }
+  root.dataset.theme = mode;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', BG[mode]);
+  document.querySelectorAll('.theme-btn').forEach((b) => b.setAttribute('aria-pressed', String(mode === 'dark')));
+}
+function theme() {
+  const sys = matchMedia('(prefers-color-scheme: dark)');
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch { /* fine */ }
+  setTheme(pickTheme(saved, sys.matches), false);
+  sys.addEventListener?.('change', (e) => {
+    let s = null;
+    try { s = localStorage.getItem(THEME_KEY); } catch { /* fine */ }
+    if (!s) setTheme(pickTheme(null, e.matches), true);
+  });
+  document.querySelectorAll('.theme-btn').forEach((b) => b.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* private window: lasts this visit */ }
+    setTheme(next, true);
+  }));
+}
+
 export function initCommon() {
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch { /* fine */ }
   const asked = new URLSearchParams(location.search).get('lang');
   lang = pickLang(asked || saved, navigator.languages || [navigator.language]);
+  theme();
   menu();
   header();
   apply();
