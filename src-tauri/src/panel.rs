@@ -42,6 +42,13 @@ const STRAY_BLUR_MS: i64 = 1500;
 fn stray_blur(since_opened: i64, button_down: bool, taken_back: u8) -> bool {
     since_opened <= STRAY_BLUR_MS && !button_down && taken_back < 2
 }
+
+/// The desktop or the taskbar (Explorer) took the focus, or nothing has it yet: that's Windows
+/// handing it back, not the user switching to a program (Alt+Tab, a password manager's hotkey),
+/// where taking it back would send their typing into the chat.
+fn shell_took_focus(class: &str) -> bool {
+    matches!(class, "" | "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd")
+}
 const CLOSE_MS: f64 = 170.0;
 
 fn ease_out_quint(t: f64) -> f64 {
@@ -931,11 +938,10 @@ impl Core {
             // a moment later: Explorer hands the focus over in two steps ("" first, then the desktop)
             timer(150, |c| {
                 let fg = win32::foreground_window();
-                // (not from a window of ours: a file picker or a dialog the chat opened)
-                if c.panel_state == PanelState::Open && fg != c.panel.hwnd && !c.is_ours(fg) {
+                if c.panel_state == PanelState::Open && fg != c.panel.hwnd && shell_took_focus(&win32::class_name(fg)) {
                     c.focus_panel();
                 } else if c.panel_state == PanelState::Open && fg != c.panel.hwnd {
-                    c.check_auto_hide(false); // what a blur does with our own windows
+                    c.check_auto_hide(false); // a real switch (or a window of ours): as any blur
                 }
             });
             return;
@@ -1418,5 +1424,16 @@ mod tests {
         assert!(!stray_blur(STRAY_BLUR_MS + 1, false, 0));
         // never a tug of war: at most twice per opening
         assert!(!stray_blur(200, false, 2));
+    }
+
+    #[test]
+    fn only_the_desktop_or_taskbar_taking_the_focus_is_given_back() {
+        for class in ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", ""] {
+            assert!(super::shell_took_focus(class), "{class}");
+        }
+        // Alt+Tab to a program, a password manager's window: the user's own move
+        for class in ["Chrome_WidgetWin_1", "MozillaWindowClass", "CabinetWClass", "#32770"] {
+            assert!(!super::shell_took_focus(class), "{class}");
+        }
     }
 }

@@ -266,6 +266,9 @@ unsafe fn guard(wv: &ICoreWebView2, app: &str, hwnd: isize, selftest: bool) -> w
     chats::block_this_pc(wv)?;
     chats::guard_new_windows(wv, app)?;
     chats::refuse_downloads(wv, app);
+    if let Ok(s) = wv.Settings() {
+        let _ = s.SetAreDefaultContextMenusEnabled(false); // (no "Save image as", "Print" in a call window)
+    }
     chats::guard_programs(wv, app, selftest);
     chats::guard_permissions(wv, app)?;
     let mut token = 0i64;

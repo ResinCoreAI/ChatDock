@@ -1898,6 +1898,11 @@ thread_local! {
 
 /// A right-click in a chat shows ChatDock's own menu (menu.rs) instead of WebView2's, which offers
 /// "Save image as", "Print" and the like that make no sense in a chat (downloads are refused anyway).
+fn web_link(s: &str) -> bool {
+    let l = s.get(..8).unwrap_or(s).to_ascii_lowercase();
+    l.starts_with("https://") || l.starts_with("http://")
+}
+
 unsafe fn own_context_menu(wv: &ICoreWebView2, id: &str) {
     let Ok(wv11) = wv.cast::<ICoreWebView2_11>() else { return };
     let app = id.to_string();
@@ -1928,8 +1933,8 @@ unsafe fn own_context_menu(wv: &ICoreWebView2, id: &str) {
             let can_forward = flag(&|b| web.CanGoForward(b));
             let p = crate::menu::PageCtx {
                 app: app.clone(),
-                link: if link.starts_with("http") { link } else { String::new() },
-                image: if image.starts_with("http") { image } else { String::new() },
+                link: if web_link(&link) { link } else { String::new() },
+                image: if web_link(&image) { image } else { String::new() },
                 selection: selection.chars().take(100_000).collect(),
                 editable,
             };

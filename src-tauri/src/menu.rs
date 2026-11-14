@@ -48,6 +48,21 @@ pub struct Menu {
     anchor: (i32, i32, i32),
     shown: bool,
     shown_at: i64,
+    /// the rows on show: (id, greyed out)
+    offered: Vec<(String, bool)>,
+}
+
+/// A pick counts only for a row that is on show and not greyed out (the page is ours, but a late
+/// click must not act on the next menu's context).
+pub fn pick_ok(offered: &[(String, bool)], shown: bool, id: &str) -> bool {
+    shown && offered.iter().any(|(o, off)| o == id && !off)
+}
+
+/// Paste brings at most this many characters (a huge clipboard would hang the page).
+pub const PASTE_MAX: usize = 200_000;
+
+pub fn paste_cap(text: &str) -> String {
+    text.chars().take(PASTE_MAX).collect()
 }
 
 impl Menu {
@@ -102,6 +117,24 @@ pub fn place(at: (i32, i32), top: i32, size: (i32, i32), work: Rect) -> (i32, i3
     let x = at.0.min(work.right() - w).max(work.x);
     let y = if at.1 + h > work.bottom() { (top - h).max(work.y) } else { at.1 };
     (x, y)
+}
+
+/// "Open link in browser": not to this PC however the link names it (127.0.0.1.nip.io): a plain
+/// http name is looked up first, off the UI thread, as the chats' own requests are.
+fn open_checked(app: String, link: String) {
+    match apps::http_check(&apps::unshim(&link)) {
+        apps::HttpCheck::Block => log!("{app}: a link to this PC not opened"),
+        apps::HttpCheck::Allow => crate::core::later(move |c| c.open_external(&app, &link)),
+        apps::HttpCheck::Resolve(host) => {
+            let _ = std::thread::Builder::new().name("chatdock-lookup".into()).spawn(move || {
+                if apps::resolves_local(&host) {
+                    log!("{app}: a link to a name of this PC not opened");
+                } else {
+                    crate::core::later(move |c| c.open_external(&app, &link));
+                }
+            });
+        }
+    }
 }
 
 impl Core {
@@ -173,6 +206,10 @@ impl Core {
         }
         self.menu.ctx = ctx;
         self.menu.anchor = anchor;
+        self.menu.offered = items
+            .iter()
+            .filter_map(|i| Some((i.get("id")?.as_str()?.to_string(), i.get("disabled").and_then(Value::as_bool).unwrap_or(false))))
+            .collect();
         self.emit("menu", "menu:show", json!([{ "items": items }]));
     }
 
@@ -194,6 +231,9 @@ impl Core {
 
     /// A row was picked.
     pub fn menu_pick(&mut self, id: &str) {
+        if !pick_ok(&self.menu.offered, self.menu.shown, id) {
+            return;
+        }
         let ctx = std::mem::take(&mut self.menu.ctx);
         self.close_menu(true);
         log!("menu: {id}");
@@ -230,9 +270,9 @@ impl Core {
             "copyimage" => {
                 win32::set_clipboard_text(&p.image);
             }
-            "openlink" => self.open_external(app, &p.link),
+            "openlink" => open_checked(app.to_string(), p.link.clone()),
             "paste" => {
-                if let Some(text) = win32::clipboard_text() {
+                if let Some(text) = win32::clipboard_text().map(|t| paste_cap(&t)) {
                     let js = format!("document.execCommand('insertText', false, {})", serde_json::to_string(&text).unwrap_or_default());
                     self.chats.execute(app, &js, |_| {});
                 }
@@ -253,6 +293,8 @@ impl Core {
             return;
         }
         self.menu.shown = false;
+        self.menu.ctx = Ctx::None;
+        self.menu.offered.clear();
         win32::hide(win.hwnd);
         self.emit("menu", "menu:hide", json!([]));
         if self.panel_state != PanelState::Open {
@@ -299,6 +341,23 @@ mod tests {
         assert_eq!(page_ids(&link, false, false), vec!["openlink", "copylink", "-", "reload"]);
         let image = PageCtx { image: "https://example.com/a.png".into(), ..Default::default() };
         assert_eq!(page_ids(&image, false, false), vec!["copyimage", "-", "reload"]);
+    }
+
+    #[test]
+    fn only_a_row_that_was_offered_can_be_picked() {
+        use super::pick_ok;
+        let offered = vec![("reload".to_string(), false), ("close".to_string(), true)];
+        assert!(pick_ok(&offered, true, "reload"));
+        assert!(!pick_ok(&offered, true, "close"), "a greyed-out row");
+        assert!(!pick_ok(&offered, true, "paste"), "not in this menu");
+        assert!(!pick_ok(&offered, false, "reload"), "the menu isn't open");
+    }
+
+    #[test]
+    fn paste_is_capped() {
+        assert_eq!(super::paste_cap("abc"), "abc");
+        let big = "ก".repeat(super::PASTE_MAX + 10);
+        assert_eq!(super::paste_cap(&big).chars().count(), super::PASTE_MAX);
     }
 
     #[test]
