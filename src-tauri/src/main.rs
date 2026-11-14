@@ -8,6 +8,7 @@
 
 mod apps;
 mod autostart;
+mod bugreport;
 mod chats;
 mod core;
 mod edge;

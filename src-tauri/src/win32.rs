@@ -801,6 +801,33 @@ pub fn clipboard_text() -> Option<String> {
     }
 }
 
+/// Windows' build number and its "24H2"-style name (for a bug report).
+pub fn windows_version() -> (u32, String) {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    let read = |name: &str| -> String {
+        let mut buf = vec![0u16; 64];
+        let mut size = (buf.len() * 2) as u32;
+        let ok = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                &HSTRING::from(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
+                &HSTRING::from(name),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr() as *mut std::ffi::c_void),
+                Some(&mut size),
+            )
+        }
+        .is_ok();
+        if !ok {
+            return String::new();
+        }
+        let len = (size as usize / 2).saturating_sub(1).min(buf.len());
+        String::from_utf16_lossy(&buf[..len])
+    };
+    (read("CurrentBuild").parse().unwrap_or(0), read("DisplayVersion"))
+}
+
 #[cfg(test)]
 mod clipboard_tests {
     #[test]

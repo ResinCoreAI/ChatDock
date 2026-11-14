@@ -283,6 +283,21 @@
   .bento .cat:hover { transform: none; }
 }
 
+/* "Report a bug": on the About page, and small under the boxes */
+.report-bug { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--card-line)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .15s, transform .15s; }
+.report-bug:hover { background: color-mix(in srgb, var(--accent) 14%, var(--card)); }
+.report-bug:active { transform: scale(.98); }
+.report-bug > span:first-child { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: #fff; }
+.report-bug > span:first-child svg { width: 20px; height: 20px; }
+.report-bug:hover > span:first-child svg { animation: icon-nudge .5s ease; }
+.rb-text { flex: 1; min-width: 0; }
+.rb-text b { display: block; font-size: 14px; font-weight: 600; }
+.rb-text small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.home-foot .sep { opacity: .5; }
+.link-btn { display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.link-btn:hover { color: var(--accent); }
+.link-btn svg { display: block; width: 14px; height: 14px; }
+
 .home-foot { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 18px 0 4px; color: var(--muted); font-size: 12px; }
 .home-foot svg { display: block; width: 18px; height: 18px; }
 

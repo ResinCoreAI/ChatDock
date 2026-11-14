@@ -1088,6 +1088,19 @@ impl Core {
                 self.broadcast_state();
             }
             "open-repo" => win32::open_url(REPO_URL),
+            "report-bug" => {
+                let (build, display) = win32::windows_version();
+                let body = crate::bugreport::body(
+                    &self.build_name(&rt::version()),
+                    &rt::version(),
+                    &crate::bugreport::windows_name(build, &display),
+                    &self.lang,
+                    &self.enabled_apps(),
+                    win32::displays().len(),
+                );
+                log!("bug report page opened");
+                win32::open_url(&crate::bugreport::issue_url(REPO_URL, "[Bug] ", &body));
+            }
             "open-license" => win32::open_url(&format!("{REPO_URL}/blob/main/LICENSE")),
             "open-logs" => {
                 if let Some(p) = log::path() {
