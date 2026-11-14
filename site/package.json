@@ -1,0 +1,10 @@
+{
+  "name": "chatdock-site",
+  "private": true,
+  "type": "module",
+  "description": "ChatDock's download site (static, no build step)",
+  "scripts": {
+    "test": "node --test test/",
+    "serve": "python -m http.server 5181 --bind 127.0.0.1"
+  }
+}

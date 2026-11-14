@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ChatDock · Every chat app at the edge of your screen, for Windows</title>
+<meta name="description" content="ChatDock keeps Facebook, Instagram, Discord, Telegram, WhatsApp and X behind a white tab at the edge of your screen. Free and open source, for Windows 10 and 11.">
+<meta name="theme-color" content="#fbe9d7">
+<meta property="og:title" content="ChatDock">
+<meta property="og:description" content="Every chat app at the edge of your screen, for Windows. Free and open source.">
+<meta property="og:image" content="assets/icon.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.github.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mali:wght@600;700&family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+<script>
+  // the opening animation runs once per load, and never for people who asked for less motion
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('intro');
+</script>
+<script type="module" src="assets/main.js"></script>
+</head>
+<body>
+<a class="skip" href="#main" data-t="nav_dl">Download</a>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./"><img src="assets/icon.png" alt="" width="36" height="36">ChatDock</a>
+  <nav>
+    <a href="#features" data-t="nav_features">Features</a>
+    <a href="#apps" data-t="nav_apps">Apps</a>
+    <a href="whats-new.html" data-t="nav_news">What's new</a>
+    <a href="#faq" data-t="nav_faq">FAQ</a>
+    <a href="#team" data-t="nav_team">Team</a>
+  </nav>
+  <a class="gh-link puff" href="https://github.com/ResinCoreAI/ChatDock" data-t-label="gh_label" aria-label="ChatDock on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg></a>
+  <div class="lang">
+    <button type="button" class="puff" aria-haspopup="true" aria-expanded="false" data-t-label="lang">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>
+      <span class="now">English</span>
+    </button>
+    <ul class="puff"></ul>
+  </div>
+</div></header>
+
+<main id="main">
+<div class="hero"><div class="wrap">
+  <div class="bits" aria-hidden="true">
+    <span class="bit b1" data-depth="18"><i></i></span><span class="bit b2" data-depth="-12"><i></i></span><span class="bit b3" data-depth="10"><i></i></span>
+    <span class="bit b4" data-depth="-20"><i></i></span><span class="bit b5" data-depth="14"><i></i></span>
+    <span class="bits-hint" data-t="bits_hint"></span>
+  </div>
+  <span class="pill puff">Beta Build <b data-ver>1.8.1</b> · Windows 10 / 11</span>
+  <h1 data-t="hero_title">Your chats,<br>waiting by the screen</h1>
+  <p class="lede" data-t="lede"></p>
+  <a class="btn" data-dl href="https://github.com/ResinCoreAI/ChatDock/releases/latest">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+    <span data-t="cta">Download for Windows</span>
+  </a>
+  <div class="meta"><span data-t="meta"></span><span data-size></span></div>
+
+  <div class="stage" id="stage">
+    <div class="sticker" id="sticker" aria-live="polite"></div>
+    <div class="monitor"><div class="glass" id="screen"></div><i class="led"></i></div>
+    <div class="neck"></div><div class="foot"></div>
+  </div>
+  <p class="tip" id="tip"></p>
+</div></div>
+
+<section id="features" class="settle"><div class="wrap">
+  <h2 data-t="f_title"></h2>
+  <div class="cards">
+    <div class="card puff"><div class="ico i-tab"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="26" height="20" rx="4" fill="#fffaf3"/><rect class="mv" x="24" y="11" width="8" height="10" rx="3" fill="#fff"/></svg></div><h3 data-t="f1"></h3><p data-t="f1d"></p></div>
+    <div class="card puff"><div class="ico i-game"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="mv"><path d="M9 11h16a6 6 0 0 1 6 6v3a4 4 0 0 1-7 2.6L22 20H12l-2 2.6A4 4 0 0 1 3 20v-3a6 6 0 0 1 6-6z" fill="#fffaf3"/><path d="M10 15v4M8 17h4"/><circle cx="23" cy="16" r="1" fill="#3a2a22"/><circle cx="26" cy="18.5" r="1" fill="#3a2a22"/></g></svg></div><h3 data-t="f2"></h3><p data-t="f2d"></p></div>
+    <div class="card puff"><div class="ico i-mouse"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="10" y="4" width="14" height="26" rx="7" fill="#fffaf3"/><path d="M17 9v5"/><rect class="mv" x="6.5" y="15" width="4" height="7" rx="2" fill="#ff6b4a" stroke="none"/></svg></div><h3 data-t="f3"></h3><p data-t="f3d"></p></div>
+    <div class="card puff"><div class="ico i-reply"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h18a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H13l-6 5v-5H5a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3z" fill="#fffaf3"/><path class="mv" d="M24 4l6 0 0 6M30 4l-8 8"/></svg></div><h3 data-t="f4"></h3><p data-t="f4d"></p></div>
+    <div class="card puff"><div class="ico i-star"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="mv" d="M17 4l3.8 8 8.7 1-6.4 6 1.7 8.6L17 23.4l-7.8 4.2 1.7-8.6-6.4-6 8.7-1z" fill="#fffaf3"/></svg></div><h3 data-t="f5"></h3><p data-t="f5d"></p></div>
+    <div class="card puff"><div class="ico i-vol"><svg viewBox="0 0 34 34" fill="none" stroke="#3a2a22" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13h5l7-6v20l-7-6H5z" fill="#fffaf3"/><path class="mv" d="M22 12a6 6 0 0 1 0 10M25.5 8.5a11 11 0 0 1 0 17"/></svg></div><h3 data-t="f6"></h3><p data-t="f6d"></p></div>
+  </div>
+</div></section>
+
+<section id="apps" class="settle" style="padding-top:0"><div class="wrap">
+  <h2 data-t="a_title"></h2>
+  <div class="apps">
+    <button type="button" class="puff" data-app="facebook"><i data-icon="facebook"></i>Facebook</button>
+    <button type="button" class="puff" data-app="instagram"><i data-icon="instagram"></i>Instagram</button>
+    <button type="button" class="puff" data-app="discord"><i data-icon="discord"></i>Discord</button>
+    <button type="button" class="puff" data-app="telegram"><i data-icon="telegram"></i>Telegram</button>
+    <button type="button" class="puff" data-app="whatsapp"><i data-icon="whatsapp"></i>WhatsApp</button>
+    <button type="button" class="puff" data-app="x"><i data-icon="x"></i>X</button>
+    <button type="button" class="puff" data-app="spotify"><i data-icon="spotify"></i>Spotify</button>
+  </div>
+  <p class="hint" data-t="a_hint"></p>
+  <p class="note" data-t="a_note"></p>
+</div></section>
+
+<section id="news" class="settle" style="padding-top:0" hidden><div class="wrap">
+  <h2 data-t="log_title"></h2>
+  <p class="small" id="notes-lang" hidden></p>
+  <ol class="log" id="log" aria-live="polite"></ol>
+  <p class="more"><a href="whats-new.html" data-t="news_all"></a></p>
+</div></section>
+
+<section id="faq" class="settle" style="padding-top:0"><div class="wrap">
+  <h2 data-t="q_title"></h2>
+  <div class="stack">
+    <details class="puff"><summary data-t="q1"></summary><p data-t="q1a"></p></details>
+    <details class="puff"><summary data-t="q2"></summary><p data-t="q2a"></p></details>
+    <details class="puff"><summary data-t="q3"></summary><p data-t="q3a"></p></details>
+    <details class="puff"><summary data-t="q4"></summary><p data-t="q4a"></p></details>
+  </div>
+</div></section>
+
+<section id="team" class="settle" style="padding-top:0" hidden><div class="wrap">
+  <h2 data-t="team_title"></h2>
+  <div class="team" id="team-list" aria-live="polite"></div>
+</div></section>
+
+<section class="settle" style="padding-top:0"><div class="wrap"><div class="final">
+  <h2 data-t="dl_title"></h2>
+  <p data-t="dl_sub"></p>
+  <div class="final-acts">
+    <a class="btn" data-dl href="https://github.com/ResinCoreAI/ChatDock/releases/latest"><span data-t="cta">Download for Windows</span></a>
+    <a class="btn dark" href="https://github.com/ResinCoreAI/ChatDock"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg><span data-t="gh_view">View the code on GitHub</span></a>
+  </div>
+  <div class="meta"><a href="https://github.com/ResinCoreAI/ChatDock/releases" data-t="allver"></a></div>
+</div></div></section>
+</main>
+
+<footer class="end"><span data-t="foot"></span><a class="foot-gh" href="https://github.com/ResinCoreAI/ChatDock"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</a></footer>
+<noscript><p style="text-align:center;padding:0 16px 40px">ChatDock — <a href="https://github.com/ResinCoreAI/ChatDock/releases/latest">Download for Windows</a></p></noscript>
+</body>
+</html>
