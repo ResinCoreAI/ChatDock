@@ -2201,7 +2201,9 @@ impl Core {
     pub fn apply_ptt(&mut self) {
         let on = self.settings.bool("pttOn") && self.is_enabled("discord");
         let code = if on { crate::wheel::key_code(self.settings.str("pttKey")).unwrap_or(0) } else { 0 };
-        crate::wheel::set_ptt(code);
+        // only in a call: a side button means copies of every mouse movement (a gaming mouse sends
+        // thousands a second), which nothing needs outside one (on_call calls this again)
+        crate::wheel::set_ptt(if self.chats.in_call("discord") { code } else { 0 });
         // a keyboard key is read only while in a Discord call (stopping while held mutes)
         crate::wheel::poll(crate::wheel::is_key(code) && self.chats.in_call("discord"));
     }

@@ -221,10 +221,12 @@ impl Core {
         self.stop_hold(false);
         let near = dist >= 0 && dist < (250.0 * s) as i32 && on_screen_y;
         if near {
-            40
+            40 // look more often only while the cursor is near the edge
+        } else if mode == "no-fullscreen" && win32::game_in_front() {
+            500 // the tab can't come out during the game anyway
         } else {
-            110
-        } // look more often only while the cursor is near the edge
+            200
+        }
     }
 
     fn clamp_tab_y(&self, y: f64, h: i32, d: &Display) -> f64 {

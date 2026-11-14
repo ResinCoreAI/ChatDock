@@ -575,15 +575,16 @@ impl Display {
     }
 }
 
-/// All monitors, primary first. Kept for a moment (the edge is checked on every screen refresh);
-/// forget_displays() drops it as soon as Windows says something changed.
+/// All monitors, primary first. Kept for a minute (the edge looks at them several times a second);
+/// forget_displays() drops it as soon as Windows says something changed (WM_DISPLAYCHANGE,
+/// WM_DPICHANGED, WM_SETTINGCHANGE).
 pub fn displays() -> Vec<Display> {
     if let Some(list) = TEST_DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         return list.clone();
     }
     let mut cache = DISPLAYS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((at, list)) = cache.as_ref() {
-        if at.elapsed().as_millis() < 1000 {
+        if at.elapsed().as_millis() < 60_000 {
             return list.clone();
         }
     }
