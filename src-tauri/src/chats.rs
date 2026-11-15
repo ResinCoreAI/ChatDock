@@ -1982,10 +1982,10 @@ pub(crate) unsafe fn refuse_downloads(wv: &ICoreWebView2, id: &str) {
 
 /// WebView2 objects carried to another thread and back: only touched again on the UI thread
 /// (rt::post), never on the one carrying them.
-struct UiOnly<T>(T);
+pub(crate) struct UiOnly<T>(pub(crate) T);
 unsafe impl<T> Send for UiOnly<T> {}
 impl<T> UiOnly<T> {
-    fn take(self) -> T {
+    pub(crate) fn take(self) -> T {
         self.0
     }
 }
@@ -2115,7 +2115,7 @@ pub(crate) fn passkey_line(v: &serde_json::Value) -> String {
 }
 
 /// ChatDock's keyboard shortcuts inside a page (a chat, or the panel's own page when app is None).
-fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
+pub(crate) fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
     let host = app.is_none();
     let mut token = 0i64;
     unsafe {

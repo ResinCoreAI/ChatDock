@@ -625,6 +625,9 @@ impl Core {
             self.chats.set_bounds(&id, bounds);
             self.chats.set_visible(&id, show, id == active);
         }
+        let browser_up =
+            panel_up && active == crate::browser::ID && !self.help_mode && !self.settings_mode && self.settings.bool("onboarded");
+        self.layout_browser(bounds, browser_up);
         // The keyboard follows while the user is in the panel: to the chat when it appears (an app
         // that was loading or asleep), to the panel page when it goes (the error screen).
         if self.panel_state == PanelState::Open && win32::foreground_window() == self.panel.hwnd {
@@ -695,7 +698,9 @@ impl Core {
     /// Put the keyboard into the chat page (no change to which window is in front).
     fn focus_content(&mut self) {
         let active = self.active();
-        if !(self.view_showable(&active) && self.chats.focus(&active)) {
+        let focused =
+            if active == crate::browser::ID { self.browser_focus() } else { self.view_showable(&active) && self.chats.focus(&active) };
+        if !focused {
             crate::chats::focus_panel_page();
         }
     }
@@ -1407,7 +1412,10 @@ fn settings_tick() {
 }
 
 fn sleep_tick() {
-    core::with(|c| c.sleep_check());
+    core::with(|c| {
+        c.sleep_check();
+        c.browser_drop_idle(); // the Browser's tabs unused for 30 minutes
+    });
     rt::after(60_000, sleep_tick);
 }
 

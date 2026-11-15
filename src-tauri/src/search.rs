@@ -1,4 +1,4 @@
-#![allow(dead_code)] // used from Task 6 on
+#![allow(dead_code)] // used from the page messages (Tasks 7-9); removed at the end of Task 9
 //! The Browser's search side: its engines, "is this an address or a search?", and the engines'
 //! suggestion answers. Nothing here touches WebView2 or the network, so all of it is unit tested.
 

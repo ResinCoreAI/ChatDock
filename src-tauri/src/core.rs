@@ -469,7 +469,10 @@ impl Core {
     /// The chats' own WebView2 windows, e.g. the "… is sharing your screen" bar that takes the focus
     /// when a screen share starts: the chat must not hide for it.
     pub fn is_chat_browser_window(&self, hwnd: isize) -> bool {
-        chats::browser_pid() != 0 && win32::window_pid(hwnd) == chats::browser_pid()
+        let pid = win32::window_pid(hwnd);
+        (chats::browser_pid() != 0 && pid == chats::browser_pid())
+            || (crate::browser::browser_pid() != 0 && pid == crate::browser::browser_pid())
+        // the Browser tab's own process
     }
 
     // -----------------------------------------------------------------------------------------
