@@ -12,7 +12,6 @@ pub const URL_MAX: usize = 4096;
 
 pub struct Engine {
     pub id: &'static str,
-    #[allow(dead_code)] // read by Settings → Browser (Task 11)
     pub name: &'static str,
     search: &'static str,
     suggest: &'static str,

@@ -675,6 +675,7 @@
     else setText('hotkeyNote', t(p.hotkey ? 'set.hotkeyNote' : 'set.hotkeyOff'), '');
 
     for (const node of qa('[data-show="packaged"]')) node.hidden = !st.packaged;
+    for (const node of qa('[data-show="browser"]')) node.hidden = !(st.browser && st.browser.on);
     // "· Language" after the translated word helps someone who picked a language they can't read
     for (const node of qa('.en-hint')) node.hidden = window.i18n.lang === 'en';
 
@@ -769,6 +770,8 @@
 
     const theme = p.theme === 'dark' ? t('theme.dark') : p.theme === 'light' ? t('theme.light') : t('s.themeSystem');
     sub('look', `${theme} · ${t('s.opacityShort', { n: Math.round(Number(p.opacity) * 100) })}`);
+
+    if (st.browser) sub('browser', t('set.browserSub', { engine: st.browser.engine, state: t(p.browserSuggest ? 'set.on' : 'set.off') }));
 
     const onCount = st.catalog.filter((a) => a.on).length;
     sub('apps', st.memory ? t('s.appsSub', { n: onCount, mb: mb(st.memory) }) : t('s.appsOn', { n: onCount }));

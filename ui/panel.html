@@ -149,6 +149,7 @@
              A box opens its page (the page grows out of the box). -->
         <div class="cats bento" data-cats>
           <div class="cat w2" data-goto="apps" role="button" tabindex="0"><i class="tile c-apps" data-icon="grid"></i><span class="cat-text"><b data-i18n="set.apps"></b><small data-text="sub-apps"></small></span><span class="mini-apps" data-mini-apps></span></div>
+          <div class="cat" data-goto="browser" data-show="browser" role="button" tabindex="0"><i class="tile c-browser" data-icon="search"></i><span class="cat-text"><b data-i18n="set.browser"></b><small data-text="sub-browser"></small></span></div>
           <div class="cat" data-goto="popups" role="button" tabindex="0"><span class="cat-top"><i class="tile c-popups" data-icon="bell"></i><label class="switch mini" data-i18n-title="set.popups"><input type="checkbox" data-pref="popups"><span></span></label></span><span class="cat-text"><b data-i18n="set.notify"></b><small data-text="sub-popups"></small></span></div>
           <div class="cat" data-goto="open" role="button" tabindex="0"><i class="tile c-open" data-icon="pointerEdge"></i><span class="cat-text"><b data-i18n="cat.open"></b><small data-text="sub-open"></small></span></div>
           <div class="cat" data-goto="look" role="button" tabindex="0"><span class="cat-top"><i class="tile c-look" data-icon="theme"></i><span class="mini-theme"><button data-pref="theme" data-value="dark" class="sw-dark" data-i18n-title="theme.dark"></button><button data-pref="theme" data-value="light" class="sw-light" data-i18n-title="theme.light"></button></span></span><span class="cat-text"><b data-i18n="cat.look"></b><small data-text="sub-look"></small></span></div>
@@ -297,6 +298,24 @@
       </div>
 
       <!-- ─────────────── Notifications ─────────────── -->
+      <!-- Browser -->
+      <div class="set-page" data-page="browser" data-title="set.browser" hidden>
+        <div class="card">
+          <div class="row">
+            <div class="label"><b data-i18n="set.browserSuggest"></b><small data-i18n="set.browserSuggestNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="browserSuggest"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.browserRemember"></b><small data-i18n="set.browserRememberNote"></small></div>
+            <label class="switch"><input type="checkbox" data-pref="browserRemember"><span></span></label>
+          </div>
+          <div class="row">
+            <div class="label"><b data-i18n="set.browserClear"></b><small data-i18n="set.browserClearNote"></small></div>
+            <button class="danger small" data-action="browser-clear" data-confirm="confirm.again" data-i18n="set.browserClearBtn"></button>
+          </div>
+        </div>
+      </div>
+
       <div class="set-page" data-page="popups" data-title="set.notify" hidden>
         <div class="card">
           <div class="row">

@@ -67,8 +67,8 @@
 .b-suggest .s-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-suggest .s-txt b { font-weight: 700; }
 .b-suggest .s-tag { font-size: 11.5px; color: var(--muted); }
-.b-suggest li.url .s-ico { color: var(--accent); }
-.b-suggest li.url .s-txt { color: var(--accent); font-weight: 600; }
+.b-suggest li.s-url .s-ico { color: var(--accent); }
+.b-suggest li.s-url .s-txt { color: var(--accent); font-weight: 600; }
 .b-suggest .s-cap { padding: 6px 16px 2px; font-size: 11.5px; color: var(--muted); cursor: default; }
 .b-suggest .s-cap:hover { background: none; }
 
@@ -84,18 +84,18 @@
 .b-link:hover { text-decoration: underline; }
 
 .b-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
-.tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px 10px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; transition: background .15s; }
-.tile:hover { background: var(--hover); }
-.tile .fav { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 17px "Segoe UI", sans-serif; background: var(--bg-soft); transition: transform .3s cubic-bezier(.2,.9,.3,1.4); }
-.tile:hover .fav { transform: translateY(-2px) scale(1.06); }
-.tile .t-name { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile .t-more { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); opacity: 0; transition: opacity .15s; }
-.tile:hover .t-more { opacity: 1; }
-.tile .t-more:hover { background: var(--hover); color: var(--text); }
-.tile .t-more svg { width: 14px; height: 14px; }
-.tile.add .fav { background: transparent; border: 1.5px dashed var(--line); color: var(--muted); }
-.tile.add .fav svg { width: 18px; height: 18px; }
-@media (hover: none) { .tile .t-more { opacity: 1; } }
+.b-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px 10px; border: 0; border-radius: 12px; background: transparent; cursor: pointer; transition: background .15s; }
+.b-tile:hover { background: var(--hover); }
+.b-tile .fav { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 17px "Segoe UI", sans-serif; background: var(--bg-soft); transition: transform .3s cubic-bezier(.2,.9,.3,1.4); }
+.b-tile:hover .fav { transform: translateY(-2px) scale(1.06); }
+.b-tile .t-name { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-tile .t-more { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); opacity: 0; transition: opacity .15s; }
+.b-tile:hover .t-more { opacity: 1; }
+.b-tile .t-more:hover { background: var(--hover); color: var(--text); }
+.b-tile .t-more svg { width: 14px; height: 14px; }
+.b-tile.add .fav { background: transparent; border: 1.5px dashed var(--line); color: var(--muted); }
+.b-tile.add .fav svg { width: 18px; height: 18px; }
+@media (hover: none) { .b-tile .t-more { opacity: 1; } }
 
 .b-recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .b-recent li { display: flex; align-items: center; gap: 10px; padding: 0 4px 0 10px; height: 36px; border-radius: 9px; cursor: pointer; }
@@ -121,7 +121,7 @@
 @keyframes pop { from { opacity: 0; transform: scale(.94); } }
 .sheet-card h3 { margin: 0 0 2px; font-size: 16px; }
 .sheet-card label { display: grid; gap: 5px; font-size: 12.5px; color: var(--muted); }
-.sheet-card input:not([type]) , .sheet-card input[id^="tile"] { height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--box-line); background: var(--box); color: var(--text); font: inherit; font-size: 14px; }
+.sheet-card input:not([type]) , .sheet-card input[id^="btile"] { height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--box-line); background: var(--box); color: var(--text); font: inherit; font-size: 14px; }
 .sheet-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .sheet-acts button { height: 34px; padding: 0 16px; border-radius: 9px; border: 0; cursor: pointer; font-weight: 600; }
 .sheet-acts .ghost { background: var(--seg); color: var(--text); }

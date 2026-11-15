@@ -808,6 +808,10 @@ impl Core {
             }
         }
         prefs.insert("autostart".into(), json!(self.autostart_cache));
+        let b = self.settings.get(crate::browser::ID);
+        prefs.insert("browserSuggest".into(), json!(b["suggest"].as_bool().unwrap_or(true)));
+        prefs.insert("browserRemember".into(), json!(b["remember"].as_bool().unwrap_or(true)));
+        let browser = json!({ "on": self.browser_on(), "engine": crate::search::engine(b["engine"].as_str().unwrap_or("google")).name });
         // the picked monitor's key as the page knows it (a 1.5.x name that is still being matched
         // shows as that monitor), else what is saved, else "auto"
         let picked = self
@@ -832,6 +836,7 @@ impl Core {
         json!({
             "prefs": prefs,
             "catalog": catalog,
+            "browser": browser,
             "memory": memory.total,
             "langs": i18n::LANGS.iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
             "monitors": monitors,
@@ -926,7 +931,9 @@ impl Core {
             | "popupQuietFullscreen"
             | "updateAutoCheck"
             | "updateAutoDownload"
-            | "introOnStart" => v.is_boolean(),
+            | "introOnStart"
+            | "browserSuggest"
+            | "browserRemember" => v.is_boolean(),
             _ => false,
         }
     }
@@ -1038,6 +1045,7 @@ impl Core {
                 self.set_setting(key, value);
                 self.schedule_update_checks();
             }
+            k if crate::browser::pref_field(k).is_some() => self.browser_set(crate::browser::pref_field(k).unwrap_or(""), value),
             _ => self.set_setting(key, value),
         }
         self.broadcast_state();
@@ -1082,6 +1090,7 @@ impl Core {
                     self.clear_app_data(id);
                 }
             }
+            "browser-clear" => self.browser_clear_data(),
             "clear-all" => {
                 for id in apps::ids() {
                     self.clear_app_data(id);

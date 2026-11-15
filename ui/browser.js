@@ -190,7 +190,7 @@
     box.textContent = '';
     st.shortcuts.forEach((s, i) => {
       const a = document.createElement('div');
-      a.className = 'tile';
+      a.className = 'b-tile';
       a.setAttribute('role', 'button');
       a.tabIndex = 0;
       a.title = s.u;
@@ -212,7 +212,7 @@
     if (st.shortcuts.length < SHORTCUTS_MAX) {
       const add = document.createElement('button');
       add.type = 'button';
-      add.className = 'tile add';
+      add.className = 'b-tile add';
       add.innerHTML = `<span class="fav">${ico('plus')}</span><span class="t-name">${esc(t('browser.addShortcut'))}</span>`;
       add.addEventListener('click', () => editTile(-1));
       box.append(add);
@@ -337,7 +337,7 @@
     at = -1;
     rows.forEach((r, i) => {
       const li = document.createElement('li');
-      li.className = r.kind;
+      li.className = `s-${r.kind}`;
       li.setAttribute('role', 'option');
       const icon = r.kind === 'url' ? 'link' : r.kind === 'recent' ? 'reload' : 'search';
       const label = r.kind === 'url' ? esc(t('browser.openAddr', { addr: r.text }))

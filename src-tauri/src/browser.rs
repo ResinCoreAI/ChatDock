@@ -398,6 +398,53 @@ impl Core {
         }
     }
 
+    /// Settings → Browser → Clear browsing data: the Browser's cookies, sign-ins, cache and site
+    /// data. Never the chats' (they live in another environment and folder).
+    pub fn browser_clear_data(&mut self) {
+        let profile = self
+            .browser
+            .views
+            .values()
+            .next()
+            .and_then(|v| v.webview.cast::<ICoreWebView2_13>().ok())
+            .and_then(|w| unsafe { w.Profile() }.ok())
+            .and_then(|p| p.cast::<ICoreWebView2Profile2>().ok());
+        if let Some(p2) = profile {
+            let started = unsafe {
+                p2.ClearBrowsingDataAll(&ClearBrowsingDataCompletedHandler::create(Box::new(|_| {
+                    later(|c| c.browser_cleared());
+                    Ok(())
+                })))
+            };
+            if let Err(err) = started {
+                log!("browser data not cleared: {err}");
+            }
+            return;
+        }
+        // no page open: its browser process goes (nothing holds it any more) and its folder with it;
+        // made again when a page next opens
+        ENV.with(|e| *e.borrow_mut() = None);
+        PID.store(0, Ordering::Relaxed);
+        self.browser.env = EnvState::NotStarted;
+        let dir = self.args.data_dir.join("WebView2-browser");
+        timer(1500, move |c| {
+            if c.browser.env != EnvState::NotStarted {
+                return; // a page opened meanwhile: its folder is in use again
+            }
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => c.browser_cleared(),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => c.browser_cleared(),
+                Err(err) => log!("browser data not cleared: {err}"),
+            }
+        });
+    }
+
+    fn browser_cleared(&mut self) {
+        log!("browser data cleared");
+        let title = self.t("browser.cleared");
+        self.notice_brief(&title, "", 2500);
+    }
+
     pub fn browser_close_all(&mut self) {
         let ids: Vec<u32> = self.browser.views.keys().copied().collect();
         for id in ids {
@@ -922,6 +969,15 @@ impl Core {
     }
 }
 
+/// Settings' two flat switches and where they live in settings.json's `browser`.
+pub fn pref_field(key: &str) -> Option<&'static str> {
+    match key {
+        "browserSuggest" => Some("suggest"),
+        "browserRemember" => Some("remember"),
+        _ => None,
+    }
+}
+
 /// The Browser's rules for one of its pages (not the chats': any site, its own pop-up rule, no
 /// page script, nothing on this PC or the LAN).
 unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id: u32, debug: bool) -> windows::core::Result<()> {
@@ -1328,6 +1384,13 @@ mod tests {
         assert_eq!(k(0x09, true, false, false), None); // Ctrl+Tab stays ChatDock's
         assert_eq!(k(0x31, true, false, false), None); // Ctrl+1 too
         assert_eq!(k(0x54, true, true, false), None); // Ctrl+Alt+T: not ours
+    }
+
+    #[test]
+    fn the_settings_switches_map_to_the_browser_settings() {
+        assert_eq!(super::pref_field("browserSuggest"), Some("suggest"));
+        assert_eq!(super::pref_field("browserRemember"), Some("remember"));
+        assert_eq!(super::pref_field("browserEngine"), None);
     }
 
     #[test]
