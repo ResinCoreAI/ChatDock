@@ -99,3 +99,28 @@ pub fn locale(lang: &str) -> &'static str {
         _ => "en-US",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_language_has_the_same_keys() {
+        let all = super::strings();
+        let en: std::collections::BTreeSet<&String> = all["en"].as_object().unwrap().keys().collect();
+        assert!(en.len() > 100, "i18n-data.js didn't parse");
+        for (lang, _) in super::LANGS {
+            let keys: std::collections::BTreeSet<&String> = all[*lang].as_object().unwrap().keys().collect();
+            let missing: Vec<_> = en.difference(&keys).collect();
+            let extra: Vec<_> = keys.difference(&en).collect();
+            assert!(missing.is_empty() && extra.is_empty(), "{lang}: missing {missing:?}, extra {extra:?}");
+        }
+    }
+
+    #[test]
+    fn the_browser_strings_are_there() {
+        for key in ["browser.name", "browser.placeholder", "set.browser", "menu.closeBrowser", "browser.downloadRefused"] {
+            for (lang, _) in super::LANGS {
+                assert_ne!(super::t(lang, key, &[]), key, "{lang} {key}");
+            }
+        }
+    }
+}
