@@ -21,6 +21,67 @@ pub fn app_pref_default(key: &str) -> bool {
     key != "sleep"
 }
 
+/// The Browser tab's saved state (settings.json `browser`): engine, the two switches, recent
+/// searches, shortcuts, and its open tabs. Recent searches and shortcuts have room for this many.
+pub const BROWSER_RECENT_MAX: usize = 8;
+pub const BROWSER_SHORTCUTS_MAX: usize = 12;
+
+fn browser_shortcuts_default() -> Value {
+    json!([
+        { "n": "YouTube", "u": "https://www.youtube.com/" },
+        { "n": "Gmail", "u": "https://mail.google.com/" },
+        { "n": "GitHub", "u": "https://github.com/" },
+        { "n": "Twitch", "u": "https://www.twitch.tv/" },
+        { "n": "Shopee", "u": "https://shopee.co.th/" },
+        { "n": "Netflix", "u": "https://www.netflix.com/" }
+    ])
+}
+
+/// One recent search as kept: `{q, e}` with the words trimmed (1-200 characters) and a known engine.
+pub fn recent_ok(v: &Value) -> Option<Value> {
+    let q = v.get("q")?.as_str()?.trim();
+    if q.is_empty() || q.chars().count() > 200 {
+        return None;
+    }
+    let e = v.get("e").and_then(Value::as_str).filter(|e| crate::search::is_engine(e)).unwrap_or("google");
+    Some(json!({ "q": q, "e": e }))
+}
+
+/// One shortcut as kept: `{n, u}`, a name of 1-24 characters and a web address.
+pub fn shortcut_ok(v: &Value) -> Option<Value> {
+    let n = v.get("n")?.as_str()?.trim();
+    let u = v.get("u")?.as_str()?.trim();
+    if n.is_empty() || n.chars().count() > 24 || u.len() > crate::search::URL_MAX || !crate::search::web_url(u) {
+        return None;
+    }
+    Some(json!({ "n": n, "u": u }))
+}
+
+/// The saved Browser state with anything missing or broken put right (a file edited by hand, or
+/// written by an older ChatDock, can't break the Browser).
+pub fn clean_browser(saved: Option<&Value>) -> Value {
+    let s = saved.and_then(Value::as_object);
+    let get = |k: &str| s.and_then(|m| m.get(k));
+    let engine = get("engine").and_then(Value::as_str).filter(|e| crate::search::is_engine(e)).unwrap_or("google");
+    let flag = |k: &str| get(k).and_then(Value::as_bool).unwrap_or(true);
+    let list = |k: &str, ok: fn(&Value) -> Option<Value>, max: usize| -> Option<Vec<Value>> {
+        get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(ok).take(max).collect())
+    };
+    let recent = list("recent", recent_ok, BROWSER_RECENT_MAX).unwrap_or_default();
+    let shortcuts = list("shortcuts", shortcut_ok, BROWSER_SHORTCUTS_MAX).map(Value::Array).unwrap_or_else(browser_shortcuts_default);
+    let tabs = get("tabs").filter(|t| t.is_array()).cloned().unwrap_or_else(|| json!([])); // Tabs::restore checks each one
+    let open = get("open").and_then(Value::as_u64).unwrap_or(0).min(crate::browser_tabs::MAX_TABS as u64 - 1);
+    json!({
+        "engine": engine,
+        "suggest": flag("suggest"),
+        "remember": flag("remember"),
+        "recent": recent,
+        "shortcuts": shortcuts,
+        "tabs": tabs,
+        "open": open,
+    })
+}
+
 fn defaults() -> Map<String, Value> {
     let apps: Map<String, Value> = apps::CATALOG.iter().map(|a| (a.id.to_string(), json!(a.enabled_by_default))).collect();
     let v = json!({
@@ -215,6 +276,7 @@ impl Settings {
             prefs.insert(id.to_string(), Value::Object(p));
         }
         data.insert("appPrefs".into(), Value::Object(prefs));
+        data.insert("browser".into(), clean_browser(saved.get("browser")));
         // 1.0 and 1.1 spoke Thai only: people updating from them keep Thai; new installs follow Windows.
         if !saved.contains_key("lang") && saved.get("onboarded") == Some(&json!(true)) {
             data.insert("lang".into(), json!("th"));
@@ -425,6 +487,68 @@ mod tests {
         assert_eq!(s.get("quickReplies").as_array().map(|a| a.len()), Some(0)); // empty = the language's three
         assert_eq!((s.str("replyKey"), s.bool("pttOn"), s.str("pttKey")), ("", false, ""));
         assert_eq!(s.get("vips").as_array().map(|a| a.len()), Some(0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn a_new_install_gets_the_browser_defaults() {
+        let dir = test_dir("browser-new");
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("settings.json"));
+        let s = Settings::load(&dir);
+        let b = s.get("browser");
+        assert_eq!(b["engine"], "google");
+        assert_eq!((b["suggest"].as_bool(), b["remember"].as_bool()), (Some(true), Some(true)));
+        let names: Vec<_> = b["shortcuts"].as_array().unwrap().iter().map(|s| s["n"].as_str().unwrap()).collect();
+        assert_eq!(names, ["YouTube", "Gmail", "GitHub", "Twitch", "Shopee", "Netflix"]);
+        assert_eq!(b["tabs"], json!([]));
+        assert!(!s.app_on("browser")); // added from "+", off after install
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn broken_browser_settings_are_put_right() {
+        let saved = json!({
+            "engine": "yahoo",
+            "suggest": "yes",
+            "remember": false,
+            "recent": [{ "q": " cats ", "e": "ddg" }, { "q": "" }, { "q": "x".repeat(300) }, 7, { "q": "ok", "e": "nope" }],
+            "shortcuts": [{ "n": "Good", "u": "https://good.com/" }, { "n": "Bad", "u": "javascript:x" }, { "n": "", "u": "https://x.com/" }],
+            "tabs": "not a list",
+            "open": 42
+        });
+        let b = super::clean_browser(Some(&saved));
+        assert_eq!(b["engine"], "google");
+        assert_eq!(b["suggest"], true); // not a bool: the default
+        assert_eq!(b["remember"], false);
+        assert_eq!(b["recent"], json!([{ "q": "cats", "e": "ddg" }, { "q": "ok", "e": "google" }]));
+        assert_eq!(b["shortcuts"], json!([{ "n": "Good", "u": "https://good.com/" }]));
+        assert_eq!(b["tabs"], json!([]));
+        assert_eq!(b["open"], 9);
+        // nothing saved at all, or not an object
+        assert_eq!(super::clean_browser(None)["engine"], "google");
+        assert_eq!(super::clean_browser(Some(&json!(5)))["shortcuts"].as_array().unwrap().len(), 6);
+        // an emptied shortcut list stays empty (the user deleted them all)
+        assert_eq!(super::clean_browser(Some(&json!({ "shortcuts": [] })))["shortcuts"], json!([]));
+        // limits
+        let many_recent: Vec<_> = (0..20).map(|i| json!({ "q": format!("q{i}"), "e": "google" })).collect();
+        let many_tiles: Vec<_> = (0..20).map(|i| json!({ "n": format!("t{i}"), "u": "https://t.com/" })).collect();
+        let b = super::clean_browser(Some(&json!({ "recent": many_recent, "shortcuts": many_tiles })));
+        assert_eq!(b["recent"].as_array().unwrap().len(), super::BROWSER_RECENT_MAX);
+        assert_eq!(b["shortcuts"].as_array().unwrap().len(), super::BROWSER_SHORTCUTS_MAX);
+    }
+
+    #[test]
+    fn the_browser_settings_load_cleaned() {
+        let dir = test_dir("browser-load");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("settings.json"),
+            json!({ "browser": { "engine": "bing", "open": "x" }, "apps": { "browser": true } }).to_string(),
+        )
+        .unwrap();
+        let s = Settings::load(&dir);
+        assert_eq!((s.get("browser")["engine"].as_str(), s.get("browser")["open"].as_u64()), (Some("bing"), Some(0)));
+        assert!(s.app_on("browser"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
