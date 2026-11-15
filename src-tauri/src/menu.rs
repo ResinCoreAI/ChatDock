@@ -27,6 +27,8 @@ pub enum Ctx {
     Tab(String),
     /// a right-click in this app's page
     Page(PageCtx),
+    /// a right-click in this Browser tab's page
+    Browser(u32, PageCtx),
 }
 
 /// Where in the page the right-click was (WebView2's ContextMenuTarget).
@@ -119,6 +121,23 @@ pub fn place(at: (i32, i32), top: i32, size: (i32, i32), work: Rect) -> (i32, i3
     (x, y)
 }
 
+/// The rows of a right-click in a Browser page ("-" = a line). Back / forward always show (greyed
+/// out when they can't go).
+pub fn browser_page_ids(p: &PageCtx, _can_back: bool, _can_forward: bool) -> Vec<&'static str> {
+    let mut ids = vec!["back", "forward", "reload"];
+    if !p.link.is_empty() {
+        ids.extend(["-", "opentab", "copylink"]);
+    }
+    if !p.selection.is_empty() {
+        ids.extend(["-", "copy"]);
+    }
+    if p.editable {
+        ids.extend(["-", "paste", "selectall"]);
+    }
+    ids.extend(["-", "outside"]);
+    ids
+}
+
 /// "Open link in browser": not to this PC however the link names it (127.0.0.1.nip.io): a plain
 /// http name is looked up first, off the UI thread, as the chats' own requests are.
 fn open_checked(app: String, link: String) {
@@ -208,6 +227,31 @@ impl Core {
         self.show_menu(Ctx::Page(p), items, (x, y, y));
     }
 
+    /// A right-click in a Browser page (from browser.rs, with WebView2's own menu turned away).
+    pub fn open_browser_page_menu(&mut self, tab: u32, p: PageCtx, can_back: bool, can_forward: bool) {
+        let mut items = Vec::new();
+        for id in browser_page_ids(&p, can_back, can_forward) {
+            let mut row = match id {
+                "-" => json!({ "sep": true }),
+                "back" => item(id, self.t("menu.back"), "chevronLeft"),
+                "forward" => item(id, self.t("menu.forward"), "chevronRight"),
+                "reload" => item(id, self.t("menu.reload"), "reload"),
+                "opentab" => item(id, self.t("menu.openTab"), "plus"),
+                "copylink" => item(id, self.t("menu.copyLink"), "link"),
+                "copy" => item(id, self.t("menu.copy"), "copy"),
+                "paste" => item(id, self.t("menu.paste"), "paste"),
+                "selectall" => item(id, self.t("menu.selectAll"), "selectAll"),
+                _ => item(id, self.t("browser.outside"), "external"),
+            };
+            if (id == "back" && !can_back) || (id == "forward" && !can_forward) {
+                row["disabled"] = json!(true);
+            }
+            items.push(row);
+        }
+        let (x, y) = win32::cursor_pos();
+        self.show_menu(Ctx::Browser(tab, p), items, (x, y, y));
+    }
+
     /// A point of the panel page (CSS px) on the screen.
     fn panel_point(&self, x: f64, y: f64, top: f64) -> (i32, i32, i32) {
         let r = win32::window_rect(self.panel.hwnd);
@@ -274,6 +318,7 @@ impl Core {
                 _ => {}
             },
             Ctx::Page(p) => self.page_action(&p, id),
+            Ctx::Browser(tab, p) => self.browser_page_action(tab, &p, id),
             Ctx::None => {}
         }
     }
@@ -387,5 +432,16 @@ mod tests {
         assert_eq!(place((1850, 50), 20, (200, 300), work), (1720, 50), "moved in from the right edge");
         assert_eq!(place((100, 900), 880, (200, 300), work), (100, 580), "above it when there's no room below");
         assert_eq!(place((-50, 10), 0, (200, 2000), work), (0, 0), "never off the top or left");
+    }
+
+    #[test]
+    fn a_browser_page_menu_has_its_rows() {
+        let p = super::PageCtx { link: "https://a.com/".into(), selection: "hi".into(), ..Default::default() };
+        assert_eq!(
+            super::browser_page_ids(&p, true, false),
+            ["back", "forward", "reload", "-", "opentab", "copylink", "-", "copy", "-", "outside"]
+        );
+        let plain = super::PageCtx { editable: true, ..Default::default() };
+        assert_eq!(super::browser_page_ids(&plain, false, false), ["back", "forward", "reload", "-", "paste", "selectall", "-", "outside"]);
     }
 }

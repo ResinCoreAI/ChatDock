@@ -361,6 +361,43 @@ impl Core {
         }
     }
 
+    /// A row of a Browser page's right-click menu.
+    pub fn browser_page_action(&mut self, tab: u32, p: &crate::menu::PageCtx, id: &str) {
+        let Some(wv) = self.browser.views.get(&tab).map(|v| v.webview.clone()) else { return };
+        let run = |js: &str| unsafe {
+            let _ = wv.ExecuteScript(&HSTRING::from(js), &ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(()))));
+        };
+        match id {
+            "back" => unsafe {
+                let _ = wv.GoBack();
+            },
+            "forward" => unsafe {
+                let _ = wv.GoForward();
+            },
+            "reload" => unsafe {
+                let _ = wv.Reload();
+            },
+            "opentab" => self.browser_open(&p.link, true),
+            "copylink" => {
+                win32::set_clipboard_text(&p.link);
+            }
+            "copy" => {
+                win32::set_clipboard_text(&p.selection);
+            }
+            "paste" => {
+                if let Some(text) = win32::clipboard_text().map(|t| crate::menu::paste_cap(&t)) {
+                    run(&format!("document.execCommand('insertText', false, {})", serde_json::to_string(&text).unwrap_or_default()));
+                }
+            }
+            "selectall" => run("document.execCommand('selectAll')"),
+            "outside" => {
+                let url = if p.link.is_empty() { None } else { Some(p.link.clone()) };
+                self.browser_outside(url);
+            }
+            _ => {}
+        }
+    }
+
     pub fn browser_close_all(&mut self) {
         let ids: Vec<u32> = self.browser.views.keys().copied().collect();
         for id in ids {
@@ -1121,7 +1158,49 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     Ok(())
 }
 
-unsafe fn own_page_menu(_wv: &ICoreWebView2, _id: u32) {} // Task 10
+/// A right-click in a Browser page shows ChatDock's own menu (menu.rs), with the Browser's rows.
+unsafe fn own_page_menu(wv: &ICoreWebView2, id: u32) {
+    let Ok(wv11) = wv.cast::<ICoreWebView2_11>() else { return };
+    let web = wv.clone();
+    let mut token = 0i64;
+    let added = wv11.add_ContextMenuRequested(
+        &ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            args.SetHandled(true)?;
+            let t = args.ContextMenuTarget()?;
+            let text = |f: &dyn Fn(&mut PWSTR) -> windows::core::Result<()>| {
+                let mut p = PWSTR::null();
+                if f(&mut p).is_ok() {
+                    take_pwstr(p)
+                } else {
+                    String::new()
+                }
+            };
+            let flag = |f: &dyn Fn(&mut BOOL) -> windows::core::Result<()>| {
+                let mut b = BOOL(0);
+                f(&mut b).is_ok() && b.as_bool()
+            };
+            let link = if flag(&|b| t.HasLinkUri(b)) { text(&|p| t.LinkUri(p)) } else { String::new() };
+            let selection = if flag(&|b| t.HasSelection(b)) { text(&|p| t.SelectionText(p)) } else { String::new() };
+            let editable = flag(&|b| t.IsEditable(b));
+            let can_back = flag(&|b| web.CanGoBack(b));
+            let can_forward = flag(&|b| web.CanGoForward(b));
+            let p = crate::menu::PageCtx {
+                app: format!("{ID}:{id}"),
+                link: if search::web_url(&link) && link.len() <= search::URL_MAX { link } else { String::new() },
+                image: String::new(),
+                selection: selection.chars().take(100_000).collect(),
+                editable,
+            };
+            later(move |c| c.open_browser_page_menu(id, p, can_back, can_forward));
+            Ok(())
+        })),
+        &mut token,
+    );
+    if let Err(err) = added {
+        log!("browser tab {id}: right-click menu not ours: {err}");
+    }
+}
 
 /// The same rule as chats::block_this_pc, plus the LAN (any site may try to reach a router): the
 /// filters catch every way these can be written, the handler decides by the parsed host.
