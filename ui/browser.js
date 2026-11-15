@@ -47,10 +47,9 @@
       lt.textContent = h[0].toUpperCase();
       return lt;
     };
-    if (tab.icon) {
+    if (tab.icon && tab.icon.startsWith('data:image/png;base64,')) { // read by Rust (see browser.rs)
       const img = document.createElement('img');
       img.alt = '';
-      img.referrerPolicy = 'no-referrer';
       img.src = tab.icon;
       img.addEventListener('error', () => img.replaceWith(letter()), { once: true });
       box.append(img);
@@ -195,8 +194,9 @@
       a.tabIndex = 0;
       a.title = s.u;
       const h = host(s.u) || s.n;
-      a.innerHTML = `<span class="fav" style="background:${colorOf(h)}">${esc(s.n[0].toUpperCase())}</span>`
+      a.innerHTML = `<span class="fav">${esc(s.n[0].toUpperCase())}</span>`
         + `<span class="t-name">${esc(s.n)}</span><span class="t-more" role="button" title="${esc(t('browser.edit'))}">${ico('dots')}</span>`;
+      a.querySelector('.fav').style.background = colorOf(h); // (the page's content policy refuses style="" in markup)
       a.addEventListener('click', (e) => {
         if (e.target.closest('.t-more')) editTile(i);
         else chatdock.send('browser:open', s.u, false);

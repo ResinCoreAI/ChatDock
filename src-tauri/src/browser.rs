@@ -1127,21 +1127,26 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
         &mut token,
     )?;
 
+    // the tab's icon: read here as a PNG and handed over as a data: picture (the panel page's
+    // content policy loads no pictures from other sites)
     if let Ok(wv15) = wv.cast::<ICoreWebView2_15>() {
         wv15.add_FaviconChanged(
             &FaviconChangedEventHandler::create(Box::new(move |sender, _| {
                 if let Some(s15) = sender.and_then(|s| s.cast::<ICoreWebView2_15>().ok()) {
-                    let mut p = PWSTR::null();
-                    s15.FaviconUri(&mut p)?;
-                    let icon = take_pwstr(p);
-                    // https only: the panel page shows it as a picture
-                    let icon = if icon.starts_with("https://") && icon.len() <= search::URL_MAX { icon } else { String::new() };
-                    later(move |c| {
-                        if let Some(v) = c.browser.views.get_mut(&id) {
-                            v.icon = icon;
-                        }
-                        c.browser_emit();
-                    });
+                    let _ = s15.GetFavicon(
+                        COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG,
+                        &GetFaviconCompletedHandler::create(Box::new(move |_, stream| {
+                            let icon = stream.map(|s| read_png(&s)).filter(|b| !b.is_empty());
+                            let icon = icon.map(|b| format!("data:image/png;base64,{}", crate::toasts::base64(&b))).unwrap_or_default();
+                            later(move |c| {
+                                if let Some(v) = c.browser.views.get_mut(&id) {
+                                    v.icon = icon;
+                                }
+                                c.browser_emit();
+                            });
+                            Ok(())
+                        })),
+                    );
                 }
                 Ok(())
             })),
@@ -1265,6 +1270,25 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     own_page_menu(wv, id);
     crate::chats::hook_keys(controller, Some(ID));
     Ok(())
+}
+
+/// A site icon's PNG bytes (nothing for one past 64 KB: a page can't send the panel a huge picture).
+fn read_png(stream: &windows::Win32::System::Com::IStream) -> Vec<u8> {
+    const MAX: usize = 64 * 1024;
+    let mut out = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let mut read = 0u32;
+        let hr = unsafe { stream.Read(buf.as_mut_ptr().cast(), buf.len() as u32, Some(&mut read)) };
+        if hr.is_err() || read == 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..read as usize]);
+        if out.len() > MAX {
+            return Vec::new();
+        }
+    }
+    out
 }
 
 /// A right-click in a Browser page shows ChatDock's own menu (menu.rs), with the Browser's rows.
