@@ -152,6 +152,11 @@
       act.textContent = t('browser.programOpen');
       act.hidden = false;
       act.onclick = () => chatdock.send('browser:program-open');
+    } else if (n.kind === 'crashed') {
+      $('#bnotice-text').textContent = t('browser.crashed');
+      act.textContent = t('menu.reload');
+      act.hidden = false;
+      act.onclick = () => chatdock.send('browser:reload');
     } else {
       $('#bnotice-text').textContent = t('browser.localRefused');
       act.hidden = true;

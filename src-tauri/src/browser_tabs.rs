@@ -18,6 +18,8 @@ pub struct Tab {
     pub url: String,
     pub title: String,
     pub last_used: i64,
+    /// the tab whose page opened this one as a window (a sign-in pop-up goes back to it on closing)
+    pub opener: Option<u32>,
 }
 
 impl Tab {
@@ -67,7 +69,7 @@ impl Tabs {
     fn push(&mut self, url: &str, title: &str, now: i64) -> u32 {
         let id = self.next;
         self.next += 1;
-        self.list.push(Tab { id, url: url.to_string(), title: clip(title), last_used: now });
+        self.list.push(Tab { id, url: url.to_string(), title: clip(title), last_used: now, opener: None });
         id
     }
     pub fn list(&self) -> &[Tab] {
@@ -92,14 +94,23 @@ impl Tabs {
         }
         let id = self.next;
         self.next += 1;
+        self.list[self.open].last_used = now; // the one left was in use until now
         let at = self.open + 1;
         let url = if url_ok(url) { url } else { "" };
-        self.list.insert(at, Tab { id, url: url.to_string(), title: String::new(), last_used: now });
+        self.list.insert(at, Tab { id, url: url.to_string(), title: String::new(), last_used: now, opener: None });
         self.open = at;
+        Some(id)
+    }
+
+    /// A page's new window as a tab next to the open one; closing it goes back to `opener`.
+    pub fn add_window(&mut self, url: &str, opener: u32, now: i64) -> Option<u32> {
+        let id = self.add(url, now)?;
+        self.list[self.open].opener = Some(opener);
         Some(id)
     }
     pub fn select(&mut self, id: u32, now: i64) -> bool {
         let Some(i) = self.list.iter().position(|t| t.id == id) else { return false };
+        self.list[self.open].last_used = now; // the one left was in use until now
         self.open = i;
         self.list[i].last_used = now;
         true
@@ -108,7 +119,8 @@ impl Tabs {
     /// closed: a fresh start page takes its place.
     pub fn close(&mut self, id: u32, now: i64) -> bool {
         let Some(i) = self.list.iter().position(|t| t.id == id) else { return false };
-        self.list.remove(i);
+        let was_open = i == self.open;
+        let gone = self.list.remove(i);
         if self.list.is_empty() {
             self.push("", "", now);
             self.open = 0;
@@ -118,6 +130,10 @@ impl Tabs {
             self.open -= 1;
         } else if self.open >= self.list.len() {
             self.open = self.list.len() - 1;
+        }
+        // a window that closes goes back to the page that opened it
+        if let Some(at) = gone.opener.filter(|_| was_open).and_then(|o| self.list.iter().position(|t| t.id == o)) {
+            self.open = at;
         }
         self.list[self.open].last_used = now;
         true
@@ -139,6 +155,7 @@ impl Tabs {
     /// Ctrl+PgDn (1) / Ctrl+PgUp (-1), round the ends.
     pub fn step(&mut self, delta: i32, now: i64) {
         let n = self.list.len() as i32;
+        self.list[self.open].last_used = now; // the one left was in use until now
         self.open = (self.open as i32 + delta).rem_euclid(n) as usize;
         self.list[self.open].last_used = now;
     }
@@ -270,5 +287,35 @@ mod tests {
         let saved = json!([{ "url": "https://a.com/", "title": "A" }, { "url": "", "title": "" }]);
         let t = Tabs::restore(&saved, 1, 0);
         assert_eq!(t.saved(), saved);
+    }
+
+    #[test]
+    fn a_tab_left_counts_as_used_until_it_was_left() {
+        let saved = json!([{ "url": "https://a.com/" }, { "url": "https://b.com/" }]);
+        let mut t = Tabs::restore(&saved, 0, 0);
+        let (a, b) = (t.list()[0].id, t.list()[1].id);
+        // read a for 35 minutes, then a quick look at b: a was in use until just now
+        t.select(b, 35 * 60 * 1000);
+        assert!(t.idle(35 * 60 * 1000 + 60_000, |_| false).is_empty(), "a was left a minute ago");
+        t.add("", 36 * 60 * 1000);
+        assert!(!t.idle(36 * 60 * 1000 + 1, |_| false).contains(&b));
+        let _ = a;
+    }
+
+    #[test]
+    fn a_window_closing_goes_back_to_the_page_that_opened_it() {
+        let saved = json!([{ "url": "https://a.com/" }, { "url": "https://b.com/" }, { "url": "https://c.com/" }]);
+        let mut t = Tabs::restore(&saved, 0, 0);
+        let a = t.list()[0].id;
+        let popup = t.add_window("", a, 1).unwrap();
+        assert_eq!(t.list()[1].id, popup);
+        t.close(popup, 2);
+        assert_eq!(t.current().id, a, "back to its opener, not the tab on its right");
+        // the opener already gone: the usual rule
+        let p2 = t.add_window("", a, 3).unwrap();
+        t.close(a, 4);
+        t.select(p2, 5);
+        t.close(p2, 6);
+        assert_eq!(t.list().len(), 2);
     }
 }

@@ -1096,6 +1096,7 @@ impl Core {
                     self.clear_app_data(id);
                 }
                 self.forget_electron_logins();
+                self.browser_clear_data(); // the Browser's sign-ins too ("every app")
             }
             "reset-widths" => {
                 self.set_setting("widths", json!({}));

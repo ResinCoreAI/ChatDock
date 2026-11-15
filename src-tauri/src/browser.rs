@@ -21,7 +21,7 @@ use crate::{
     apps,
     browser_tabs::Tabs,
     chats::{apply_settings, color, UiOnly},
-    core::{later, timer, Core},
+    core::{later, timer, Core, PanelState},
     log, rt, search,
     win32::{self, Rect},
 };
@@ -66,6 +66,10 @@ pub struct Browser {
     /// a suggestion request in flight, and the newest text typed meanwhile
     suggest_busy: bool,
     suggest_next: Option<String>,
+    /// tabs whose page crashed 3 times in 2 minutes: no new page until the user asks (reload, click)
+    crashed: HashSet<u32>,
+    /// the Browser page on screen at the last layout (the keyboard follows it coming and going)
+    shown: Option<u32>,
 }
 
 impl Browser {
@@ -193,8 +197,15 @@ impl Core {
             let mut token = 0i64;
             unsafe {
                 let _ = env5.add_BrowserProcessExited(
-                    &BrowserProcessExitedEventHandler::create(Box::new(|_, _| {
-                        later(|c| c.browser_process_gone());
+                    &BrowserProcessExitedEventHandler::create(Box::new(|_, args| {
+                        let mut kind = COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND::default();
+                        let mut pid = 0u32;
+                        if let Some(args) = args {
+                            let _ = args.BrowserProcessExitKind(&mut kind);
+                            let _ = args.BrowserProcessId(&mut pid);
+                        }
+                        let failed = kind == COREWEBVIEW2_BROWSER_PROCESS_EXIT_KIND_FAILED;
+                        later(move |c| c.browser_process_gone(pid, failed));
                         Ok(())
                     })),
                     &mut token,
@@ -216,9 +227,19 @@ impl Core {
         }
     }
 
-    /// The Browser's process ended (killed, crashed, a runtime update): its views are gone, its
-    /// tabs keep their addresses, and the open one comes back when it is shown again.
-    fn browser_process_gone(&mut self) {
+    /// The Browser's process ended. A normal exit (its last page closed) changes nothing: the next
+    /// page starts it again. A failure (killed, crashed, a runtime update) takes its views: its tabs
+    /// keep their addresses, and the open one comes back when it is shown again.
+    fn browser_process_gone(&mut self, pid: u32, failed: bool) {
+        let current = PID.load(Ordering::Relaxed);
+        if pid != 0 && current != 0 && pid != current {
+            return; // an earlier process, already replaced
+        }
+        if !failed {
+            PID.store(0, Ordering::Relaxed);
+            log!("the Browser's process ended (no page open)");
+            return;
+        }
         log!("the Browser's process stopped");
         for (_, v) in self.browser.views.drain() {
             unsafe {
@@ -287,6 +308,10 @@ impl Core {
         let close = |c: &ICoreWebView2Controller| unsafe {
             let _ = c.Close();
         };
+        if self.browser.views.contains_key(&id) {
+            close(&controller); // made twice (across a process restart): the first one stays
+            return;
+        }
         // switched off, or the tab closed meanwhile
         if !self.browser_on() || self.browser.tabs.get(id).is_none() {
             close(&controller);
@@ -506,6 +531,7 @@ impl Core {
             self.browser_window_failed(id);
         }
         self.browser.pending_nav.clear();
+        self.browser.crashed.clear();
         self.browser.notice = Value::Null;
     }
 
@@ -550,6 +576,7 @@ impl Core {
             id
         };
         self.browser.notice = Value::Null;
+        self.browser.crashed.remove(&id);
         match self.browser.views.get(&id) {
             Some(v) => unsafe {
                 let _ = v.webview.Navigate(&HSTRING::from(url));
@@ -570,6 +597,7 @@ impl Core {
             self.browser_save();
             self.layout_views();
             self.browser_emit();
+            crate::chats::focus_panel_page(); // (the keyboard may be in the page that just went)
             self.emit("panel", "browser:focus-search", json!([]));
         }
     }
@@ -578,6 +606,7 @@ impl Core {
         if !self.browser.tabs.select(id, rt::epoch_ms()) {
             return;
         }
+        self.browser.crashed.remove(&id); // picked: tried again
         self.browser.notice = Value::Null;
         self.browser_save();
         self.layout_views(); // (a dropped or restored tab's page is made there)
@@ -585,6 +614,7 @@ impl Core {
     }
 
     pub fn browser_close(&mut self, id: u32) {
+        self.browser.crashed.remove(&id);
         self.browser_drop_view(id);
         self.browser.pending_nav.remove(&id);
         self.browser.tabs.close(id, rt::epoch_ms());
@@ -616,6 +646,13 @@ impl Core {
 
     pub fn browser_reload(&mut self) {
         let current = self.browser.tabs.current().clone();
+        if self.browser.crashed.remove(&current.id) {
+            CRASHES.with(|m| m.borrow_mut().remove(&current.id));
+            self.browser.notice = Value::Null;
+            self.layout_views(); // (its page is made again there)
+            self.browser_emit();
+            return;
+        }
         match self.browser.views.get(&current.id) {
             Some(v) => unsafe {
                 let _ = v.webview.Reload();
@@ -628,6 +665,7 @@ impl Core {
     /// Home: this tab shows the start page again (its page is dropped).
     pub fn browser_home(&mut self) {
         let id = self.browser.tabs.current().id;
+        self.browser.crashed.remove(&id);
         self.browser_drop_view(id);
         self.browser.pending_nav.remove(&id);
         self.browser.tabs.set_page(id, "", "");
@@ -635,6 +673,7 @@ impl Core {
         self.browser_save();
         self.layout_views();
         self.browser_emit();
+        crate::chats::focus_panel_page(); // (the keyboard was in the page that just went)
         self.emit("panel", "browser:focus-search", json!([]));
     }
 
@@ -683,9 +722,14 @@ impl Core {
         self.browser_emit();
     }
 
-    fn browser_new_window(&mut self, (args, deferral): (ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2Deferral), uri: &str) {
+    fn browser_new_window(
+        &mut self,
+        (args, deferral): (ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2Deferral),
+        uri: &str,
+        opener: u32,
+    ) {
         let url = if uri == "about:blank" { "" } else { uri };
-        let Some(id) = self.browser.tabs.add(url, rt::epoch_ms()) else {
+        let Some(id) = self.browser.tabs.add_window(url, opener, rt::epoch_ms()) else {
             unsafe {
                 let _ = args.SetHandled(true);
                 let _ = deferral.Complete();
@@ -711,8 +755,12 @@ impl Core {
             list.len()
         });
         if recent >= 3 {
-            log!("browser tab {id} crashed {recent} times: its page is dropped until clicked");
+            log!("browser tab {id} crashed {recent} times: its page is dropped until reloaded");
             self.browser_drop_view(id);
+            self.browser.crashed.insert(id);
+            if id == self.browser.tabs.current().id {
+                self.browser_notice(json!({ "kind": "crashed" }));
+            }
             self.layout_views();
         } else {
             timer(1500, move |c| {
@@ -751,8 +799,8 @@ impl Core {
         let bar = ((BAR_H + if self.browser.notice.is_null() { 0.0 } else { NOTICE_H }) * scale).round() as i32;
         let r = Rect { x: area.x, y: area.y + bar, w: area.w, h: (area.h - bar).max(1) };
         let current = self.browser.tabs.current().clone();
-        if show && !current.is_start() && !self.browser.views.contains_key(&current.id) {
-            self.browser_view(current.id); // after a restart, a crash, or a drop
+        if show && !current.is_start() && !self.browser.views.contains_key(&current.id) && !self.browser.crashed.contains(&current.id) {
+            self.browser_view(current.id); // after a restart, a process crash, or a drop
         }
         for (id, v) in self.browser.views.iter_mut() {
             let on = show && *id == current.id && !current.is_start();
@@ -764,6 +812,18 @@ impl Core {
                 }
             }
         }
+        // the keyboard follows while the Browser is on screen and the user is in the panel: into a
+        // page that appears, back to the panel page when it goes (Ctrl+W, Home)
+        let now_shown = self.browser.views.iter().find(|(_, v)| v.visible).map(|(id, _)| *id);
+        if show && now_shown != self.browser.shown && self.panel_state == PanelState::Open && win32::foreground_window() == self.panel.hwnd
+        {
+            if now_shown.is_some() {
+                self.browser_focus();
+            } else {
+                crate::chats::focus_panel_page();
+            }
+        }
+        self.browser.shown = now_shown;
         self.browser_memory();
     }
 
@@ -1042,7 +1102,7 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
     if let Ok(s8) = wv.Settings()?.cast::<ICoreWebView2Settings8>() {
         let _ = s8.SetIsReputationCheckingRequired(true); // SmartScreen on (apply_settings turned it off)
     }
-    refuse_local(wv)?;
+    refuse_local(wv, wv.cast::<ICoreWebView2_2>()?.Environment()?)?;
     let mut token = 0i64;
 
     // top-level navigation: any web address but this PC or the LAN; other schemes ask first
@@ -1170,7 +1230,16 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             }
             let deferral = args.GetDeferral()?;
             let held = UiOnly((args.clone(), deferral));
-            later(move |c| c.browser_new_window(held.take(), &uri));
+            later(move |c| c.browser_new_window(held.take(), &uri, id));
+            Ok(())
+        })),
+        &mut token,
+    )?;
+
+    // a page closing its own window (a sign-in pop-up when it's done): its tab closes
+    wv.add_WindowCloseRequested(
+        &WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+            later(move |c| c.browser_close(id));
             Ok(())
         })),
         &mut token,
@@ -1261,6 +1330,8 @@ unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id
             args.ProcessFailedKind(&mut kind)?;
             if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
                 later(move |c| c.browser_page_crashed(id));
+            } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+                later(move |c| c.browser_process_gone(pid, true));
             }
             Ok(())
         })),
@@ -1337,7 +1408,7 @@ unsafe fn own_page_menu(wv: &ICoreWebView2, id: u32) {
 
 /// The same rule as chats::block_this_pc, plus the LAN (any site may try to reach a router): the
 /// filters catch every way these can be written, the handler decides by the parsed host.
-unsafe fn refuse_local(wv: &ICoreWebView2) -> windows::core::Result<()> {
+unsafe fn refuse_local(wv: &ICoreWebView2, env: ICoreWebView2Environment) -> windows::core::Result<()> {
     let wv22 = wv.cast::<ICoreWebView2_22>().ok();
     let filters = [
         "*://127.*",
@@ -1366,8 +1437,9 @@ unsafe fn refuse_local(wv: &ICoreWebView2) -> windows::core::Result<()> {
     }
     let mut token = 0i64;
     wv.add_WebResourceRequested(
-        &WebResourceRequestedEventHandler::create(Box::new(|_, args| {
-            let (Some(args), Some(env)) = (args, ENV.with(|e| e.borrow().clone())) else { return Ok(()) };
+        &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let env = env.clone(); // (this view's own: never one that has gone)
             let mut p = PWSTR::null();
             args.Request()?.Uri(&mut p)?;
             let uri = take_pwstr(p);
