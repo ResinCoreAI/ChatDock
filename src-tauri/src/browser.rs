@@ -137,6 +137,7 @@ impl Core {
         self.layout_views();
         self.broadcast_state();
         self.browser_emit();
+        self.refit_tab(); // the edge tab grows / shrinks with its logo
     }
 
     /// The Browser's tabs and open tab into settings.json.

@@ -710,7 +710,7 @@ impl Core {
             .map(|a| json!({ "id": a.id, "name": a.name, "icon": a.icon }))
             .collect();
         if !self.browser_on() {
-            more.insert(0, json!({ "id": crate::browser::ID, "name": self.t("browser.name"), "icon": "search" }));
+            more.insert(0, json!({ "id": crate::browser::ID, "name": self.t("browser.name"), "icon": "browser" }));
         }
         json!({
             "apps": apps,

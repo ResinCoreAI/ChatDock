@@ -66,6 +66,7 @@ window.ICONS = {
     <path d="M12 10.8v5.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/></svg>`,
   home: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.5l8 6.7V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+  browser: `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="br-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5fb4ff"/><stop offset="1" stop-color="#0a58ff"/></linearGradient></defs><circle cx="12" cy="12" r="11" fill="url(#br-g)"/><circle cx="10.9" cy="10.9" r="4.6" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M14.3 14.3 17.8 17.8" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>`,
   search: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.6" cy="10.6" r="6.4" fill="none" stroke="currentColor" stroke-width="2"/>
     <path d="M15.4 15.4l4.6 4.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
   memory: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.9"/>

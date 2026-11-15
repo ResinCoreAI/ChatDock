@@ -163,7 +163,7 @@ function render(s) {
   renderSide(s);
   // the Browser's tab comes after the chat apps' (it has no unread number)
   const strip = s.browser && s.browser.on
-    ? [...s.apps, { id: 'browser', name: i18n.t('browser.name'), icon: 'search', asleep: false }]
+    ? [...s.apps, { id: 'browser', name: i18n.t('browser.name'), icon: 'browser', asleep: false }]
     : s.apps;
   const rebuilt = renderTabs({ ...s, apps: strip });
   renderAdd(s);

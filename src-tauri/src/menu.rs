@@ -163,7 +163,7 @@ impl Core {
         let mut items: Vec<Value> =
             apps::ids().filter(|id| !self.is_enabled(id)).filter_map(apps::get).map(|a| item(a.id, a.name.to_string(), a.icon)).collect();
         if !self.browser_on() {
-            let mut row = item(crate::browser::ID, self.t("browser.name"), "search");
+            let mut row = item(crate::browser::ID, self.t("browser.name"), "browser");
             row["hint"] = json!(self.t("browser.addHint"));
             row["accent"] = json!(true);
             if !items.is_empty() {

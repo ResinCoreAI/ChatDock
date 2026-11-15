@@ -24,11 +24,13 @@ function render(s) {
     pill.classList.remove('instant');
     chev.innerHTML = window.iconHTML(side === 'left' ? 'chevronRight' : 'chevronLeft');
   }
-  const key = s.apps.map((a) => a.id).join(',');
+  // the Browser's logo after the chat apps' (it has no unread number)
+  const apps = s.browser && s.browser.on ? [...s.apps, { id: 'browser', name: i18n.t('browser.name'), icon: 'browser' }] : s.apps;
+  const key = apps.map((a) => a.id).join(',');
   if (key !== appsKey) { // rebuild only when the set of apps changes
     appsKey = key;
     appsEl.textContent = '';
-    for (const a of s.apps) {
+    for (const a of apps) {
       const btn = document.createElement('button');
       btn.className = 'app';
       btn.dataset.app = a.id;
@@ -41,7 +43,7 @@ function render(s) {
       appsEl.append(btn);
     }
   }
-  for (const a of s.apps) {
+  for (const a of apps) {
     const btn = appsEl.querySelector(`[data-app="${a.id}"]`);
     if (!btn) continue;
     btn.classList.toggle('asleep', !!a.asleep); // RAM saver: dimmed until opened

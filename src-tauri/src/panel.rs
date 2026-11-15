@@ -732,7 +732,7 @@ impl Core {
     pub fn open_panel(&mut self, app_id: Option<&str>, source: &str) {
         log!("open request {source} {} {}", app_id.unwrap_or(""), self.snap());
         if let Some(id) = app_id {
-            if self.is_enabled(id) {
+            if self.tab_on(id) {
                 self.set_active(id, false);
             }
         }
