@@ -82,7 +82,8 @@ impl Core {
     }
 
     pub(crate) fn tab_size(&self, d: &Display) -> (i32, i32) {
-        let n = self.tab_ids().len() as f64; // the chat apps and the Browser
+        // the chat apps and the Browser
+        let n = self.tab_ids().len() as f64;
         // the phone / screen icons of calls go under the apps, after a line (tab.css)
         let chips = self.call_chips().len() as f64;
         let calls = if chips > 0.0 { 10.0 + 40.0 * chips } else { 0.0 };
