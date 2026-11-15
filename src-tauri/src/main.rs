@@ -23,6 +23,7 @@ mod migrate;
 mod panel;
 mod popups;
 mod rt;
+mod search;
 mod selftest;
 mod settings;
 mod toasts;
