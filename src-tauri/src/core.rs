@@ -500,6 +500,7 @@ impl Core {
                 }
                 if from == "panel" {
                     self.panel_page_ready();
+                    self.browser_emit();
                 }
             }
             ("app:select", "panel") => {
@@ -637,6 +638,7 @@ impl Core {
                 self.open_add_menu(num(0), num(1), num(2));
             }
             ("tab:menu", "panel") => self.open_tab_menu(&arg_str(&args, 0)),
+            (c, "panel") if c.starts_with("browser:") => self.browser_ui(c, &args),
             _ => {
                 if !panel {
                     log!("ignored message {channel} from {from}");

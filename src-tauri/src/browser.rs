@@ -665,7 +665,131 @@ impl Core {
         }
     }
 
-    pub fn browser_emit(&mut self) {} // Task 7
+    pub fn browser_suggest(&mut self, _text: &str) {} // Task 8
+}
+
+/// What the panel page draws: the tabs, the open one's address and history, the start page's
+/// settings and any notice. `view(id)` = (icon, loading, can_back, can_forward) of a made view.
+pub fn state_json(tabs: &Tabs, view: &dyn Fn(u32) -> Option<(String, bool, bool, bool)>, saved: &Value, notice: &Value) -> Value {
+    let list: Vec<Value> = tabs
+        .list()
+        .iter()
+        .map(|t| {
+            let (icon, loading, _, _) = view(t.id).unwrap_or_default();
+            json!({ "id": t.id, "title": t.title, "url": t.url, "icon": icon, "loading": loading })
+        })
+        .collect();
+    let cur = tabs.current();
+    let (_, _, back, fwd) = view(cur.id).unwrap_or_default();
+    json!({
+        "tabs": list,
+        "open": cur.id,
+        "url": cur.url,
+        "start": cur.is_start(),
+        "canBack": back,
+        "canForward": fwd,
+        "full": tabs.full(),
+        "engine": saved.get("engine").and_then(Value::as_str).unwrap_or("google"),
+        "suggest": saved.get("suggest").and_then(Value::as_bool).unwrap_or(true),
+        "remember": saved.get("remember").and_then(Value::as_bool).unwrap_or(true),
+        "recent": saved.get("recent").cloned().unwrap_or_else(|| json!([])),
+        "shortcuts": saved.get("shortcuts").cloned().unwrap_or_else(|| json!([])),
+        "notice": notice,
+    })
+}
+
+impl Core {
+    pub fn browser_emit(&mut self) {
+        if !self.ready.contains("panel") || !self.browser_on() {
+            return;
+        }
+        let views = &self.browser.views;
+        let view = |id: u32| views.get(&id).map(|v| (v.icon.clone(), v.loading, v.can_back, v.can_forward));
+        let mut s = state_json(&self.browser.tabs, &view, self.settings.get(ID), &self.browser.notice);
+        s["lang"] = json!(self.lang);
+        self.emit("panel", "browser:state", json!([s]));
+    }
+
+    /// A message from the panel page's Browser (ui/browser.js).
+    pub fn browser_ui(&mut self, channel: &str, args: &[Value]) {
+        if !self.browser_on() {
+            return;
+        }
+        let s = |i: usize| args.get(i).and_then(Value::as_str).unwrap_or("").to_string();
+        let n = |i: usize| args.get(i).and_then(Value::as_i64).unwrap_or(-1);
+        let id = |i: usize| args.get(i).and_then(Value::as_u64).map(|v| v as u32).unwrap_or(0);
+        match channel {
+            "browser:go" => self.browser_go(&s(0)),
+            "browser:open" => {
+                let new_tab = args.get(1).and_then(Value::as_bool).unwrap_or(false);
+                self.browser_open(&s(0), new_tab)
+            }
+            "browser:tab" => self.browser_select(id(0)),
+            "browser:close" => self.browser_close(id(0)),
+            "browser:new" => self.browser_new(),
+            "browser:back" => self.browser_back(),
+            "browser:forward" => self.browser_forward(),
+            "browser:reload" => self.browser_reload(),
+            "browser:home" => self.browser_home(),
+            "browser:outside" => self.browser_outside(Some(s(0)).filter(|u| !u.is_empty())),
+            "browser:suggest" => self.browser_suggest(&s(0)), // Task 8; empty fn until then
+            "browser:engine" => self.browser_set("engine", json!(s(0))),
+            "browser:recent-remove" => self.browser_edit_list("recent", n(0), None),
+            "browser:recent-clear" => self.browser_set("recent", json!([])),
+            "browser:shortcut" => {
+                let i = n(0);
+                match search::classify(&s(2)) {
+                    Some(search::Input::Open(u)) if !search::blocked(&u) => {
+                        let entry = json!({ "n": s(1), "u": u });
+                        if crate::settings::shortcut_ok(&entry).is_some() {
+                            self.browser_edit_list("shortcuts", i, Some(entry));
+                        } else {
+                            self.emit("panel", "browser:shortcut-bad", json!([]));
+                        }
+                    }
+                    _ => self.emit("panel", "browser:shortcut-bad", json!([])),
+                }
+            }
+            "browser:shortcut-delete" => self.browser_edit_list("shortcuts", n(0), None),
+            "browser:notice-close" => self.browser_notice(Value::Null),
+            "browser:program-open" => {
+                let url = self.browser.notice["url"].as_str().unwrap_or("").to_string();
+                if self.browser.notice["kind"] == "program" && crate::apps::app_scheme(&url) {
+                    win32::open_url(&url);
+                }
+                self.browser_notice(Value::Null);
+            }
+            _ => {}
+        }
+    }
+
+    /// One Browser setting the page changed (engine, recent cleared, the two switches).
+    pub fn browser_set(&mut self, key: &str, v: Value) {
+        let mut b = self.settings.get(ID).clone();
+        b[key] = v;
+        if key == "remember" && b["remember"] == json!(false) {
+            b["recent"] = json!([]); // off also forgets them
+        }
+        let clean = crate::settings::clean_browser(Some(&b));
+        self.settings.set(ID, clean);
+        self.save_soon();
+        self.browser_emit();
+    }
+
+    /// Replace (i ≥ 0 with Some), add (i = -1 with Some, at the end) or delete (None) an entry of
+    /// `recent` or `shortcuts`; clean_browser keeps the limits.
+    fn browser_edit_list(&mut self, key: &str, i: i64, entry: Option<Value>) {
+        let mut list: Vec<Value> = self.settings.get(ID)[key].as_array().cloned().unwrap_or_default();
+        match (i, entry) {
+            (-1, Some(e)) => list.push(e),
+            (i, Some(e)) if i >= 0 && (i as usize) < list.len() => list[i as usize] = e,
+            (i, None) if i >= 0 && (i as usize) < list.len() => {
+                list.remove(i as usize);
+            }
+            _ => return,
+        }
+        self.browser_set(key, Value::Array(list));
+    }
 }
 
 /// The Browser's rules for one of its pages (not the chats': any site, its own pop-up rule, no
@@ -987,6 +1111,25 @@ fn refuse(env: &ICoreWebView2Environment, args: &ICoreWebView2WebResourceRequest
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_state_tells_the_page_what_to_draw() {
+        let tabs = crate::browser_tabs::Tabs::restore(
+            &serde_json::json!([{ "url": "https://a.com/", "title": "A" }, { "url": "", "title": "" }]),
+            1,
+            0,
+        );
+        let views =
+            |id: u32| if id == tabs.list()[0].id { Some(("https://a.com/favicon.ico".to_string(), true, true, false)) } else { None };
+        let s = super::state_json(&tabs, &views, &serde_json::json!({ "engine": "ddg", "suggest": false }), &serde_json::Value::Null);
+        assert_eq!(s["open"], tabs.list()[1].id);
+        assert_eq!(s["start"], true);
+        assert_eq!(s["tabs"][0]["icon"], "https://a.com/favicon.ico");
+        assert_eq!(s["tabs"][0]["loading"], true);
+        assert_eq!(s["tabs"][1]["title"], "");
+        assert_eq!(s["canBack"], false); // the open tab (the start page) has no view
+        assert_eq!((s["engine"].as_str(), s["suggest"].as_bool(), s["full"].as_bool()), (Some("ddg"), Some(false), Some(false)));
+    }
+
     #[test]
     fn the_browser_comes_after_the_chats() {
         assert_eq!(super::tab_order(vec!["instagram", "discord"], true), ["instagram", "discord", "browser"]);
