@@ -116,6 +116,9 @@ pub fn start() {
         } else if only.as_deref() == Some("newsdemo") {
             wait(3000);
             news_demo_test();
+        } else if only.as_deref() == Some("browser") {
+            wait(5000); // the chats load
+            browser_test();
         } else if only.as_deref() == Some("perf") {
             perf_test();
         } else if only.as_deref() == Some("settings18") {
@@ -742,6 +745,207 @@ fn whats_new_test() {
 /// The settings screen, page by page in both themes, a search, and the monitor page with monitor
 /// layouts that aren't plugged in (page captures for looking at the design). The panel is shown off
 /// screen and never activated: nothing takes the keyboard.
+// ---------------------------------------------------------------------------------------------
+// The Browser tab (1.8.2): --selftest-only=browser. Needs the network for real sites.
+// ---------------------------------------------------------------------------------------------
+fn browser_snap() -> serde_json::Value {
+    on(|c| c.browser_snapshot())
+}
+
+/// Waits (at most ms) until f holds on the Browser's snapshot; true when it did.
+fn browser_until(ms: u64, f: impl Fn(&serde_json::Value) -> bool) -> bool {
+    let mut waited = 0;
+    while waited < ms {
+        if f(&browser_snap()) {
+            return true;
+        }
+        wait(250);
+        waited += 250;
+    }
+    f(&browser_snap())
+}
+
+fn browser_js(js: &str) -> String {
+    let (tx, rx) = mpsc::channel::<String>();
+    let js = js.to_string();
+    later(move |c| {
+        c.browser_execute(&js, move |r| {
+            let _ = tx.send(r);
+        })
+    });
+    rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "err:no answer".into())
+}
+
+fn browser_current_url() -> String {
+    let s = browser_snap();
+    let open = s["open"].as_u64().unwrap_or(0) as usize;
+    s["tabs"][open]["url"].as_str().unwrap_or("").to_string()
+}
+
+fn browser_test() {
+    let chats_pid = crate::chats::browser_pid();
+    // 1. on from "+", and open
+    on(|c| {
+        c.set_browser_enabled(true);
+        c.set_active(crate::browser::ID, false);
+        c.open_panel(None, "selftest");
+    });
+    wait(1000);
+    let (tabs, on_state, active) = on(|c| (c.tab_ids(), c.ui_state()["browser"]["on"].clone(), c.active()));
+    log!("browser: tabs {tabs:?} | on {on_state} | active {active} (expect the chats then browser, true, browser)");
+    shot("80-browser-start");
+
+    // 2. the start page: no page, no process yet
+    let s = browser_snap();
+    log!(
+        "browser: start page {} | views {} | process {} (expect true, 0, 0: nothing starts before a page)",
+        s["tabs"][s["open"].as_u64().unwrap_or(0) as usize]["url"] == "",
+        s["views"],
+        s["pid"]
+    );
+
+    // 3. a search in Thai
+    on(|c| c.browser_go("ไทยรัฐ"));
+    let ok = browser_until(15_000, |s| s["visible"].as_array().is_some_and(|v| v.len() == 1));
+    let url = browser_current_url();
+    let s = browser_snap();
+    log!(
+        "browser: search shown {ok} | {} | its own process {} (chats {chats_pid}) | data in {} (expect true, a google search for %E0%B9%84%E0%B8%97%E0%B8%A2..., a pid not the chats', a WebView2-browser folder)",
+        url.starts_with("https://www.google.com/search?q=%E0%B9%84%E0%B8%97%E0%B8%A2"),
+        s["pid"],
+        s["profile"].as_str().map(|p| p.contains("WebView2-browser")).unwrap_or(false)
+    );
+    log!("browser: separate process {} (expect true)", s["pid"].as_u64().unwrap_or(0) != 0 && s["pid"].as_u64() != Some(chats_pid as u64));
+    shot("81-browser-results");
+
+    // 4. a link in a new tab
+    on(|c| c.browser_open("https://example.com/", true));
+    let ok = browser_until(15_000, |s| {
+        s["tabs"].as_array().is_some_and(|t| t.len() == 2) && !s["tabs"][1]["title"].as_str().unwrap_or("").is_empty()
+    });
+    let s = browser_snap();
+    log!(
+        "browser: new tab {ok} | tabs {} | open {} | title {} (expect true, 2, 1, Example Domain)",
+        s["tabs"].as_array().map_or(0, |t| t.len()),
+        s["open"],
+        s["tabs"][1]["title"]
+    );
+
+    // 5. back and forward
+    on(|c| c.browser_open("https://example.org/", false));
+    browser_until(10_000, |_| browser_current_url().starts_with("https://example.org"));
+    wait(1000);
+    on(|c| c.browser_back());
+    let back = browser_until(10_000, |_| browser_current_url().starts_with("https://example.com"));
+    on(|c| c.browser_forward());
+    let fwd = browser_until(10_000, |_| browser_current_url().starts_with("https://example.org"));
+    log!("browser: back {back} | forward {fwd} (expect true, true)");
+
+    // 6. this PC / the LAN refused
+    let before = browser_current_url();
+    on(|c| c.browser_go("192.168.1.1"));
+    wait(500);
+    let s = browser_snap();
+    log!("browser: a LAN address: notice {} | page kept {} (expect \"local\", true)", s["notice"]["kind"], browser_current_url() == before);
+    shot("82-browser-notice");
+    on(|c| c.browser_notice(serde_json::Value::Null));
+    let local = browser_js("fetch('http://127.0.0.1:9/').then(() => 'reached', () => 'refused')");
+    wait(1500);
+    log!("browser: a page's request to this PC: {local} (expect a promise; the request is refused by the filter)");
+
+    // 7. a download refused
+    let downloads = std::env::var_os("USERPROFILE").map(|p| std::path::PathBuf::from(p).join("Downloads")).unwrap_or_default();
+    on(|c| c.browser_open("https://www.python.org/ftp/python/3.12.0/python-3.12.0-embed-amd64.zip", false));
+    let refused = browser_until(15_000, |s| s["notice"]["kind"] == "download");
+    let s = browser_snap();
+    let landed = downloads.join("python-3.12.0-embed-amd64.zip").exists();
+    log!(
+        "browser: download refused {refused} | name {} | file in Downloads {landed} (expect true, the zip's name, false)",
+        s["notice"]["name"]
+    );
+    on(|c| c.browser_notice(serde_json::Value::Null));
+
+    // 8. apart from the chats: its cookies live in its own folder and process
+    on(|c| c.browser_open("https://example.com/", false));
+    browser_until(10_000, |_| browser_current_url().starts_with("https://example.com"));
+    wait(800);
+    browser_js("document.cookie = 'cd_selftest=1; path=/'");
+    let mine = browser_js("document.cookie");
+    let chat = on(|c| c.enabled_apps()[0]);
+    let theirs = view_js(chat, "document.cookie.includes('cd_selftest')");
+    let folder = on(|c| c.args.data_dir.join("WebView2-browser").is_dir());
+    log!(
+        "browser: cookie set here {} | seen by {chat} {theirs} | own folder {folder} (expect true, false, true)",
+        mine.contains("cd_selftest")
+    );
+
+    // 9. the start page hides its pages
+    on(|c| c.browser_home());
+    wait(500);
+    let s = browser_snap();
+    log!("browser: home: visible pages {} (expect 0)", s["visible"].as_array().map_or(0, |v| v.len()));
+    shot("83-browser-home");
+
+    // 10. suggestions (counts only in the log)
+    on(|c| c.browser_suggest("elden"));
+    let answered = browser_until(5000, |s| s["suggestBusy"] == false);
+    log!("browser: suggestions answered {answered} (expect true; the count is on the 'browser suggestions:' line, 0 only without the network)");
+
+    // 11. restart and restore: what is saved, and that only the open tab gets a page
+    on(|c| {
+        c.browser_open("https://example.com/", false);
+        c.browser_open("https://example.org/", true);
+    });
+    browser_until(10_000, |s| s["tabs"].as_array().is_some_and(|t| t.len() >= 2));
+    let saved = on(|c| c.settings.get(crate::browser::ID).clone());
+    let restored = on(move |_| {
+        let mut b = crate::browser::Browser::default();
+        b.restore(&saved, 0);
+        (b.tabs.list().len(), b.tabs.current().url.clone(), saved["open"].clone())
+    });
+    log!("browser: saved and restored {restored:?} (expect the same tab count, example.org open, its index)");
+
+    // 12. the Browser's process killed: the chats keep theirs, the open page comes back
+    let pid = browser_snap()["pid"].as_u64().unwrap_or(0);
+    if pid != 0 {
+        let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F", "/T"]).status();
+        let gone = browser_until(8000, |s| s["env"] == "NotStarted");
+        log!("browser: killed {pid}: noticed {gone} | chats' process {} (expect true, unchanged {chats_pid})", crate::chats::browser_pid());
+        on(|c| c.layout_views());
+        let back = browser_until(15_000, |s| s["visible"].as_array().is_some_and(|v| v.len() == 1));
+        log!("browser: page back after the kill {back} (expect true)");
+    }
+
+    // 13. close tabs down to one start page
+    loop {
+        let s = browser_snap();
+        let n = s["tabs"].as_array().map_or(0, |t| t.len());
+        if n <= 1 && s["tabs"][0]["url"] == "" {
+            break;
+        }
+        let id = s["current"].as_u64().unwrap_or(0) as u32;
+        on(move |c| c.browser_close(id));
+        wait(200);
+        if n == 1 {
+            break;
+        }
+    }
+    let s = browser_snap();
+    log!(
+        "browser: all closed: tabs {} | start page {} | views {} (expect 1, true, 0)",
+        s["tabs"].as_array().map_or(0, |t| t.len()),
+        s["tabs"][0]["url"] == "",
+        s["views"]
+    );
+
+    // 14. the "+" menu shows it again once it's off, and turning it off leaves a chat open
+    on(|c| c.set_browser_enabled(false));
+    wait(300);
+    let (tabs, active, more) = on(|c| (c.tab_ids(), c.active(), c.ui_state()["more"][0]["id"].clone()));
+    log!("browser: off: tabs {tabs:?} | active {active} | first in \"+\" {more} (expect no browser, a chat app, \"browser\")");
+    close_panel();
+}
+
 fn settings_shots() {
     on(|c| {
         c.settings_mode = true;

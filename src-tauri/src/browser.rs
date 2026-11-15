@@ -445,6 +445,58 @@ impl Core {
         self.notice_brief(&title, "", 2500);
     }
 
+    /// What the self-test reads: the tabs, the views and which are on screen, the environment, its
+    /// process and its data folder.
+    pub fn browser_snapshot(&self) -> Value {
+        let profile = self
+            .browser
+            .views
+            .values()
+            .next()
+            .and_then(|v| v.webview.cast::<ICoreWebView2_13>().ok())
+            .and_then(|w| unsafe { w.Profile() }.ok())
+            .map(|p| {
+                let mut s = PWSTR::null();
+                unsafe {
+                    let _ = p.ProfilePath(&mut s);
+                }
+                take_pwstr(s)
+            })
+            .unwrap_or_default();
+        json!({
+            "tabs": self.browser.tabs.list().iter().map(|t| json!({ "id": t.id, "url": t.url, "title": t.title })).collect::<Vec<_>>(),
+            "open": self.browser.tabs.open_index(),
+            "current": self.browser.tabs.current().id,
+            "views": self.browser.views.len(),
+            "visible": self.browser.views.iter().filter(|(_, v)| v.visible).map(|(id, _)| *id).collect::<Vec<_>>(),
+            "env": format!("{:?}", self.browser.env),
+            "pid": browser_pid(),
+            "profile": profile,
+            "notice": self.browser.notice,
+            "suggestBusy": self.browser.suggest_busy,
+        })
+    }
+
+    /// A script in the open Browser page (self-test); its result as JSON text.
+    pub fn browser_execute(&self, js: &str, done: impl FnOnce(String) + 'static) {
+        let Some(v) = self.browser_current_view() else {
+            done("err:no page".into());
+            return;
+        };
+        let mut done = Some(done);
+        unsafe {
+            let _ = v.webview.ExecuteScript(
+                &HSTRING::from(js),
+                &ExecuteScriptCompletedHandler::create(Box::new(move |_, result| {
+                    if let Some(f) = done.take() {
+                        f(result);
+                    }
+                    Ok(())
+                })),
+            );
+        }
+    }
+
     pub fn browser_close_all(&mut self) {
         let ids: Vec<u32> = self.browser.views.keys().copied().collect();
         for id in ids {
@@ -904,6 +956,7 @@ impl Core {
             let items = crate::suggest::get(&url, 2000).map(|b| search::parse_suggestions(&b)).unwrap_or_default();
             later(move |c| {
                 c.browser.suggest_busy = false;
+                log!("browser suggestions: {} for {} characters", items.len(), text.chars().count()); // (never the words)
                 c.emit("panel", "browser:suggest", json!([{ "text": text, "items": items }]));
                 if let Some(next) = c.browser.suggest_next.take() {
                     c.browser_suggest(&next);
