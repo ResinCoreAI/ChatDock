@@ -783,6 +783,10 @@ fn browser_current_url() -> String {
 }
 
 fn browser_test() {
+    if !on(|c| c.settings.bool("onboarded")) {
+        on(|c| c.finish_onboarding(None)); // a new test profile: past the welcome screen
+        wait(500);
+    }
     let chats_pid = crate::chats::browser_pid();
     // 1. on from "+", and open
     on(|c| {
@@ -849,9 +853,10 @@ fn browser_test() {
     log!("browser: a LAN address: notice {} | page kept {} (expect \"local\", true)", s["notice"]["kind"], browser_current_url() == before);
     shot("82-browser-notice");
     on(|c| c.browser_notice(serde_json::Value::Null));
-    let local = browser_js("fetch('http://127.0.0.1:9/').then(() => 'reached', () => 'refused')");
-    wait(1500);
-    log!("browser: a page's request to this PC: {local} (expect a promise; the request is refused by the filter)");
+    browser_js("window.__cdLocal = 'pending'; fetch('http://127.0.0.1:9/').then(() => (window.__cdLocal = 'reached'), () => (window.__cdLocal = 'refused')); true");
+    wait(2000);
+    let local = browser_js("window.__cdLocal");
+    log!("browser: a page's request to this PC: {local} (expect \"refused\")");
 
     // 7. a download refused
     let downloads = std::env::var_os("USERPROFILE").map(|p| std::path::PathBuf::from(p).join("Downloads")).unwrap_or_default();
@@ -906,14 +911,20 @@ fn browser_test() {
     log!("browser: saved and restored {restored:?} (expect the same tab count, example.org open, its index)");
 
     // 12. the Browser's process killed: the chats keep theirs, the open page comes back
+    on(|c| c.open_panel(None, "selftest")); // (the page only comes back on screen)
+    wait(800);
     let pid = browser_snap()["pid"].as_u64().unwrap_or(0);
     if pid != 0 {
         let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F", "/T"]).status();
-        let gone = browser_until(8000, |s| s["env"] == "NotStarted");
-        log!("browser: killed {pid}: noticed {gone} | chats' process {} (expect true, unchanged {chats_pid})", crate::chats::browser_pid());
-        on(|c| c.layout_views());
-        let back = browser_until(15_000, |s| s["visible"].as_array().is_some_and(|v| v.len() == 1));
-        log!("browser: page back after the kill {back} (expect true)");
+        let back = browser_until(20_000, |s| {
+            let now = s["pid"].as_u64().unwrap_or(0);
+            now != 0 && now != pid && s["visible"].as_array().is_some_and(|v| v.len() == 1)
+        });
+        log!(
+            "browser: killed {pid}: a new process {} and its page on screen {back} | chats' process {} (expect a new pid, true, unchanged {chats_pid})",
+            browser_snap()["pid"],
+            crate::chats::browser_pid()
+        );
     }
 
     // 13. close tabs down to one start page

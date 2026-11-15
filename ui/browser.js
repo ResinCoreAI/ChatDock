@@ -293,6 +293,7 @@
     if (/\s/.test(s)) return false;
     const h = s.split(/[/?#]/)[0].replace(/:\d+$/, '');
     if (/^localhost$/i.test(h)) return true;
+    if (/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(h)) return true; // an address as numbers
     const m = /^(?:[\p{L}\p{N}-]+\.)+(\p{L}{2,})$/u.exec(h);
     return !!m && !FILE_ENDINGS.includes(m[1].toLowerCase());
   }

@@ -121,6 +121,8 @@ pub fn classify(text: &str) -> Option<Input> {
         _ => host_part,
     };
     let localhost = host.eq_ignore_ascii_case("localhost");
+    // four numbers 0-255: an address written as numbers (often a device without https)
+    let ipv4 = host.parse::<std::net::Ipv4Addr>().is_ok() && host.split('.').count() == 4;
     let named = host.rsplit_once('.').is_some_and(|(name, tld)| {
         tld.chars().count() >= 2
             && tld.chars().all(char::is_alphabetic)
@@ -128,10 +130,10 @@ pub fn classify(text: &str) -> Option<Input> {
             && !name.is_empty()
             && name.split('.').all(|l| !l.is_empty() && l.chars().all(|c| c.is_alphanumeric() || c == '-'))
     });
-    if !localhost && !named {
+    if !localhost && !named && !ipv4 {
         return Some(Input::Search(t));
     }
-    let scheme = if localhost { "http" } else { "https" };
+    let scheme = if localhost || ipv4 { "http" } else { "https" };
     Some(match Url::parse(&format!("{scheme}://{t}")) {
         Ok(u) => Input::Open(u.to_string()),
         Err(_) => Input::Search(t),
@@ -223,6 +225,11 @@ mod tests {
         assert_eq!(open("pantip.com/topic/1"), "https://pantip.com/topic/1");
         assert_eq!(open("localhost:3000"), "http://localhost:3000/");
         assert_eq!(open("shopee.co.th"), "https://shopee.co.th/");
+        // an address written as numbers (then refused or opened by the navigation rules)
+        assert_eq!(open("192.168.1.1"), "http://192.168.1.1/");
+        assert_eq!(open("8.8.8.8:8080/x"), "http://8.8.8.8:8080/x");
+        assert_eq!(search("1.2.3"), "1.2.3");
+        assert_eq!(search("999.1.1.1"), "999.1.1.1");
         assert_eq!(search("elden ring boss"), "elden ring boss");
         assert_eq!(search("youtube.com cats"), "youtube.com cats");
         assert_eq!(search("1.5"), "1.5");
