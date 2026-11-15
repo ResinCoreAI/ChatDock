@@ -160,7 +160,11 @@ function render(s) {
     translatePage(s);
   }
   renderSide(s);
-  const rebuilt = renderTabs(s);
+  // the Browser's tab comes after the chat apps' (it has no unread number)
+  const strip = s.browser && s.browser.on
+    ? [...s.apps, { id: 'browser', name: i18n.t('browser.name'), icon: 'search', asleep: false }]
+    : s.apps;
+  const rebuilt = renderTabs({ ...s, apps: strip });
   renderAdd(s);
   renderVolume(s);
   renderUpdate(s.update);
@@ -187,12 +191,14 @@ function render(s) {
   const welcome = !settingsOn && (s.help || !s.onboarded);
   const cover = settingsOn || welcome; // a ChatDock screen instead of the chat
   const load = s.load[s.active];
+  const browser = s.active === 'browser';
+  $('#browser').hidden = cover || !browser;
   document.body.classList.toggle('panel-hidden', !s.shown);
-  $('#progress').classList.toggle('on', s.shown && !cover && load === 'loading' && s.firstShown[s.active]);
+  $('#progress').classList.toggle('on', !browser && s.shown && !cover && load === 'loading' && s.firstShown[s.active]);
   $('#settings').hidden = !settingsOn;
   $('#welcome').hidden = !welcome;
-  $('#error').hidden = cover || load !== 'error';
-  $('#loading').hidden = cover || load === 'error' || s.firstShown[s.active];
+  $('#error').hidden = browser || cover || load !== 'error';
+  $('#loading').hidden = browser || cover || load === 'error' || s.firstShown[s.active];
   if (settingsOn && window.renderSettings) window.renderSettings(s.settings);
 
   document.body.classList.toggle('with-banner', !!s.banner);
@@ -212,6 +218,12 @@ function volIcon(level, on) {
   return !on || level === 0 ? 'volumeOff' : level < 50 ? 'volumeLow' : 'volume';
 }
 function renderVolume(s) {
+  // the Browser has no volume of its own in ChatDock (1.8.2)
+  $('#vol').hidden = s.active === 'browser';
+  if (s.active === 'browser') {
+    openVolume(false);
+    return;
+  }
   const a = s.apps.find((x) => x.id === s.active);
   const level = (s.volumes && s.volumes[s.active]) ?? 100;
   const own = !(s.soundOn && s.soundOn[s.active] === false); // this app's own switch

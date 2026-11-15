@@ -8,6 +8,7 @@
 
 mod apps;
 mod autostart;
+mod browser;
 mod browser_tabs;
 mod bugreport;
 mod chats;

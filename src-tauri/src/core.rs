@@ -206,6 +206,8 @@ pub struct Core {
     pub whatsnew: updater::WhatsNew,
     pub intro: crate::intro::Intro,
     pub menu: crate::menu::Menu,
+    /// the Browser tab (browser.rs)
+    pub browser: crate::browser::Browser,
     /// "Show numbers on the screens" (Settings → Monitors)
     pub identify: identify::Identify,
     pub ready: HashSet<String>,
@@ -430,6 +432,16 @@ impl Core {
         apps::get(id).is_some() && self.settings.app_on(id)
     }
 
+    /// A tab ChatDock shows: a switched-on chat app, or the Browser when it's on.
+    pub fn tab_on(&self, id: &str) -> bool {
+        self.is_enabled(id) || (id == crate::browser::ID && self.browser_on())
+    }
+
+    /// ChatDock's tabs in order (Ctrl+1..9, Ctrl+Tab): the chat apps, then the Browser.
+    pub fn tab_ids(&self) -> Vec<&'static str> {
+        crate::browser::tab_order(self.enabled_apps(), self.browser_on())
+    }
+
     /// Who wrote lately and isn't one of the important people yet (Settings → Important people).
     pub fn recent_not_vip(&self) -> Vec<(String, String)> {
         let vips = self.settings.get("vips").clone();
@@ -489,7 +501,7 @@ impl Core {
             }
             ("app:select", "panel") => {
                 let id = arg_str(&args, 0);
-                if !self.is_enabled(&id) {
+                if !self.tab_on(&id) {
                     return;
                 }
                 if self.settings_mode {
@@ -501,14 +513,22 @@ impl Core {
                     self.set_active(&id, false);
                     self.finish_onboarding(None);
                 } else if id == self.active() && self.view_showable(&id) {
-                    self.go_home(&id);
+                    if id != crate::browser::ID {
+                        self.go_home(&id);
+                    }
+                } else if id == self.active() && id == crate::browser::ID {
+                    // (already on screen)
                 } else {
                     self.set_active(&id, true);
                 }
             }
             ("panel:reload" | "panel:retry", "panel") => {
                 let id = self.active();
-                self.reload_app(&id, false);
+                if id == crate::browser::ID {
+                    self.browser_reload();
+                } else {
+                    self.reload_app(&id, false);
+                }
             }
             ("panel:pin", "panel") => {
                 let pinned = !self.settings.bool("pinned");
@@ -679,14 +699,18 @@ impl Core {
         let first: Map<String, Value> =
             apps::ids().map(|id| (id.to_string(), json!(*self.first_shown.get(id).unwrap_or(&false)))).collect();
         // "+" in the header: the apps that can still be switched on
-        let more: Vec<Value> = apps::ids()
+        let mut more: Vec<Value> = apps::ids()
             .filter(|id| !self.is_enabled(id))
             .filter_map(apps::get)
             .map(|a| json!({ "id": a.id, "name": a.name, "icon": a.icon }))
             .collect();
+        if !self.browser_on() {
+            more.insert(0, json!({ "id": crate::browser::ID, "name": self.t("browser.name"), "icon": "search" }));
+        }
         json!({
             "apps": apps,
             "more": more,
+            "browser": { "on": self.browser_on() },
             "active": active,
             "counts": counts,
             "lang": self.lang,

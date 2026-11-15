@@ -141,8 +141,17 @@ impl Core {
     /// "+" after the tabs: the apps that are off. (x, y: the button's bottom-left in the panel
     /// page's CSS px; top: its top)
     pub fn open_add_menu(&mut self, x: f64, y: f64, top: f64) {
-        let items: Vec<Value> =
+        let mut items: Vec<Value> =
             apps::ids().filter(|id| !self.is_enabled(id)).filter_map(apps::get).map(|a| item(a.id, a.name.to_string(), a.icon)).collect();
+        if !self.browser_on() {
+            let mut row = item(crate::browser::ID, self.t("browser.name"), "search");
+            row["hint"] = json!(self.t("browser.addHint"));
+            row["accent"] = json!(true);
+            if !items.is_empty() {
+                items.insert(0, json!({ "sep": true }));
+            }
+            items.insert(0, row);
+        }
         if items.is_empty() {
             return;
         }
@@ -152,6 +161,13 @@ impl Core {
 
     /// A right-click on an app's tab: reload, sounds, close.
     pub fn open_tab_menu(&mut self, id: &str) {
+        if id == crate::browser::ID {
+            let mut close = item("close", self.t("menu.closeBrowser"), "close");
+            close["danger"] = json!(true);
+            let (x, y) = win32::cursor_pos();
+            self.show_menu(Ctx::Tab(id.to_string()), vec![close], (x, y, y));
+            return;
+        }
         let Some(a) = apps::get(id) else { return };
         let sound = self.settings.app_prefs(id).get("sound").and_then(Value::as_bool).unwrap_or(true);
         let last = self.enabled_apps().len() <= 1;
@@ -239,7 +255,10 @@ impl Core {
         log!("menu: {id}");
         match ctx {
             Ctx::Add => {
-                if apps::get(id).is_some() {
+                if id == crate::browser::ID {
+                    self.set_browser_enabled(true);
+                    self.set_active(crate::browser::ID, true);
+                } else if apps::get(id).is_some() {
                     self.set_app_enabled(id, true);
                     self.set_active(id, true);
                 }
@@ -250,6 +269,7 @@ impl Core {
                     let on = self.settings.app_prefs(&app).get("sound").and_then(Value::as_bool).unwrap_or(true);
                     self.set_app_pref(&app, "sound", !on);
                 }
+                "close" if app == crate::browser::ID => self.set_browser_enabled(false),
                 "close" => self.set_app_enabled(&app, false),
                 _ => {}
             },

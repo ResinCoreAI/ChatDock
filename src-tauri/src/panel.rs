@@ -264,6 +264,7 @@ pub fn init(app: &mut tauri::App, args: Args) -> Result<(), Box<dyn std::error::
         whatsnew: Default::default(),
         intro: Default::default(),
         menu: crate::menu::Menu::new(menuwin),
+        browser: Default::default(),
         identify: Default::default(),
         ready: HashSet::new(),
         own_hwnds,
@@ -346,10 +347,12 @@ impl Core {
             self.settings.set_in("apps", "instagram", json!(true));
         }
         let active = self.active();
-        if !self.is_enabled(&active) {
+        if !self.tab_on(&active) {
             let first = self.enabled_apps()[0];
             self.set_setting("active", json!(first));
         }
+        let saved = self.settings.get(crate::browser::ID).clone();
+        self.browser.restore(&saved, now);
         self.resolve_legacy_display();
         let d = self.target_display();
         self.applied_scale = (d.scale, d.ui);
@@ -1101,7 +1104,7 @@ impl Core {
     }
 
     pub fn set_active(&mut self, id: &str, focus: bool) {
-        if !self.is_enabled(id) {
+        if !self.tab_on(id) {
             return;
         }
         let leaving = self.active();
@@ -1123,7 +1126,7 @@ impl Core {
     }
 
     fn other_app(&self) -> String {
-        let list = self.enabled_apps();
+        let list = self.tab_ids();
         let i = list.iter().position(|a| *a == self.active()).unwrap_or(0);
         list[(i + 1) % list.len()].to_string()
     }
@@ -1326,7 +1329,7 @@ impl Core {
         match (vk, ctrl, alt) {
             (0x31..=0x39 | 0x61..=0x69, true, false) if !shift => {
                 let n = if vk >= 0x61 { vk - 0x61 } else { vk - 0x31 } as usize;
-                if let Some(target) = self.enabled_apps().get(n) {
+                if let Some(target) = self.tab_ids().get(n) {
                     self.set_active(target, true);
                 }
             }

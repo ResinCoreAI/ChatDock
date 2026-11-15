@@ -72,6 +72,7 @@ html:lang(ja-JP) body { font-family: "Segoe UI Variable Text", "Segoe UI", "Yu G
 .item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .item .hint { color: var(--muted); font-size: 11.5px; }
 .item.danger, .item.danger .ico { color: var(--danger); }
+.item.accent .ico { color: var(--accent, #0866ff); } /* the Browser row in "+" */
 .item[aria-disabled="true"] { opacity: .45; cursor: default; }
 .item[aria-disabled="true"]:hover { background: transparent; }
 .in .item { animation: row-in .2s ease both; }

@@ -29,7 +29,7 @@ chatdock.on('menu:show', ({ items }) => {
     }
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = `item${it.danger ? ' danger' : ''}${/^(instagram|facebook|x|discord|telegram|whatsapp|spotify)/i.test(it.icon || '') ? ' app' : ''}`;
+    row.className = `item${it.danger ? ' danger' : ''}${it.accent ? ' accent' : ''}${/^(instagram|facebook|x|discord|telegram|whatsapp|spotify)/i.test(it.icon || '') ? ' app' : ''}`;
     row.dataset.id = it.id;
     row.setAttribute('role', 'menuitem');
     row.style.animationDelay = `${rows.length * 18}ms`;
