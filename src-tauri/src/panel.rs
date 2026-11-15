@@ -1331,6 +1331,9 @@ impl Core {
             return;
         }
         self.last_esc_at = 0;
+        if active == crate::browser::ID && !self.settings_mode && !self.help_mode && self.browser_key(vk, ctrl, alt, shift) {
+            return;
+        }
         match (vk, ctrl, alt) {
             (0x31..=0x39 | 0x61..=0x69, true, false) if !shift => {
                 let n = if vk >= 0x61 { vk - 0x61 } else { vk - 0x31 } as usize;

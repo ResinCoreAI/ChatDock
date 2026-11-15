@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:">
 <title>ChatDock</title>
 <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="browser.css">
 <link rel="stylesheet" href="settings.css">
 <link rel="stylesheet" href="tour.css">
 </head>
@@ -51,7 +52,56 @@
       <button id="retry" class="primary" data-i18n="error.retry"></button>
     </section>
     <!-- the Browser tab (browser.js): its tab strip, navigation row and start page -->
-    <section id="browser" hidden></section>
+    <section id="browser" hidden>
+      <div class="b-tabs" id="btabs" role="tablist" data-i18n-aria="browser.tabs"></div>
+      <div class="b-nav">
+        <button class="icon-btn" id="nav-back" data-i18n-title="browser.back"><span data-icon="chevronLeft"></span></button>
+        <button class="icon-btn" id="nav-fwd" data-i18n-title="browser.forward"><span data-icon="chevronRight"></span></button>
+        <button class="icon-btn" id="nav-reload" data-i18n-title="browser.reload"><span data-icon="reload"></span></button>
+        <form class="b-addr" id="addr" autocomplete="off"><span class="lock" id="addr-ico"></span><input id="addr-in" spellcheck="false" data-i18n-placeholder="browser.placeholder"></form>
+        <button class="icon-btn" id="nav-home" data-i18n-title="browser.home"><span data-icon="home"></span></button>
+        <button class="icon-btn" id="nav-out" data-i18n-title="browser.outside"><span data-icon="external"></span></button>
+      </div>
+      <div class="b-progress" id="bprog"></div>
+      <div class="b-notice" id="bnotice" hidden>
+        <span class="n-text" id="bnotice-text"></span>
+        <button type="button" class="b-link" id="bnotice-act"></button>
+        <button type="button" class="b-x" id="bnotice-x" data-i18n-title="browser.dismiss"><span data-icon="close"></span></button>
+      </div>
+      <div class="b-scroll" id="bhome">
+        <div class="b-head"><span class="b-logo" data-icon="logo"></span><b data-i18n="browser.name"></b></div>
+        <form class="b-box" id="bbox" autocomplete="off">
+          <button type="button" class="b-engine" id="engine-btn"></button>
+          <input id="bq" type="text" spellcheck="false" data-i18n-placeholder="browser.placeholder">
+          <button type="button" class="b-clear" id="bclear" hidden data-i18n-title="browser.clear"><span data-icon="close"></span></button>
+          <button type="submit" class="b-go" data-i18n-title="browser.go"><span data-icon="search"></span></button>
+          <ul class="b-suggest" id="bsuggest" role="listbox" hidden></ul>
+        </form>
+        <div class="b-engines" id="bengines" role="radiogroup" data-i18n-aria="browser.engines"></div>
+        <h3 class="b-h" data-i18n="browser.shortcuts"></h3>
+        <div class="b-tiles" id="btiles"></div>
+        <div class="b-h-row">
+          <h3 class="b-h" data-i18n="browser.recent"></h3>
+          <button type="button" class="b-link" id="brecent-clear" data-i18n="browser.clearAll"></button>
+        </div>
+        <ul class="b-recent" id="brecent"></ul>
+        <p class="b-empty" id="brecent-empty" hidden data-i18n="browser.noRecent"></p>
+        <p class="b-foot" data-i18n="browser.foot"></p>
+      </div>
+      <div class="sheet" id="btile-sheet" hidden>
+        <form class="sheet-card" id="btile-form">
+          <h3 id="btile-title"></h3>
+          <label><span data-i18n="browser.shortcutName"></span><input id="btile-name" required maxlength="24"></label>
+          <label><span data-i18n="browser.shortcutUrl"></span><input id="btile-url" required placeholder="youtube.com"></label>
+          <p class="b-bad" id="btile-bad" hidden data-i18n="browser.badUrl"></p>
+          <div class="sheet-acts">
+            <button type="button" class="ghost" id="btile-delete" data-i18n="browser.delete"></button>
+            <button type="button" class="ghost" id="btile-cancel" data-i18n="browser.cancel"></button>
+            <button type="submit" class="primary" data-i18n="browser.save"></button>
+          </div>
+        </form>
+      </div>
+    </section>
 
     <!-- The guide (tour.js): ChatDock opens on it the first time; "How to use" shows it again. -->
     <section id="welcome" hidden>
@@ -511,6 +561,7 @@
   <script src="i18n.js"></script>
   <script src="icons.js"></script>
   <script src="panel.js"></script>
+  <script src="browser.js"></script>
   <script src="tour.js"></script>
   <script src="settings.js"></script>
 </body>

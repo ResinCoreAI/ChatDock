@@ -2117,6 +2117,7 @@ pub(crate) fn passkey_line(v: &serde_json::Value) -> String {
 /// ChatDock's keyboard shortcuts inside a page (a chat, or the panel's own page when app is None).
 pub(crate) fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>) {
     let host = app.is_none();
+    let browser = app == Some(crate::browser::ID);
     let mut token = 0i64;
     unsafe {
         let _ = controller.add_AcceleratorKeyPressed(
@@ -2143,6 +2144,8 @@ pub(crate) fn hook_keys(controller: &ICoreWebView2Controller, app: Option<&str>)
                     0x74 => !alt,
                     0xBB | 0x6B | 0xBD | 0x6D | 0x30 | 0x60 => ctrl && !alt,
                     0x25 | 0x27 => alt && !ctrl,
+                    0x54 | 0x4C => ctrl && !alt && (host || browser), // Ctrl+T, Ctrl+L (the Browser's)
+                    0x21 | 0x22 => ctrl && !alt && (host || browser), // Ctrl+PgUp / PgDn
                     _ => return Ok(()),
                 };
                 if ours {

@@ -1,4 +1,3 @@
-#![allow(dead_code)] // used from the page messages (Tasks 7-9); removed at the end of Task 9
 //! The Browser's search side: its engines, "is this an address or a search?", and the engines'
 //! suggestion answers. Nothing here touches WebView2 or the network, so all of it is unit tested.
 
@@ -13,6 +12,7 @@ pub const URL_MAX: usize = 4096;
 
 pub struct Engine {
     pub id: &'static str,
+    #[allow(dead_code)] // read by Settings → Browser (Task 11)
     pub name: &'static str,
     search: &'static str,
     suggest: &'static str,

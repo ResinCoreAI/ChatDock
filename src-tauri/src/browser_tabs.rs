@@ -1,4 +1,3 @@
-#![allow(dead_code)] // used from the page messages (Tasks 7-9); removed at the end of Task 9
 //! The Browser's own tabs (under ChatDock's app tabs, never mixed with them): which pages are
 //! open, which one is on screen, and which have gone unused long enough to give their memory back.
 //! Pure: browser.rs keeps the WebView2 views that go with them.

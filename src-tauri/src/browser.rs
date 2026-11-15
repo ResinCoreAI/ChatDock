@@ -1,4 +1,3 @@
-#![allow(dead_code)] // used from the page messages (Tasks 7-9); removed at the end of Task 9
 //! The Browser tab: ChatDock's own small web browser (added from "+"). Its pages run in a WebView2
 //! browser process of their own (data_dir/WebView2-browser), apart from the chats' logins, with
 //! SmartScreen on. Its tab strip, navigation row and start page are drawn by the panel page
@@ -833,6 +832,59 @@ impl Core {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum KeyAction {
+    NewTab,
+    CloseTab,
+    Address,
+    Back,
+    Forward,
+    Reload,
+    Step(i32),
+}
+
+/// A key while the Browser tab is open (others go on to ChatDock's usual keys).
+pub fn browser_key_action(vk: u32, ctrl: bool, alt: bool, _shift: bool) -> Option<KeyAction> {
+    Some(match (vk, ctrl, alt) {
+        (0x54, true, false) => KeyAction::NewTab,
+        (0x57, true, false) => KeyAction::CloseTab,
+        (0x4C, true, false) => KeyAction::Address,
+        (0x25, false, true) => KeyAction::Back,
+        (0x27, false, true) => KeyAction::Forward,
+        (0x52, true, false) | (0x74, _, false) => KeyAction::Reload,
+        (0x21, true, false) => KeyAction::Step(-1),
+        (0x22, true, false) => KeyAction::Step(1),
+        _ => return None,
+    })
+}
+
+impl Core {
+    /// True when the key was the Browser's.
+    pub fn browser_key(&mut self, vk: u32, ctrl: bool, alt: bool, shift: bool) -> bool {
+        let Some(a) = browser_key_action(vk, ctrl, alt, shift) else { return false };
+        match a {
+            KeyAction::NewTab => self.browser_new(),
+            KeyAction::CloseTab => {
+                let id = self.browser.tabs.current().id;
+                self.browser_close(id);
+            }
+            KeyAction::Address => {
+                crate::chats::focus_panel_page();
+                self.emit("panel", "browser:focus-address", json!([]));
+            }
+            KeyAction::Back => self.browser_back(),
+            KeyAction::Forward => self.browser_forward(),
+            KeyAction::Reload => self.browser_reload(),
+            KeyAction::Step(d) => {
+                self.browser.tabs.step(d, rt::epoch_ms());
+                let id = self.browser.tabs.current().id;
+                self.browser_select(id);
+            }
+        }
+        true
+    }
+}
+
 /// The Browser's rules for one of its pages (not the chats': any site, its own pop-up rule, no
 /// page script, nothing on this PC or the LAN).
 unsafe fn configure(controller: &ICoreWebView2Controller, wv: &ICoreWebView2, id: u32, debug: bool) -> windows::core::Result<()> {
@@ -1180,6 +1232,23 @@ mod tests {
         assert_eq!(super::suggest_request(&on, "   ", "en"), None);
         assert_eq!(super::suggest_request(&on, "youtube.com", "en"), None); // an address goes nowhere
         assert_eq!(super::suggest_request(&on, &"a".repeat(201), "en"), None);
+    }
+
+    #[test]
+    fn browser_keys_only_while_the_browser_is_open() {
+        use super::{browser_key_action as k, KeyAction::*};
+        assert_eq!(k(0x54, true, false, false), Some(NewTab)); // Ctrl+T
+        assert_eq!(k(0x57, true, false, false), Some(CloseTab)); // Ctrl+W
+        assert_eq!(k(0x4C, true, false, false), Some(Address)); // Ctrl+L
+        assert_eq!(k(0x25, false, true, false), Some(Back)); // Alt+Left
+        assert_eq!(k(0x27, false, true, false), Some(Forward));
+        assert_eq!(k(0x52, true, false, false), Some(Reload)); // Ctrl+R
+        assert_eq!(k(0x74, false, false, false), Some(Reload)); // F5
+        assert_eq!(k(0x21, true, false, false), Some(Step(-1))); // Ctrl+PgUp
+        assert_eq!(k(0x22, true, false, false), Some(Step(1)));
+        assert_eq!(k(0x09, true, false, false), None); // Ctrl+Tab stays ChatDock's
+        assert_eq!(k(0x31, true, false, false), None); // Ctrl+1 too
+        assert_eq!(k(0x54, true, true, false), None); // Ctrl+Alt+T: not ours
     }
 
     #[test]

@@ -132,6 +132,7 @@ function translatePage(s) {
   };
   i18n.apply();
   window.fillIcons();
+  if (window.browserRelang) window.browserRelang(); // the Browser tab's own part
 }
 
 // Docked on the left: the page mirrors (grip on the right, hide arrow points left).
