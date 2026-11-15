@@ -28,6 +28,7 @@ mod rt;
 mod search;
 mod selftest;
 mod settings;
+mod suggest;
 mod toasts;
 mod tray;
 mod updater;

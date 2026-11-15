@@ -64,6 +64,9 @@ pub struct Browser {
     pending_nav: HashMap<u32, String>,
     /// the bar under the navigation row: Null, or {kind: "download" | "local" | "program", ...}
     pub notice: Value,
+    /// a suggestion request in flight, and the newest text typed meanwhile
+    suggest_busy: bool,
+    suggest_next: Option<String>,
 }
 
 impl Browser {
@@ -664,8 +667,6 @@ impl Core {
             }
         }
     }
-
-    pub fn browser_suggest(&mut self, _text: &str) {} // Task 8
 }
 
 /// What the panel page draws: the tabs, the open one's address and history, the start page's
@@ -789,6 +790,46 @@ impl Core {
             _ => return,
         }
         self.browser_set(key, Value::Array(list));
+    }
+}
+
+/// The suggestion address for typed text, or None: switched off, empty, an address (never sent
+/// anywhere), or too long.
+pub fn suggest_request(saved: &Value, text: &str, lang: &str) -> Option<String> {
+    if saved.get("suggest").and_then(Value::as_bool) != Some(true) || text.trim().chars().count() > 200 {
+        return None;
+    }
+    match search::classify(text)? {
+        search::Input::Search(q) => Some(search::suggest_url(saved["engine"].as_str().unwrap_or("google"), &q, lang)),
+        search::Input::Open(_) => None,
+    }
+}
+
+impl Core {
+    pub fn browser_suggest(&mut self, text: &str) {
+        let text: String = text.chars().take(200).collect();
+        if self.browser.suggest_busy {
+            self.browser.suggest_next = Some(text); // asked when the one in flight answers
+            return;
+        }
+        let Some(url) = suggest_request(self.settings.get(ID), &text, &self.lang) else {
+            self.emit("panel", "browser:suggest", json!([{ "text": text, "items": [] }]));
+            return;
+        };
+        self.browser.suggest_busy = true;
+        let started = std::thread::Builder::new().name("chatdock-suggest".into()).spawn(move || {
+            let items = crate::suggest::get(&url, 2000).map(|b| search::parse_suggestions(&b)).unwrap_or_default();
+            later(move |c| {
+                c.browser.suggest_busy = false;
+                c.emit("panel", "browser:suggest", json!([{ "text": text, "items": items }]));
+                if let Some(next) = c.browser.suggest_next.take() {
+                    c.browser_suggest(&next);
+                }
+            });
+        });
+        if started.is_err() {
+            self.browser.suggest_busy = false;
+        }
     }
 }
 
@@ -1128,6 +1169,17 @@ mod tests {
         assert_eq!(s["tabs"][1]["title"], "");
         assert_eq!(s["canBack"], false); // the open tab (the start page) has no view
         assert_eq!((s["engine"].as_str(), s["suggest"].as_bool(), s["full"].as_bool()), (Some("ddg"), Some(false), Some(false)));
+    }
+
+    #[test]
+    fn suggestions_are_asked_only_when_they_may_be() {
+        let on = serde_json::json!({ "engine": "bing", "suggest": true });
+        let off = serde_json::json!({ "engine": "bing", "suggest": false });
+        assert_eq!(super::suggest_request(&on, "elden", "en").as_deref(), Some("https://api.bing.com/osjson.aspx?query=elden"));
+        assert_eq!(super::suggest_request(&off, "elden", "en"), None);
+        assert_eq!(super::suggest_request(&on, "   ", "en"), None);
+        assert_eq!(super::suggest_request(&on, "youtube.com", "en"), None); // an address goes nowhere
+        assert_eq!(super::suggest_request(&on, &"a".repeat(201), "en"), None);
     }
 
     #[test]
