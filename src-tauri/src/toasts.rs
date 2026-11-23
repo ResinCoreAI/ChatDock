@@ -642,6 +642,9 @@ impl Core {
         let it = &mut self.toasts.items[index];
         let key = it.key.clone();
         it.timer = timer(it.remaining.max(1500) as u64, move |c| {
+            if c.toasts.items.iter().any(|x| x.key == key && x.busy) {
+                return; // (being answered since: it goes once the reply is done)
+            }
             c.toast_remove(&key, true);
         });
     }
@@ -709,7 +712,8 @@ impl Core {
             it.rows.retain(|h| !row(h));
         }
         self.toasts.items.retain(|it| {
-            let goes = card(it) || (it.action == "game" && it.rows.is_empty());
+            // (a card being answered stays to say how it went: the reply itself marks the chat read)
+            let goes = !it.busy && (card(it) || (it.action == "game" && it.rows.is_empty()));
             if goes {
                 rt::cancel(it.timer);
             }
@@ -804,6 +808,11 @@ impl Core {
         win32::is_visible(self.toastwin.hwnd)
     }
 
+    /// The self-test: each card's key, app and whether it is being answered.
+    pub fn toasts_test_cards(&self) -> Vec<(String, String, bool)> {
+        self.toasts.items.iter().map(|it| (it.key.clone(), it.app_id.clone(), it.busy)).collect()
+    }
+
     pub fn toasts_count(&self) -> usize {
         self.toasts.items.len()
     }
@@ -877,7 +886,7 @@ impl Core {
             "toast:reply-send" => {
                 let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
                 let text = args.get(1).and_then(Value::as_str).unwrap_or("").trim().to_string();
-                self.close_reply_box(false);
+                self.close_reply_box(text.is_empty()); // (nothing written: as if cancelled)
                 if !text.is_empty() {
                     self.reply_from_card(&key, text);
                 }
@@ -890,8 +899,16 @@ impl Core {
             "toast:quick" => {
                 let key = args.first().and_then(Value::as_str).unwrap_or("").to_string();
                 let i = args.get(1).and_then(Value::as_u64).unwrap_or(0) as usize;
-                if let Some(text) = self.quick_replies().get(i).cloned() {
-                    self.reply_from_card(&key, text);
+                match self.quick_replies().get(i).cloned() {
+                    Some(text) => self.reply_from_card(&key, text),
+                    None => {
+                        let line = self.t("toast.notSent");
+                        self.emit(
+                            "toasts",
+                            "toast:reply-state",
+                            json!([{ "key": key, "state": "failed", "text": "", "line": line, "open": self.t("toast.openChat") }]),
+                        );
+                    }
                 }
             }
             _ => {}
@@ -908,7 +925,7 @@ impl Core {
             return;
         }
         if self.toasts.replying.is_some() {
-            self.close_reply_box(false);
+            self.close_reply_box(true); // (the other card's box: that card times out again)
         }
         let it = &mut self.toasts.items[i];
         rt::cancel(it.timer); // no timing out while writing
@@ -1002,11 +1019,11 @@ impl Core {
     pub fn reply_from_card(&mut self, key: &str, text: String) {
         let Some(i) = self.toasts.items.iter().position(|x| x.key == key) else { return };
         let it = &mut self.toasts.items[i];
-        let (app, target) = (it.app_id.clone(), it.target.clone());
+        let app = it.app_id.clone();
+        let Some(target) = it.target.clone() else { return };
         rt::cancel(it.timer); // no timing out while it is being sent
         it.timer = 0;
         it.busy = true;
-        let Some(target) = target else { return };
         self.emit("toasts", "toast:reply-state", json!([{ "key": key, "state": "sending", "text": text }]));
         let k = key.to_string();
         let t = text.clone();

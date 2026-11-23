@@ -3254,21 +3254,23 @@ fn reply_send_test() {
             draft = serde_json::to_string(draft).unwrap(),
         )
     };
-    let send = |href: &str, name: &str| {
+    let send_text = |href: &str, name: &str, text: &str| {
         let target = crate::inbox::Latest { name: name.into(), href: href.into(), ..Default::default() };
+        let text = text.to_string();
         let (tx, rx) = mpsc::channel();
         on(move |c| {
             c.send_on_page(
                 "facebook",
                 target,
-                "ทดสอบ ok".into(),
+                text,
                 Box::new(move |_, s| {
                     let _ = tx.send(s);
                 }),
             )
         });
-        rx.recv_timeout(Duration::from_secs(10)).map(|s| format!("{s:?}")).unwrap_or_else(|_| "no answer".into())
+        rx.recv_timeout(Duration::from_secs(22)).map(|s| format!("{s:?}")).unwrap_or_else(|_| "no answer".into())
     };
+    let send = |href: &str, name: &str| send_text(href, name, "ทดสอบ ok");
     view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
     let works = send("/messages/t/1/", "Nok");
     let shown = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent))");
@@ -3317,6 +3319,41 @@ fn reply_send_test() {
     let two_noks = send("", "Nok");
     let two_typed = view_js("facebook", "String(document.querySelectorAll('div[dir=auto]').length)");
     log!("reply (review): same text already there, never sent {repeated} (box after {box_after}) | a list row named Nok, Beam open {row_named} | only in the list's preview {preview_only} | two chats named Nok, no link {two_noks} (sent {two_typed}) (expect NotConfirmed (\"\") | NotOpened | NotConfirmed | NotOpened (0))");
+    // 1.8.3 (replies never went on Facebook): a box that sends on Enter only when it is a real key;
+    // one that sends only with its send button (a "Send a like" button beside it is never pressed);
+    // a link that names no conversation: found by the name at the top instead
+    let sender = |cond: &str| {
+        format!(
+            "(() => {{ const box = document.querySelector('[role=textbox]'); const list = document.querySelector('body > div'); \
+             const post = () => {{ const m = document.createElement('div'); m.dir = 'auto'; m.textContent = box.textContent; list.append(m); box.textContent = ''; }}; \
+             box.addEventListener('keydown', (e) => {{ if (e.key === 'Enter' && {cond}) {{ e.preventDefault(); post(); }} }}); return 1; }})()"
+        )
+    };
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    view_js("facebook", &sender("e.isTrusted"));
+    let real_key = send("/messages/t/1/", "Nok");
+    let real_shown = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent))");
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    view_js(
+        "facebook",
+        "(() => { const box = document.querySelector('[role=textbox]'); const list = document.querySelector('body > div'); \
+         const add = (label, said) => { const b = document.createElement('div'); b.setAttribute('role', 'button'); b.setAttribute('aria-label', label); \
+           b.style.cssText = 'display:inline-block;width:30px;height:30px;background:#09f'; \
+           b.addEventListener('click', () => { const m = document.createElement('div'); m.dir = 'auto'; m.textContent = said === null ? box.textContent : said; list.append(m); if (said === null) box.textContent = ''; }); box.after(b); }; \
+         add('Press enter to send', null); add('Send a like', '👍'); return 1; })()",
+    );
+    let button = send("/messages/t/1/", "Nok");
+    let button_shown = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent))");
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+    let odd_link = send("/profile.php?id=1", "Nok");
+    // emoji drawn as pictures in the conversation (Facebook): "เล่นเกมอยู่ ✌" shows as its words and a picture
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", false));
+    view_js(
+        "facebook",
+        "(() => { const box = document.querySelector('[role=textbox]'); const list = document.querySelector('body > div');          box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const m = document.createElement('div'); m.dir = 'auto';            m.append(box.textContent.replace(/✌️?/g, '')); const i = document.createElement('img'); i.alt = '✌'; m.append(i); list.append(m); box.textContent = ''; } }); return 1; })()",
+    );
+    let emoji = send_text("/messages/t/1/", "Nok", "เล่นเกมอยู่ ✌");
+    log!("reply (1.8.3): Enter only as a real key {real_key} (shown {real_shown}) | only the send button {button} (shown {button_shown}) | a link that names no conversation {odd_link} | emoji shown as a picture {emoji} (expect Confirmed (\"ทดสอบ ok\") | Confirmed (\"ทดสอบ ok\", no 👍) | Confirmed | Confirmed)");
     log!(
         "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );
@@ -3369,7 +3406,93 @@ fn quick_reply_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
         c.counts.insert("facebook".into(), 0);
     });
     log!("quick reply: chips {chips} | after the click {after} | in the conversation {sent} | cards 3 s later {cards} | back to the list planned {back} (expect the language's three | ✓ + the first | the first | 0 | true)");
+    reply_cards_test(page);
     reply_box_test(page);
+}
+
+/// 1.8.3 (review): a card being answered stays when its chats are read meanwhile (Facebook's number
+/// drops as the reply opens the chat) and still says it was sent; the reply box opened on another
+/// card leaves the first one free to time out (it was left waiting for ever).
+fn reply_cards_test(page: &dyn Fn(&str, &str, &str, bool) -> String) {
+    let popups_were = on(|c| {
+        let was = c.settings.get("popups").clone();
+        c.settings.set("popups", json!(true));
+        c.toasts.offscreen = true;
+        c.toasts_dismiss_all();
+        was
+    });
+    let nok =
+        || crate::inbox::Latest {
+            name: "Nok".into(), text: "ไปเล่นกันป่าว".into(), avatar: String::new(), href: "/messages/t/1/".into()
+        };
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+    view_js(
+        "facebook",
+        "(() => { const a = document.createElement('a'); a.href = '/messages/t/1/'; a.textContent = 'Nok'; a.style.cssText = 'display:block;width:200px;height:40px'; \
+         a.addEventListener('click', (e) => e.preventDefault()); document.body.prepend(a); return 1; })()",
+    );
+    on(move |c| {
+        c.counts.insert("facebook".into(), 1);
+        c.count_popup_for_test("facebook", Some(nok()));
+    });
+    wait(1200);
+    js_click("toasts", ".card .qchip");
+    wait(150);
+    on(|c| c.toasts_dismiss_app("facebook"));
+    let kept = on(|c| c.toasts_count());
+    let mut said = String::new();
+    for _ in 0..80 {
+        wait(100);
+        said = page_js("toasts", "String([...document.querySelectorAll('.card .qchip.sent')].length)");
+        if said == "\"1\"" {
+            break;
+        }
+    }
+    // two cards that can take a reply: the box on the first, then on the second (the stand-in page
+    // counts nothing unread: the number set for the first part is put back, or its drop takes them)
+    on(|c| {
+        c.counts.insert("facebook".into(), 0);
+    });
+    wait(300);
+    on(move |c| {
+        c.toasts_dismiss_all();
+        for (tag, name) in [("facebook:a", "Nok"), ("facebook:b", "Beam")] {
+            let target = crate::inbox::Latest { name: name.into(), ..nok() };
+            let f = crate::toasts::Fields {
+                title: name.into(),
+                body: "hi".into(),
+                icon: String::new(),
+                tag: tag.into(),
+                source: 0,
+                meta: String::new(),
+                hint: String::new(),
+                target: Some(target),
+            };
+            c.popup("facebook", f);
+        }
+    });
+    wait(800);
+    let keys: Vec<String> = on(|c| c.toasts_test_cards().into_iter().map(|(k, _, _)| k).collect());
+    let mut first_busy = "no cards".to_string();
+    if keys.len() == 2 {
+        let (a, b) = (keys[1].clone(), keys[0].clone());
+        let a2 = a.clone();
+        on(move |c| c.open_reply_box(&a2));
+        wait(300);
+        on(move |c| c.open_reply_box(&b));
+        wait(300);
+        first_busy = on(move |c| {
+            c.toasts_test_cards().into_iter().find(|(k, _, _)| *k == a).map(|(_, _, busy)| busy.to_string()).unwrap_or("gone".into())
+        });
+        on(|c| c.close_reply_box(true));
+    }
+    on(move |c| {
+        c.toasts_dismiss_all();
+        c.settings.set("popups", popups_were);
+        c.toasts.offscreen = false;
+        c.counts.insert("facebook".into(), 0);
+    });
+    log!("reply cards (1.8.3): chats read while sending: cards {kept}, said sent {said} | box on a second card: the first still waiting {first_busy} (expect 1, \"1\" | false)");
 }
 
 /// 1.8: Discord push-to-talk with F13 (no program uses it) pressed through SendInput, on a

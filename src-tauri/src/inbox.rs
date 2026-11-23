@@ -13,7 +13,10 @@
 use std::{
     cell::RefCell,
     collections::HashSet,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use serde_json::Value;
@@ -189,29 +192,44 @@ pub fn can_reply(app: &str) -> bool {
     matches!(app, "instagram" | "facebook")
 }
 
-/// Waits until the conversation the pop-up is about is the one open (its link, or its name at the
-/// top of the page, only while no other chat in the list has that name), types the reply into its box the way a paste does (the site's own input
-/// handlers run), presses Enter, and waits up to 4 s for it to show as a message.
-const SEND_JS: &str = r#"(async (text, href, name) => {
+/// How a message is told in the conversation: the same words, with emoji left out (Facebook draws
+/// them as pictures); a reply of emoji only is compared with the pictures' own text.
+const COUNT_HELPER: &str = r#"
+  const flat = (s) => (s || '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]/gu, '').trim().replace(/\s+/g, ' ');
+  const alts = (e) => [...e.querySelectorAll('img[alt]')].map((i) => i.getAttribute('alt')).join('');
+  const sameText = (t, e, want) => { const fw = flat(want); return fw ? flat(t) === fw : (t + (e ? alts(e) : '')).replace(/\s+/g, '') === want.replace(/\s+/g, ''); };
+  const countIn = (box, want) => [...(document.querySelector('[role="main"]') || document).querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
+    .slice(-60).filter((e) => !box.contains(e) && sameText(e.textContent || '', e, want)).length;
+"#;
+
+/// Step 1 of a reply (send_on_page): waits until the conversation the pop-up is about is the one
+/// open (its link, or its name at the top of the page: by name when there is no link that names a
+/// conversation, and only while no other chat in the list has that name), finds its message box,
+/// leaves it alone if something is being typed there, else marks it and puts the caret in it. The
+/// text then goes in as typed keys (Input.insertText, see send_on_page), which every editor takes,
+/// Facebook's included.
+const PREP_JS: &str = r#"(async (text, href, name, deadline) => {
+%COUNT%
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const thread = (h) => (h.match(/\/t\/[^/?#]+/) || [''])[0];
+  const want = thread(href || '');
   // the conversation's own header: never a list row or a link (those name other conversations)
   const named = () => [...document.querySelectorAll('h1, h2, header span, [role="main"] span')]
     .filter((e) => !e.closest('a, [role="link"], [role="row"], [role="listitem"], [role="gridcell"]'))
     .some((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.top < 160 && r.width > 0 && (e.textContent || '').trim() === name; });
-  const isOpen = () => /\/t\//.test(location.pathname) && (href ? thread(location.pathname) === thread(href) : !!name && named());
+  const isOpen = () => /\/t\//.test(location.pathname) && (want ? thread(location.pathname) === want : !!name && named());
   // no link (Instagram's list has none): by name only while one chat in the list has that name
   const rowSel = 'a[href*="/t/"], [role="link"], [role="row"], [role="listitem"], [role="button"]';
   const sameName = () => [...document.querySelectorAll(rowSel)]
     .filter((r) => !(r.parentElement && r.parentElement.closest(rowSel)))
     .filter((r) => [...r.querySelectorAll('span, div')].some((x) => !x.childElementCount && (x.textContent || '').trim() === name)).length;
-  if (!href && sameName() > 1) return 'not opened';
+  if (!want && sameName() > 1) return 'not opened';
   const boxes = () => [...document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"], textarea')]
     .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 40 && r.height > 10; });
   const content = (b) => (b.value || b.textContent || '').trim();
   let box = null;
   // by the clock, not by turns: a hidden page gets its timers once a second at most
-  let until = Date.now() + 4000;
+  const until = Date.now() + 4000;
   while (Date.now() < until && !(isOpen() && (box = boxes().pop()))) await sleep(100);
   if (!isOpen()) return 'not opened';
   // a single-page site changes its address before the conversation on screen: let it settle
@@ -220,49 +238,141 @@ const SEND_JS: &str = r#"(async (text, href, name) => {
   if (!isOpen()) return 'not opened';
   if (!box) return 'no composer';
   if (content(box)) return 'typing';
-  const want = text.trim().replace(/\s+/g, ' ');
+  // ChatDock stopped waiting meanwhile (a page that slept long): nothing is typed
+  if (Date.now() > deadline) return 'late';
+  document.querySelectorAll('[data-chatdock-reply]').forEach((b) => b.removeAttribute('data-chatdock-reply'));
+  box.setAttribute('data-chatdock-reply', '1');
+  const norm = text.trim().replace(/\s+/g, ' ');
   // how often it is in the conversation already ("OK" may well be): only one more counts as sent
   // counted in the conversation only (the chat list shows the last message too)
-  const root = document.querySelector('[role="main"]') || document;
-  const count = () => [...root.querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
-    .slice(-60).filter((e) => !box.contains(e) && (e.textContent || '').trim().replace(/\s+/g, ' ') === want).length;
-  const before = count();
+  const before = countIn(box, norm);
+  window.__chatdockReply = { before, want: norm };
+  box.focus();
+  const sel = getSelection();
+  if (sel && !box.matches('textarea')) { sel.selectAllChildren(box); sel.collapseToEnd(); }
+  return 'ready' + (box.closest('[data-lexical-editor]') ? ' lexical' : '');
+})(%TEXT%, %HREF%, %NAME%, %DEADLINE%)"#;
+
+/// What steps 2 and 3 share: the marked box, the text it should hold, and how often that text is in
+/// the conversation.
+const STEP_HELPERS: &str = r#"
+%COUNT%
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const st = window.__chatdockReply || { before: 0, want: '' };
+  const found = document.querySelector('[data-chatdock-reply]');
+  // (the conversation on screen changed meanwhile: its box is gone, and nothing more is typed)
+  const box = found && found.isConnected ? found : null;
+  const content = (b) => (b.value || b.textContent || '').trim().replace(/\s+/g, ' ');
+  const holds = () => sameText(content(box), box, st.want);
+  const count = () => countIn(box, st.want);
+  const done = () => { if (box) box.removeAttribute('data-chatdock-reply'); delete window.__chatdockReply; };
+"#;
+
+/// Step 2: the typed keys are in the box ("keys"); else the text goes in the way a paste does
+/// ("script"). Anything else there: not ours to send ("lost").
+const TYPED_JS: &str = r#"(async (text) => {
+%STEP%
+  if (!box) return 'gone';
+  for (let i = 0; i < 10 && !holds(); i++) await sleep(100);
+  if (holds()) return 'keys';
+  if (content(box) || box.querySelector('img')) return 'lost';
   box.focus();
   document.execCommand('insertText', false, text);
-  const enter = (type) => box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-  enter('keydown'); enter('keypress'); enter('keyup');
-  until = Date.now() + 4000;
-  while (Date.now() < until) {
-    if (count() > before && !content(box)) return 'confirmed';
-    await sleep(100);
+  await sleep(150);
+  return holds() ? 'script' : 'lost';
+})(%TEXT%)"#;
+
+/// Step 3, after Enter was pressed as a key: sent when the text shows once more in the conversation
+/// and the box is empty. If the text is still in the box: Enter as a page event, then the
+/// conversation's send button. Not sent: what ChatDock typed doesn't stay in the box.
+const CONFIRM_JS: &str = r#"(async () => {
+%STEP%
+  if (!box) return JSON.stringify({ r: 'not confirmed', how: 'box gone' });
+  const sent = () => count() > st.before && !content(box);
+  const wait = async (ms) => { const until = Date.now() + ms; while (Date.now() < until) { if (sent()) return true; await sleep(100); } return sent(); };
+  const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  // the send button next to the box: never a like, a sticker, a voice clip or an attachment
+  const sendButton = () => {
+    const yes = /send|ส่ง|enviar|senden|envoyer|invia|送信|发送|發送|전송|gửi|kirim|отправ/i;
+    const no = /like|ถูกใจ|sticker|สติกเกอร์|gif|emoji|อีโมจิ|voice|เสียง|clip|attach|แนบ|file|ไฟล์|photo|รูป|image|camera|กล้อง/i;
+    let scope = box;
+    for (let i = 0; i < 8 && scope.parentElement; i++) {
+      scope = scope.parentElement;
+      const b = [...scope.querySelectorAll('[role="button"][aria-label], button[aria-label], button[type="submit"]')]
+        .find((e) => !box.contains(e) && shown(e) && yes.test(e.getAttribute('aria-label') || e.textContent || '') && !no.test(e.getAttribute('aria-label') || ''));
+      if (b) return b;
+    }
+    return null;
+  };
+  let how = 'key';
+  if (!(await wait(2500)) && holds()) {
+    how = 'event';
+    box.focus();
+    const enter = (type) => box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    enter('keydown'); enter('keypress'); enter('keyup');
+    if (!(await wait(1500)) && holds()) {
+      const b = sendButton();
+      how = b ? 'button' : 'no button';
+      if (b) { b.click(); await wait(3000); }
+    }
   }
-  // not sent: what ChatDock typed doesn't stay in the box (the user's own text never gets here)
-  if (content(box).replace(/\s+/g, ' ') === want) {
+  const ok = sent();
+  if (!ok && holds()) {
     box.focus();
     document.execCommand('selectAll', false);
     document.execCommand('delete', false);
   }
-  return 'not confirmed';
-})(%TEXT%, %HREF%, %NAME%)"#;
+  const left = content(box) ? 'text left' : 'box empty';
+  done();
+  return JSON.stringify({ r: ok ? 'confirmed' : 'not confirmed', how, left });
+})()"#;
 
-fn send_js_to(text: &str, href: &str, name: &str) -> String {
-    let j = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
-    SEND_JS.replace("%TEXT%", &j(text)).replace("%HREF%", &j(href)).replace("%NAME%", &j(name))
+fn js_str(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
-#[cfg(test)]
-fn send_js(text: &str) -> String {
-    send_js_to(text, "/t/1/", "Nok")
+/// `deadline`: the page's clock time (ms) after which nothing is typed any more.
+fn prep_js(text: &str, href: &str, name: &str, deadline: u64) -> String {
+    PREP_JS
+        .replace("%COUNT%", COUNT_HELPER)
+        .replace("%TEXT%", &js_str(text))
+        .replace("%HREF%", &js_str(href))
+        .replace("%NAME%", &js_str(name))
+        .replace("%DEADLINE%", &deadline.to_string())
 }
 
-fn sent_of(result: &str) -> Sent {
+fn typed_js(text: &str) -> String {
+    TYPED_JS.replace("%STEP%", STEP_HELPERS).replace("%COUNT%", COUNT_HELPER).replace("%TEXT%", &js_str(text))
+}
+
+fn confirm_js() -> String {
+    CONFIRM_JS.replace("%STEP%", STEP_HELPERS).replace("%COUNT%", COUNT_HELPER)
+}
+
+/// Enter pressed as a key (DevTools Input.dispatchKeyEvent): a real key event, which sites that
+/// ignore page-made events (Facebook's message box) take.
+const ENTER_DOWN: &str = r#"{"type":"keyDown","key":"Enter","code":"Enter","windowsVirtualKeyCode":13,"nativeVirtualKeyCode":13,"text":"\r","unmodifiedText":"\r"}"#;
+const ENTER_UP: &str = r#"{"type":"keyUp","key":"Enter","code":"Enter","windowsVirtualKeyCode":13,"nativeVirtualKeyCode":13}"#;
+
+/// Step 1's answer: ready (and whether the box is a Lexical editor), or why not.
+fn prep_of(result: &str) -> Result<bool, Sent> {
     match serde_json::from_str::<String>(result).as_deref() {
-        Ok("confirmed") => Sent::Confirmed,
-        Ok("typing") => Sent::Typing,
-        Ok("not opened") => Sent::NotOpened,
-        Ok("no composer") => Sent::NoComposer,
-        _ => Sent::NotConfirmed,
+        Ok("ready") => Ok(false),
+        Ok("ready lexical") => Ok(true),
+        Ok("typing") => Err(Sent::Typing),
+        Ok("not opened") => Err(Sent::NotOpened),
+        Ok("no composer") => Err(Sent::NoComposer),
+        _ => Err(Sent::NotConfirmed),
     }
+}
+
+/// Step 3's answer: sent or not, and how (for the log: never the text).
+fn confirm_of(result: &str) -> (Sent, String) {
+    let v = serde_json::from_str::<String>(result).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()).unwrap_or(Value::Null);
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let sent = if s("r") == "confirmed" { Sent::Confirmed } else { Sent::NotConfirmed };
+    let how = if v.is_null() { "no answer".to_string() } else { format!("{}, {}", s("how"), s("left")) };
+    (sent, how)
 }
 
 /// The log line for a reply: how long it was and how it went, never what it said.
@@ -341,6 +451,34 @@ fn shape(v: &Value) -> String {
     )
 }
 
+/// A reply on its way (send_on_page): reported once, by its last step or by the time running out.
+#[derive(Clone)]
+struct Reply {
+    app: String,
+    text: String,
+    once: Arc<Mutex<Option<ThenSent>>>,
+}
+
+impl Reply {
+    fn finished(&self) -> bool {
+        self.once.lock().map(|t| t.is_none()).unwrap_or(true)
+    }
+
+    fn done(&self, c: &mut Core, sent: Sent, how: &str) {
+        let Some(then) = self.once.lock().ok().and_then(|mut t| t.take()) else { return };
+        SENDING.with(|s| s.borrow_mut().remove(&self.app));
+        c.chats.cdp(&self.app, "Emulation.setFocusEmulationEnabled", r#"{"enabled":false}"#, |_| {});
+        let how = if how.is_empty() { String::new() } else { format!(" ({how})") };
+        log!("{}: {}{how}", self.app, sent_log(&sent, &self.text));
+        if c.panel_state == PanelState::Hidden {
+            // the page is on that conversation now: back to its list in a while, as after the chat
+            // was hidden (the next message is read there, and isn't marked seen)
+            c.schedule_back_to_list();
+        }
+        then(c, sent);
+    }
+}
+
 type Then = Box<dyn FnOnce(&mut Core, Option<Latest>) + Send>;
 type ThenRead = Box<dyn FnOnce(&mut Core, ListRead) + Send>;
 type ThenSent = Box<dyn FnOnce(&mut Core, Sent) + Send>;
@@ -382,34 +520,91 @@ impl Core {
         self.send_on_page(app, target, text, then);
     }
 
-    /// The part of send_reply that runs in the page (the self-test calls it on a stand-in page).
+    /// The part of send_reply that runs in the page (the self-test calls it on a stand-in page), in
+    /// steps: the conversation and its box made ready (PREP_JS), the text typed in as keys, checked
+    /// (TYPED_JS), Enter pressed as a key, and the check that it went (CONFIRM_JS), which also tries
+    /// Enter as a page event and the send button when the key didn't send it.
     pub fn send_on_page(&mut self, app: &str, target: Latest, text: String, then: ThenSent) {
         SENDING.with(|s| s.borrow_mut().insert(app.to_string()));
-        let a = app.to_string();
-        let js = send_js_to(&text, &target.href, &target.name);
-        // the page's answer, or nothing within 15 s (the page crashed or went elsewhere meanwhile):
+        let reply = Reply { app: app.to_string(), text, once: Arc::new(Mutex::new(Some(then))) };
+        // the page's answer, or nothing within 20 s (the page crashed or went elsewhere meanwhile):
         // whichever comes first reports, once, and replies to this app work again either way
-        let once = std::sync::Arc::new(std::sync::Mutex::new(Some(then)));
-        let late = once.clone();
-        let (la, lt) = (a.clone(), text.clone());
-        timer(15_000, move |c| {
-            let Some(then) = late.lock().ok().and_then(|mut t| t.take()) else { return };
-            SENDING.with(|s| s.borrow_mut().remove(&la));
-            log!("{la}: {} (no answer from the page)", sent_log(&Sent::NotConfirmed, &lt));
-            then(c, Sent::NotConfirmed);
-        });
-        self.chats.execute_async(app, &js, move |r| {
-            let sent = sent_of(&r);
-            later(move |c| {
-                let Some(then) = once.lock().ok().and_then(|mut t| t.take()) else { return };
-                SENDING.with(|s| s.borrow_mut().remove(&a));
-                log!("{a}: {}", sent_log(&sent, &text));
-                if c.panel_state == PanelState::Hidden {
-                    // the page is on that conversation now: back to its list in a while, as after
-                    // the chat was hidden (the next message is read there, and isn't marked seen)
-                    c.schedule_back_to_list();
+        let late = reply.clone();
+        timer(20_000, move |c| late.done(c, Sent::NotConfirmed, "no answer from the page"));
+        // (both clocks are the PC's: the page stops before ChatDock gives up on it)
+        let deadline = rt::epoch_ms() as u64 + 15_000;
+        self.reply_prep(reply, target, deadline, true);
+    }
+
+    /// Step 1 of send_on_page. A page that loaded anew meanwhile (the conversation was opened by
+    /// going to its address) ends the script with no answer: tried once more when it has loaded.
+    fn reply_prep(&mut self, reply: Reply, target: Latest, deadline: u64, first: bool) {
+        if reply.finished() {
+            return;
+        }
+        let js = prep_js(&reply.text, &target.href, &target.name, deadline);
+        let app = reply.app.clone();
+        self.chats.execute_async(&app, &js, move |r| {
+            later(move |c| match prep_of(&r) {
+                Err(_) if first && r == "null" => {
+                    timer(2500, move |c| c.reply_prep(reply, target, deadline, false));
                 }
-                then(c, sent);
+                Err(sent) => reply.done(c, sent, ""),
+                Ok(lexical) => {
+                    let keys = serde_json::json!({ "text": reply.text }).to_string();
+                    let app = reply.app.clone();
+                    // keys reach only a page that has the keyboard: the page is told it has it while
+                    // the reply is typed (the game keeps the real keyboard)
+                    c.chats.cdp(&app, "Emulation.setFocusEmulationEnabled", r#"{"enabled":true}"#, move |_| {
+                        later(move |c| {
+                            let app = reply.app.clone();
+                            c.chats.cdp(&app, "Input.insertText", &keys, move |k| {
+                                let keys_ok = !k.starts_with("err:");
+                                later(move |c| c.reply_typed(reply, lexical, keys_ok));
+                            });
+                        });
+                    });
+                }
+            });
+        });
+    }
+
+    /// Step 2 of send_on_page: the text is in the box: Enter as a key, then the check.
+    fn reply_typed(&mut self, reply: Reply, lexical: bool, keys_ok: bool) {
+        if reply.finished() {
+            return;
+        }
+        let app = reply.app.clone();
+        self.chats.execute_async(&app, &typed_js(&reply.text), move |r| {
+            let typed = serde_json::from_str::<String>(&r).unwrap_or_else(|_| "no answer".into());
+            later(move |c| {
+                let how = format!(
+                    "{} box, typed by {}",
+                    if lexical { "lexical" } else { "plain" },
+                    if keys_ok { &typed } else { "script (no keys)" }
+                );
+                if typed != "keys" && typed != "script" {
+                    reply.done(c, Sent::NotConfirmed, &how);
+                    return;
+                }
+                let app = reply.app.clone();
+                c.chats.cdp(&app, "Input.dispatchKeyEvent", ENTER_DOWN, move |_| {
+                    later(move |c| {
+                        let app = reply.app.clone();
+                        c.chats.cdp(&app, "Input.dispatchKeyEvent", ENTER_UP, move |_| {
+                            later(move |c| {
+                                if reply.finished() {
+                                    return;
+                                }
+                                let app = reply.app.clone();
+                                c.chats.execute_async(&app, &confirm_js(), move |r| {
+                                    let (sent, sent_how) = confirm_of(&r);
+                                    later(move |c| reply.done(c, sent, &format!("{how}, sent by {sent_how}")));
+                                });
+                            });
+                        });
+                    });
+                });
             });
         });
     }
@@ -493,20 +688,37 @@ impl Core {
 mod tests {
     use serde_json::json;
 
-    use super::{latest_js, latest_of, list_read, open_js, send_js, sent_log, sent_of, shape, Latest, ListRead, Sent};
+    use super::{
+        confirm_js, confirm_of, latest_js, latest_of, list_read, open_js, prep_js, prep_of, sent_log, shape, typed_js, Latest, ListRead,
+        Sent,
+    };
 
     #[test]
     fn a_reply_is_passed_as_json_and_never_logged() {
-        let js = send_js("a \"quoted\" ข้อความ\nline 2");
-        assert!(js.contains(r#""a \"quoted\" ข้อความ\nline 2""#));
-        assert!(!js.contains("%TEXT%"));
-        assert_eq!(sent_of("\"confirmed\""), Sent::Confirmed);
-        assert_eq!(sent_of("\"typing\""), Sent::Typing);
-        assert_eq!(sent_of("\"no composer\""), Sent::NoComposer);
-        assert_eq!(sent_of("garbage"), Sent::NotConfirmed);
+        let text = "a \"quoted\" ข้อความ\nline 2";
+        for js in [prep_js(text, "/messages/t/1/", "Nok", 1), typed_js(text)] {
+            assert!(js.contains(r#""a \"quoted\" ข้อความ\nline 2""#));
+            assert!(!js.contains("%TEXT%") && !js.contains("%STEP%") && !js.contains("%COUNT%") && !js.contains("%DEADLINE%"));
+        }
+        assert!(!confirm_js().contains("%STEP%") && !confirm_js().contains("%COUNT%"));
+        assert_eq!(prep_of("\"ready\""), Ok(false));
+        assert_eq!(prep_of("\"ready lexical\""), Ok(true));
+        assert_eq!(prep_of("\"typing\""), Err(Sent::Typing));
+        assert_eq!(prep_of("\"not opened\""), Err(Sent::NotOpened));
+        assert_eq!(prep_of("\"no composer\""), Err(Sent::NoComposer));
+        assert_eq!(prep_of("garbage"), Err(Sent::NotConfirmed));
         let line = sent_log(&Sent::Confirmed, "secret words");
         assert_eq!(line, "sent: 12 chars, confirmed");
         assert!(!line.contains("secret"));
+    }
+
+    #[test]
+    fn how_a_reply_went_is_read_without_its_text() {
+        let ok = serde_json::to_string(r#"{"r":"confirmed","how":"button","left":"box empty"}"#).unwrap();
+        assert_eq!(confirm_of(&ok), (Sent::Confirmed, "button, box empty".to_string()));
+        let no = serde_json::to_string(r#"{"r":"not confirmed","how":"no button","left":"box empty"}"#).unwrap();
+        assert_eq!(confirm_of(&no).0, Sent::NotConfirmed);
+        assert_eq!(confirm_of("null"), (Sent::NotConfirmed, "no answer".to_string()));
     }
 
     #[test]

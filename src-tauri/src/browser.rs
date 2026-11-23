@@ -1026,6 +1026,7 @@ impl Core {
         });
         if started.is_err() {
             self.browser.suggest_busy = false;
+            self.browser.suggest_next = None; // (no stale words asked for later)
         }
     }
 }
