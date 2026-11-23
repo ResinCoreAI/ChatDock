@@ -192,23 +192,35 @@ pub fn can_reply(app: &str) -> bool {
     matches!(app, "instagram" | "facebook")
 }
 
-/// How a message is told in the conversation: the same words, with emoji left out (Facebook draws
-/// them as pictures); a reply of emoji only is compared with the pictures' own text.
+/// How a message is told in the conversation: the same words, with emoji and spaces left out
+/// (Facebook draws emoji as pictures, and a line break in a bubble is no character at all); a reply
+/// of emoji only is compared with the pictures' own text.
 const COUNT_HELPER: &str = r#"
-  const flat = (s) => (s || '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]/gu, '').trim().replace(/\s+/g, ' ');
+  const flat = (s) => (s || '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/\s+/g, '');
   const alts = (e) => [...e.querySelectorAll('img[alt]')].map((i) => i.getAttribute('alt')).join('');
   const sameText = (t, e, want) => { const fw = flat(want); return fw ? flat(t) === fw : (t + (e ? alts(e) : '')).replace(/\s+/g, '') === want.replace(/\s+/g, ''); };
   const countIn = (box, want) => [...(document.querySelector('[role="main"]') || document).querySelectorAll('[role="row"], [role="listitem"], div[dir="auto"], span[dir="auto"]')]
     .slice(-60).filter((e) => !box.contains(e) && sameText(e.textContent || '', e, want)).length;
+  // the buttons around the box (a send button is among them only while something is in it)
+  const buttonsNear = (box) => {
+    const out = new Set();
+    let scope = box;
+    for (let i = 0; i < 8 && scope.parentElement; i++) {
+      scope = scope.parentElement;
+      scope.querySelectorAll('[role="button"][aria-label], button[aria-label], button[type="submit"]').forEach((b) => { if (!box.contains(b)) out.add(b); });
+    }
+    return [...out];
+  };
+  const labelOf = (b) => ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).trim();
 "#;
 
 /// Step 1 of a reply (send_on_page): waits until the conversation the pop-up is about is the one
 /// open (its link, or its name at the top of the page: by name when there is no link that names a
 /// conversation, and only while no other chat in the list has that name), finds its message box,
-/// leaves it alone if something is being typed there, else marks it and puts the caret in it. The
-/// text then goes in as typed keys (Input.insertText, see send_on_page), which every editor takes,
-/// Facebook's included.
-const PREP_JS: &str = r#"(async (text, href, name, deadline) => {
+/// leaves it alone if something is being typed there, else marks it (with this reply's own token)
+/// and puts the caret in it. What the buttons beside the empty box say is noted: none of those is
+/// the send button. The text then goes in as typed keys (Input.insertText, see send_on_page).
+const PREP_JS: &str = r#"(async (href, name, deadline, token, text) => {
 %COUNT%
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const thread = (h) => (h.match(/\/t\/[^/?#]+/) || [''])[0];
@@ -237,116 +249,173 @@ const PREP_JS: &str = r#"(async (text, href, name, deadline) => {
   box = boxes().pop() || null;
   if (!isOpen()) return 'not opened';
   if (!box) return 'no composer';
-  if (content(box)) return 'typing';
+  if (content(box) || box.querySelector('img')) return 'typing';
   // ChatDock stopped waiting meanwhile (a page that slept long): nothing is typed
   if (Date.now() > deadline) return 'late';
   document.querySelectorAll('[data-chatdock-reply]').forEach((b) => b.removeAttribute('data-chatdock-reply'));
-  box.setAttribute('data-chatdock-reply', '1');
-  const norm = text.trim().replace(/\s+/g, ' ');
+  box.setAttribute('data-chatdock-reply', token);
+  // what the buttons beside the empty box say: none of those is the send button (a like button
+  // that turns into the send button once something is typed says something else then)
+  const old = buttonsNear(box).map(labelOf);
   // how often it is in the conversation already ("OK" may well be): only one more counts as sent
   // counted in the conversation only (the chat list shows the last message too)
-  const before = countIn(box, norm);
-  window.__chatdockReply = { before, want: norm };
+  const before = countIn(box, text);
+  window.__chatdockReply = { token, before, want: text, path: location.pathname, old };
   box.focus();
   const sel = getSelection();
   if (sel && !box.matches('textarea')) { sel.selectAllChildren(box); sel.collapseToEnd(); }
   return 'ready' + (box.closest('[data-lexical-editor]') ? ' lexical' : '');
-})(%TEXT%, %HREF%, %NAME%, %DEADLINE%)"#;
+})(%HREF%, %NAME%, %DEADLINE%, %TOKEN%, %TEXT%)"#;
 
-/// What steps 2 and 3 share: the marked box, the text it should hold, and how often that text is in
-/// the conversation.
+/// What the later steps share: this reply's marked box (none once the page shows another
+/// conversation), the text it should hold, how often that text is in the conversation, taking our
+/// own text out of the box again, and the end of the reply (its marks go).
 const STEP_HELPERS: &str = r#"
 %COUNT%
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const st = window.__chatdockReply || { before: 0, want: '' };
-  const found = document.querySelector('[data-chatdock-reply]');
-  // (the conversation on screen changed meanwhile: its box is gone, and nothing more is typed)
-  const box = found && found.isConnected ? found : null;
-  const content = (b) => (b.value || b.textContent || '').trim().replace(/\s+/g, ' ');
-  const holds = () => sameText(content(box), box, st.want);
+  const mine = window.__chatdockReply;
+  const st = mine && mine.token === token ? mine : { before: 0, want: '', path: '' };
+  const found = document.querySelector('[data-chatdock-reply="' + CSS.escape(token) + '"]');
+  const box = found && found.isConnected && st.path === location.pathname ? found : null;
+  const content = (b) => (b.value || b.textContent || '').trim();
+  const holds = () => !!box && sameText(content(box), box, st.want);
   const count = () => countIn(box, st.want);
-  const done = () => { if (box) box.removeAttribute('data-chatdock-reply'); delete window.__chatdockReply; };
+  // the box was empty when this reply began (step 1): what is in it now is ours
+  const erase = () => {
+    if (!box || !(content(box) || box.querySelector('img'))) return;
+    box.focus();
+    if (box.matches('textarea')) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
+    else { document.execCommand('selectAll', false); document.execCommand('delete', false); }
+  };
+  const done = () => {
+    if (found) found.removeAttribute('data-chatdock-reply');
+    if (window.__chatdockReply && window.__chatdockReply.token === token) delete window.__chatdockReply;
+  };
 "#;
 
-/// Step 2: the typed keys are in the box ("keys"); else the text goes in the way a paste does
-/// ("script"). Anything else there: not ours to send ("lost").
-const TYPED_JS: &str = r#"(async (text) => {
+/// Step 2: the typed keys are in the box ("keys"; the box keeps the caret for Enter); else the text
+/// goes in the way a paste does ("script"). Anything else: what we typed is taken out ("lost").
+const TYPED_JS: &str = r#"(async (token, text) => {
 %STEP%
-  if (!box) return 'gone';
+  if (!box) { done(); return 'gone'; }
   for (let i = 0; i < 10 && !holds(); i++) await sleep(100);
-  if (holds()) return 'keys';
-  if (content(box) || box.querySelector('img')) return 'lost';
+  if (holds()) {
+    if (!box.contains(document.activeElement)) box.focus();
+    return 'keys';
+  }
+  if (content(box) || box.querySelector('img')) { erase(); done(); return 'lost'; }
   box.focus();
   document.execCommand('insertText', false, text);
   await sleep(150);
-  return holds() ? 'script' : 'lost';
-})(%TEXT%)"#;
+  if (holds()) return 'script';
+  erase();
+  done();
+  return 'lost';
+})(%TOKEN%, %TEXT%)"#;
+
+/// The reply was given up on after its text went in: the text comes out again.
+const ERASE_JS: &str = r#"((token) => {
+%STEP%
+  erase();
+  done();
+  return 'erased';
+})(%TOKEN%)"#;
 
 /// Step 3, after Enter was pressed as a key: sent when the text shows once more in the conversation
-/// and the box is empty. If the text is still in the box: Enter as a page event, then the
-/// conversation's send button. Not sent: what ChatDock typed doesn't stay in the box.
-const CONFIRM_JS: &str = r#"(async () => {
+/// and the box is empty. If the text is still in the box (and ChatDock is still waiting, `stop`):
+/// Enter as a page event, then the conversation's send button (one that didn't say the same while
+/// the box was empty, and never a like, sticker, voice clip, attachment or forward). Not sent: what
+/// ChatDock typed doesn't stay in the box.
+const CONFIRM_JS: &str = r#"(async (token, stop) => {
 %STEP%
-  if (!box) return JSON.stringify({ r: 'not confirmed', how: 'box gone' });
+  if (!box) { done(); return JSON.stringify({ r: 'not confirmed', how: 'box gone', left: '' }); }
   const sent = () => count() > st.before && !content(box);
   const wait = async (ms) => { const until = Date.now() + ms; while (Date.now() < until) { if (sent()) return true; await sleep(100); } return sent(); };
   const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
-  // the send button next to the box: never a like, a sticker, a voice clip or an attachment
   const sendButton = () => {
     const yes = /send|ส่ง|enviar|senden|envoyer|invia|送信|发送|發送|전송|gửi|kirim|отправ/i;
-    const no = /like|ถูกใจ|sticker|สติกเกอร์|gif|emoji|อีโมจิ|voice|เสียง|clip|attach|แนบ|file|ไฟล์|photo|รูป|image|camera|กล้อง/i;
-    let scope = box;
-    for (let i = 0; i < 8 && scope.parentElement; i++) {
-      scope = scope.parentElement;
-      const b = [...scope.querySelectorAll('[role="button"][aria-label], button[aria-label], button[type="submit"]')]
-        .find((e) => !box.contains(e) && shown(e) && yes.test(e.getAttribute('aria-label') || e.textContent || '') && !no.test(e.getAttribute('aria-label') || ''));
-      if (b) return b;
-    }
-    return null;
+    const no = /like|ถูกใจ|me gusta|gefällt|j'aime|mi piace|いいね|赞|讚|좋아요|thích|suka|нрав|sticker|สติกเกอร์|gif|emoji|อีโมจิ|voice|เสียง|audio|voz|sprach|vocal|clip|attach|แนบ|file|ไฟล์|datei|archivo|photo|รูป|image|bild|foto|camera|กล้อง|forward|ส่งต่อ|weiterleiten|reenviar|transférer|inoltra|転送|转发/i;
+    return buttonsNear(box).find((b) => {
+      const label = labelOf(b);
+      return !(st.old || []).includes(label) && shown(b) && yes.test(label) && !no.test(label);
+    }) || null;
   };
   let how = 'key';
-  if (!(await wait(2500)) && holds()) {
+  if (!(await wait(2500)) && holds() && Date.now() < stop) {
     how = 'event';
     box.focus();
     const enter = (type) => box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
     enter('keydown'); enter('keypress'); enter('keyup');
-    if (!(await wait(1500)) && holds()) {
+    if (!(await wait(1500)) && holds() && Date.now() < stop) {
       const b = sendButton();
       how = b ? 'button' : 'no button';
       if (b) { b.click(); await wait(3000); }
     }
   }
   const ok = sent();
-  if (!ok && holds()) {
-    box.focus();
-    document.execCommand('selectAll', false);
-    document.execCommand('delete', false);
-  }
+  if (!ok) erase();
   const left = content(box) ? 'text left' : 'box empty';
   done();
   return JSON.stringify({ r: ok ? 'confirmed' : 'not confirmed', how, left });
-})()"#;
+})(%TOKEN%, %STOP%)"#;
 
 fn js_str(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
+/// Fills a script's %PLACEHOLDERS% in one pass: what goes in is never searched again (a contact's
+/// name that says "%TEXT%" stays a name).
+fn fill(script: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(script.len());
+    let mut rest = script;
+    'scan: while let Some(i) = rest.find('%') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        for (key, value) in values {
+            if let Some(after) = rest.strip_prefix(key) {
+                out.push_str(value);
+                rest = after;
+                continue 'scan;
+            }
+        }
+        out.push('%');
+        rest = &rest[1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// `deadline`: the page's clock time (ms) after which nothing is typed any more.
-fn prep_js(text: &str, href: &str, name: &str, deadline: u64) -> String {
-    PREP_JS
-        .replace("%COUNT%", COUNT_HELPER)
-        .replace("%TEXT%", &js_str(text))
-        .replace("%HREF%", &js_str(href))
-        .replace("%NAME%", &js_str(name))
-        .replace("%DEADLINE%", &deadline.to_string())
+fn prep_js(text: &str, href: &str, name: &str, deadline: u64, token: &str) -> String {
+    let script = PREP_JS.replace("%COUNT%", COUNT_HELPER);
+    let deadline = deadline.to_string();
+    fill(
+        &script,
+        &[
+            ("%HREF%", &js_str(href)),
+            ("%NAME%", &js_str(name)),
+            ("%DEADLINE%", &deadline),
+            ("%TOKEN%", &js_str(token)),
+            ("%TEXT%", &js_str(text)),
+        ],
+    )
 }
 
-fn typed_js(text: &str) -> String {
-    TYPED_JS.replace("%STEP%", STEP_HELPERS).replace("%COUNT%", COUNT_HELPER).replace("%TEXT%", &js_str(text))
+fn step_script(script: &str) -> String {
+    script.replace("%STEP%", STEP_HELPERS).replace("%COUNT%", COUNT_HELPER)
 }
 
-fn confirm_js() -> String {
-    CONFIRM_JS.replace("%STEP%", STEP_HELPERS).replace("%COUNT%", COUNT_HELPER)
+fn typed_js(text: &str, token: &str) -> String {
+    fill(&step_script(TYPED_JS), &[("%TOKEN%", &js_str(token)), ("%TEXT%", &js_str(text))])
+}
+
+fn erase_js(token: &str) -> String {
+    fill(&step_script(ERASE_JS), &[("%TOKEN%", &js_str(token))])
+}
+
+/// `stop`: the page's clock time (ms) after which no other way of sending is tried.
+fn confirm_js(token: &str, stop: u64) -> String {
+    fill(&step_script(CONFIRM_JS), &[("%TOKEN%", &js_str(token)), ("%STOP%", &stop.to_string())])
 }
 
 /// Enter pressed as a key (DevTools Input.dispatchKeyEvent): a real key event, which sites that
@@ -456,8 +525,18 @@ fn shape(v: &Value) -> String {
 struct Reply {
     app: String,
     text: String,
+    /// marks this reply's box in the page (a late step of an earlier reply never touches it)
+    token: String,
+    /// when it began (the PC's clock, ms)
+    start: u64,
     once: Arc<Mutex<Option<ThenSent>>>,
 }
+
+/// A reply's times, from its start: nothing typed after, nothing more tried after, given up at.
+const REPLY_TYPE_BY_MS: u64 = 10_000;
+const REPLY_TRY_BY_MS: u64 = 23_000;
+const REPLY_GIVE_UP_MS: u64 = 30_000;
+static REPLY_SEQ: AtomicU64 = AtomicU64::new(0);
 
 impl Reply {
     fn finished(&self) -> bool {
@@ -526,37 +605,50 @@ impl Core {
     /// Enter as a page event and the send button when the key didn't send it.
     pub fn send_on_page(&mut self, app: &str, target: Latest, text: String, then: ThenSent) {
         SENDING.with(|s| s.borrow_mut().insert(app.to_string()));
-        let reply = Reply { app: app.to_string(), text, once: Arc::new(Mutex::new(Some(then))) };
-        // the page's answer, or nothing within 20 s (the page crashed or went elsewhere meanwhile):
-        // whichever comes first reports, once, and replies to this app work again either way
+        let start = rt::epoch_ms().max(0) as u64;
+        let token = format!("r{}", REPLY_SEQ.fetch_add(1, Ordering::Relaxed) + 1);
+        let reply = Reply { app: app.to_string(), text, token, start, once: Arc::new(Mutex::new(Some(then))) };
+        // the page's answer, or nothing within 30 s (the page crashed or went elsewhere meanwhile):
+        // whichever comes first reports, once, and replies to this app work again either way. The
+        // page itself stops in time: nothing is typed after 10 s, nothing more is tried after 23 s
+        // (the steps after typing take 8 s at most), and both clocks are the PC's.
         let late = reply.clone();
-        timer(20_000, move |c| late.done(c, Sent::NotConfirmed, "no answer from the page"));
-        // (both clocks are the PC's: the page stops before ChatDock gives up on it)
-        let deadline = rt::epoch_ms() as u64 + 15_000;
-        self.reply_prep(reply, target, deadline, true);
+        timer(REPLY_GIVE_UP_MS, move |c| {
+            if !late.finished() {
+                let app = late.app.clone();
+                c.chats.execute(&app, &erase_js(&late.token), |_| {});
+            }
+            late.done(c, Sent::NotConfirmed, "no answer from the page");
+        });
+        self.reply_prep(reply, target, true);
     }
 
     /// Step 1 of send_on_page. A page that loaded anew meanwhile (the conversation was opened by
     /// going to its address) ends the script with no answer: tried once more when it has loaded.
-    fn reply_prep(&mut self, reply: Reply, target: Latest, deadline: u64, first: bool) {
+    fn reply_prep(&mut self, reply: Reply, target: Latest, first: bool) {
         if reply.finished() {
             return;
         }
-        let js = prep_js(&reply.text, &target.href, &target.name, deadline);
+        let js = prep_js(&reply.text, &target.href, &target.name, reply.start + REPLY_TYPE_BY_MS, &reply.token);
         let app = reply.app.clone();
         self.chats.execute_async(&app, &js, move |r| {
             later(move |c| match prep_of(&r) {
                 Err(_) if first && r == "null" => {
-                    timer(2500, move |c| c.reply_prep(reply, target, deadline, false));
+                    timer(2500, move |c| c.reply_prep(reply, target, false));
                 }
                 Err(sent) => reply.done(c, sent, ""),
+                Ok(_) if reply.finished() => {} // (given up on meanwhile: nothing was typed)
                 Ok(lexical) => {
                     let keys = serde_json::json!({ "text": reply.text }).to_string();
                     let app = reply.app.clone();
                     // keys reach only a page that has the keyboard: the page is told it has it while
-                    // the reply is typed (the game keeps the real keyboard)
+                    // the reply is typed (the game keeps the real keyboard; done() tells it no more)
                     c.chats.cdp(&app, "Emulation.setFocusEmulationEnabled", r#"{"enabled":true}"#, move |_| {
                         later(move |c| {
+                            if reply.finished() {
+                                c.reply_given_up(&reply);
+                                return;
+                            }
                             let app = reply.app.clone();
                             c.chats.cdp(&app, "Input.insertText", &keys, move |k| {
                                 let keys_ok = !k.starts_with("err:");
@@ -569,13 +661,21 @@ impl Core {
         });
     }
 
+    /// The time ran out while the reply was being typed or sent: what was typed comes out again, and
+    /// the page isn't told it has the keyboard any more (done() did that unless this came later).
+    fn reply_given_up(&mut self, reply: &Reply) {
+        self.chats.execute(&reply.app, &erase_js(&reply.token), |_| {});
+        self.chats.cdp(&reply.app, "Emulation.setFocusEmulationEnabled", r#"{"enabled":false}"#, |_| {});
+    }
+
     /// Step 2 of send_on_page: the text is in the box: Enter as a key, then the check.
     fn reply_typed(&mut self, reply: Reply, lexical: bool, keys_ok: bool) {
         if reply.finished() {
+            self.reply_given_up(&reply);
             return;
         }
         let app = reply.app.clone();
-        self.chats.execute_async(&app, &typed_js(&reply.text), move |r| {
+        self.chats.execute_async(&app, &typed_js(&reply.text, &reply.token), move |r| {
             let typed = serde_json::from_str::<String>(&r).unwrap_or_else(|_| "no answer".into());
             later(move |c| {
                 let how = format!(
@@ -587,6 +687,10 @@ impl Core {
                     reply.done(c, Sent::NotConfirmed, &how);
                     return;
                 }
+                if reply.finished() {
+                    c.reply_given_up(&reply);
+                    return;
+                }
                 let app = reply.app.clone();
                 c.chats.cdp(&app, "Input.dispatchKeyEvent", ENTER_DOWN, move |_| {
                     later(move |c| {
@@ -594,10 +698,12 @@ impl Core {
                         c.chats.cdp(&app, "Input.dispatchKeyEvent", ENTER_UP, move |_| {
                             later(move |c| {
                                 if reply.finished() {
+                                    c.reply_given_up(&reply);
                                     return;
                                 }
                                 let app = reply.app.clone();
-                                c.chats.execute_async(&app, &confirm_js(), move |r| {
+                                let js = confirm_js(&reply.token, reply.start + REPLY_TRY_BY_MS);
+                                c.chats.execute_async(&app, &js, move |r| {
                                     let (sent, sent_how) = confirm_of(&r);
                                     later(move |c| reply.done(c, sent, &format!("{how}, sent by {sent_how}")));
                                 });
@@ -664,6 +770,9 @@ impl Core {
     }
 
     pub fn back_to_list_now(&mut self, app: &str) {
+        if SENDING.with(|s| s.borrow().contains(app)) {
+            return; // a reply is on its way in that conversation
+        }
         let a = app.to_string();
         self.chats.execute(app, BACK_JS, move |result| {
             let said = serde_json::from_str::<String>(&result).unwrap_or_else(|_| "no answer".into());
@@ -689,18 +798,24 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        confirm_js, confirm_of, latest_js, latest_of, list_read, open_js, prep_js, prep_of, sent_log, shape, typed_js, Latest, ListRead,
-        Sent,
+        confirm_js, confirm_of, erase_js, fill, latest_js, latest_of, list_read, open_js, prep_js, prep_of, sent_log, shape, typed_js,
+        Latest, ListRead, Sent,
     };
 
     #[test]
     fn a_reply_is_passed_as_json_and_never_logged() {
         let text = "a \"quoted\" ข้อความ\nline 2";
-        for js in [prep_js(text, "/messages/t/1/", "Nok", 1), typed_js(text)] {
+        for js in [prep_js(text, "/messages/t/1/", "Nok", 1, "r1"), typed_js(text, "r1")] {
             assert!(js.contains(r#""a \"quoted\" ข้อความ\nline 2""#));
-            assert!(!js.contains("%TEXT%") && !js.contains("%STEP%") && !js.contains("%COUNT%") && !js.contains("%DEADLINE%"));
+            for p in ["%TEXT%", "%STEP%", "%COUNT%", "%DEADLINE%", "%TOKEN%", "%HREF%", "%NAME%"] {
+                assert!(!js.contains(p), "{p} left");
+            }
         }
-        assert!(!confirm_js().contains("%STEP%") && !confirm_js().contains("%COUNT%"));
+        for js in [confirm_js("r1", 5), erase_js("r1")] {
+            for p in ["%STEP%", "%COUNT%", "%TOKEN%", "%STOP%"] {
+                assert!(!js.contains(p), "{p} left");
+            }
+        }
         assert_eq!(prep_of("\"ready\""), Ok(false));
         assert_eq!(prep_of("\"ready lexical\""), Ok(true));
         assert_eq!(prep_of("\"typing\""), Err(Sent::Typing));
@@ -710,6 +825,14 @@ mod tests {
         let line = sent_log(&Sent::Confirmed, "secret words");
         assert_eq!(line, "sent: 12 chars, confirmed");
         assert!(!line.contains("secret"));
+    }
+
+    #[test]
+    fn what_goes_into_a_script_is_never_filled_in_again() {
+        // a contact named "%TEXT%" and a reply that says "%NAME%": each stays what it is
+        let js = prep_js("%NAME%", "/messages/t/1/", "%TEXT%", 7, "r2");
+        assert!(js.ends_with(r#"("/messages/t/1/", "%TEXT%", 7, "r2", "%NAME%")"#), "{}", &js[js.len() - 80..]);
+        assert_eq!(fill("a %X% %Y% %Z", &[("%X%", "%Y%"), ("%Y%", "y")]), "a %Y% y %Z");
     }
 
     #[test]

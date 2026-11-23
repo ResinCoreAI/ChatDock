@@ -3337,13 +3337,19 @@ fn reply_send_test() {
     view_js(
         "facebook",
         "(() => { const box = document.querySelector('[role=textbox]'); const list = document.querySelector('body > div'); \
-         const add = (label, said) => { const b = document.createElement('div'); b.setAttribute('role', 'button'); b.setAttribute('aria-label', label); \
-           b.style.cssText = 'display:inline-block;width:30px;height:30px;background:#09f'; \
-           b.addEventListener('click', () => { const m = document.createElement('div'); m.dir = 'auto'; m.textContent = said === null ? box.textContent : said; list.append(m); if (said === null) box.textContent = ''; }); box.after(b); }; \
-         add('Press enter to send', null); add('Send a like', '👍'); return 1; })()",
+         const post = (t) => { const m = document.createElement('div'); m.dir = 'auto'; m.textContent = t; list.append(m); }; \
+         const b = document.createElement('div'); b.setAttribute('role', 'button'); b.style.cssText = 'display:inline-block;width:30px;height:30px;background:#09f'; \
+         const label = () => b.setAttribute('aria-label', box.textContent.trim() ? 'Press enter to send' : 'Send a like'); label(); \
+         new MutationObserver(label).observe(box, { childList: true, characterData: true, subtree: true }); \
+         b.addEventListener('click', () => { if (box.textContent.trim()) { post(box.textContent); box.textContent = ''; } else post('👍'); }); \
+         const es = document.createElement('div'); es.setAttribute('role', 'button'); es.setAttribute('aria-label', 'Enviar un Me gusta'); es.style.cssText = b.style.cssText; \
+         es.addEventListener('click', () => post('👍')); box.after(es, b); return 1; })()",
     );
     let button = send("/messages/t/1/", "Nok");
     let button_shown = view_js("facebook", "String([...document.querySelectorAll('div[dir=auto]')].map((m) => m.textContent))");
+    // a reply of two lines (Shift+Enter in the card's box): in a bubble, its line break is no character
+    view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
+    let two_lines = send_text("/messages/t/1/", "Nok", "แรก\nสอง");
     view_js("facebook", &page("/messages/t/1/", "Nok", "", true));
     let odd_link = send("/profile.php?id=1", "Nok");
     // emoji drawn as pictures in the conversation (Facebook): "เล่นเกมอยู่ ✌" shows as its words and a picture
@@ -3353,7 +3359,7 @@ fn reply_send_test() {
         "(() => { const box = document.querySelector('[role=textbox]'); const list = document.querySelector('body > div');          box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const m = document.createElement('div'); m.dir = 'auto';            m.append(box.textContent.replace(/✌️?/g, '')); const i = document.createElement('img'); i.alt = '✌'; m.append(i); list.append(m); box.textContent = ''; } }); return 1; })()",
     );
     let emoji = send_text("/messages/t/1/", "Nok", "เล่นเกมอยู่ ✌");
-    log!("reply (1.8.3): Enter only as a real key {real_key} (shown {real_shown}) | only the send button {button} (shown {button_shown}) | a link that names no conversation {odd_link} | emoji shown as a picture {emoji} (expect Confirmed (\"ทดสอบ ok\") | Confirmed (\"ทดสอบ ok\", no 👍) | Confirmed | Confirmed)");
+    log!("reply (1.8.3): Enter only as a real key {real_key} (shown {real_shown}) | only the send button {button} (shown {button_shown}) | two lines {two_lines} | a link that names no conversation {odd_link} | emoji shown as a picture {emoji} (expect Confirmed (\"ทดสอบ ok\") | Confirmed (\"ทดสอบ ok\", no 👍) | Confirmed | Confirmed | Confirmed)");
     log!(
         "reply: to the open conversation {works} (shown {shown}) | a page that never shows it {lost} | a draft there {draft} (draft kept {draft_kept}) | another conversation open {other} (typed {other_typed}) | no link, by its name {by_name} (expect Confirmed (\"ทดสอบ ok\") | NotConfirmed | Typing (\"half a message\") | NotOpened (\"|0\") | Confirmed)"
     );
